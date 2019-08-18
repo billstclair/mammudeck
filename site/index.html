@@ -1,24 +1,42 @@
 <html>
   <head>
+    <meta charset="UTF-8">
     <title>Mammudeck</title>
     <meta name='wot-verification' content='5cb29ec02479d36e6dbc'/> 
+    <link rel='stylesheet' href='css/icon-font.css'>
+    <link rel='stylesheet' href='css/material.indigo-pink.min.css'>
+    <script type='text/javascript' src='js/PortFunnel.js'></script>
+    <script type='text/javascript' src='js/PortFunnel/LocalStorage.js'></script>
+    <script type='text/javascript' src='js/PortFunnel/WebSocket.js'></script>
+    <script type='text/javascript' src='js/write-clipboard.js'></script>
+    <script type='text/javascript' src='elm.js'></script>
   </head>
   <body style='width: 40em; margin: auto; margin-top: 2em;'>
-    <h1 style='text-align: center;'>Mammudeck</h1>
-    <p>Future home of Mammudeck, a Tweetdeck-like interface
-      to <a href='https://mastodon.social/'>Mastodon</a>.</p>
-    <p><a href='https://en.wikipedia.org/wiki/Mastodon'>Wikipedia
-      says</a> that "Mastodons... are any species of extinct
-      proboscideans in the genus Mammut (family Mammutidae), distantly
-      related to elephants..." I removed the ending "t" from "Mammut"
-      and added "deck" to get "Mammudeck".</p>
-    <p style='text-align: center;'>
-      <img src='images/mammoth.jpg' width='500' height='360' alt='Mammoth'/>
-    </p>
-    <p style='text-align: center;'>
-      <a href='https://github.com/billstclair/mammudeck'>GitHub</a>
-      <a href='api/'>API Explorer</a>
-    </p>
+    <noscript>
+      <h2 style='text-align: center;'>Mammudeck</h2>
+      <p>Future home of Mammudeck, a Tweetdeck-like interface
+        to <a href='https://mastodon.social/'>Mastodon</a>.</p>
+      <p><a href='https://en.wikipedia.org/wiki/Mastodon'>Wikipedia
+          says</a> that "Mastodons... are any species of extinct
+        proboscideans in the genus Mammut (family Mammutidae), distantly
+        related to elephants..." I removed the ending "t" from "Mammut"
+        and added "deck" to get "Mammudeck".</p>
+      <p style='text-align: center;'>
+        <img src='images/mammoth.jpg' width='500' height='360' alt='Mammoth'/>
+      </p>
+      <p style='text-align: center;'>
+        <a href='https://github.com/billstclair/mammudeck'>GitHub</a>
+        <a href='api/'>API Explorer</a>
+      </p>
+      <p style='text-align: center;'>
+        <a rel='me' href='https://mastodon.social/@imacpr0n'>
+          @imacpr0n@mastodon.social</a>
+      </p>
+    </noscript>
+    <script type='text/javascript'>
+      // It's an application, so it doesn't need a div.
+      var app = Elm['Main'].init({ flags: true });
+      PortFunnel.subscribe(app);
+    </script>
   </body>
 </html>
-
