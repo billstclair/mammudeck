@@ -66,7 +66,7 @@ import Html.Attributes
         , type_
         , value
         )
-import Html.Events exposing (onCheck, onClick, onInput, onMouseDown)
+import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
 import Http
 import Json.Decode as JD exposing (Decoder)
 import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, required)
@@ -1436,8 +1436,7 @@ globalMsg msg model =
 
                 Just server ->
                     { model
-                        | server = ""
-                        , loginServer = Nothing
+                        | server = server
                         , account = Nothing
                         , tokens = Dict.remove server model.tokens
                         , token = Nothing
@@ -4017,13 +4016,21 @@ renderSplashScreen model =
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
         , pageSelector model.page
-        , br
-        , br
+        , if model.loginServer == Nothing then
+            p []
+                [ text "Enter a 'server' name and click 'Login' or 'Set Server'."
+                ]
+
+          else
+            primaryServerLine model
+        , loginSelectedUI model
         , Markdown.toHtml []
             """
 Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a work in progress. Keep an eye on the "Columns" page for new features. Use the "API Explorer" page to do low-level API hacking.
 
 [Wikipedia says](https://en.wikipedia.org/wiki/Mastodon) that "Mastodons... are any species of extinct proboscideans in the genus Mammut (family Mammutidae), distantly related to elephants..." I removed the ending "t" from "Mammut" and added "deck" to get "Mammudeck".
+
+There's a huge list of servers at [fediverse.network](https://fediverse.network/).
             """
         , p [ style "text-align" "center" ]
             [ img
@@ -4057,6 +4064,30 @@ renderColumns model =
         ]
 
 
+primaryServerLine : Model -> Html Msg
+primaryServerLine model =
+    case model.loginServer of
+        Nothing ->
+            text ""
+
+        Just server ->
+            p []
+                [ case model.account of
+                    Nothing ->
+                        b "Using server: "
+
+                    Just account ->
+                        span []
+                            [ b "Logged in as: "
+                            , link ("@" ++ account.username) account.url
+                            , text "@"
+                            ]
+                , link server <| "https://" ++ server
+                , text " "
+                , button (GlobalMsg Logout) "Logout"
+                ]
+
+
 renderExplorer : Model -> Html Msg
 renderExplorer model =
     let
@@ -4080,30 +4111,7 @@ renderExplorer model =
             [ div []
                 [ h2 [] [ text "Mastodon API Explorer" ]
                 , pageSelector model.page
-                , case model.loginServer of
-                    Nothing ->
-                        text ""
-
-                    Just server ->
-                        p []
-                            [ b "Use API for: "
-                            , link server <| "https://" ++ server
-                            , text " "
-                            , button (GlobalMsg Logout) "Logout"
-                            , br
-                            , case model.account of
-                                Nothing ->
-                                    text ""
-
-                                Just account ->
-                                    span []
-                                        [ b "Username: "
-                                        , text account.display_name
-                                        , text " ("
-                                        , link account.username account.url
-                                        , text ")"
-                                        ]
-                            ]
+                , primaryServerLine model
                 , p []
                     [ selectedRequestHtml LoginSelected
                         "https://docs.joinmastodon.org/api/authentication/"
@@ -5626,6 +5634,11 @@ fieldEditorUI field idx =
     ]
 
 
+onKeyUp : (Int -> msg) -> Attribute msg
+onKeyUp tagger =
+    on "keyup" (JD.map tagger keyCode)
+
+
 loginSelectedUI : Model -> Html Msg
 loginSelectedUI model =
     p []
@@ -5636,6 +5649,14 @@ loginSelectedUI model =
             , onInput (GlobalMsg << SetServer)
             , value model.server
             , placeholder "mastodon.social"
+            , onKeyUp
+                (\code ->
+                    if code == 13 then
+                        GlobalMsg Login
+
+                    else
+                        Noop
+                )
             ]
             []
         , text " "
