@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------
 --
 -- Main.elm
--- Example of using billstclair/elm-mastodon
+-- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
 -- Copyright (c) 2019 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
@@ -51,6 +51,7 @@ import Html.Attributes
         , checked
         , cols
         , disabled
+        , height
         , hidden
         , href
         , id
@@ -63,6 +64,7 @@ import Html.Attributes
         , src
         , style
         , target
+        , title
         , type_
         , value
         )
@@ -3927,6 +3929,30 @@ privacyRadio privacy label model =
         }
 
 
+type alias ImageSpec =
+    { imageUrl : String
+    , linkUrl : String
+    , altText : String
+    , h : Int
+    }
+
+
+imageLink : ImageSpec -> Html Msg
+imageLink { imageUrl, linkUrl, altText, h } =
+    a
+        [ href linkUrl
+        , blankTarget
+        ]
+        [ img
+            [ src imageUrl
+            , alt altText
+            , height h
+            , title altText
+            ]
+            []
+        ]
+
+
 link : String -> String -> Html Msg
 link label url =
     a
@@ -3983,8 +4009,8 @@ view model =
     }
 
 
-pageSelector : Page -> Html Msg
-pageSelector page =
+pageSelector : Bool -> Page -> Html Msg
+pageSelector showColumns page =
     span []
         [ b "Page: "
         , select [ onInput (GlobalMsg << SetPage) ]
@@ -3993,11 +4019,15 @@ pageSelector page =
                 , selected <| page == SplashScreenPage
                 ]
                 [ text "Splash Screen" ]
-            , option
-                [ value "ColumnsPage"
-                , selected <| page == ColumnsPage
-                ]
-                [ text "Columns" ]
+            , if showColumns then
+                option
+                    [ value "ColumnsPage"
+                    , selected <| page == ColumnsPage
+                    ]
+                    [ text "Columns" ]
+
+              else
+                text ""
             , option
                 [ value "ExplorerPage"
                 , selected <| page == ExplorerPage
@@ -4015,7 +4045,7 @@ renderSplashScreen model =
         ]
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
-        , pageSelector model.page
+        , pageSelector (model.loginServer /= Nothing) model.page
         , if model.loginServer == Nothing then
             p []
                 [ text "Enter a 'server' name and click 'Login' or 'Set Server'."
@@ -4042,10 +4072,27 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
                 []
             ]
         , p [ style "text-align" "center" ]
-            [ link "GitHub" "https://github.com/billstclair/mammudeck"
-            , br
-            , link "@imacpr0n@mastodon.social"
+            [ link "@imacpr0n@mastodon.social"
                 "https://mastodon.social/@imacpr0n"
+            , br
+            , link "@billstclair@accela.online"
+                "https://accela.online/billstclair"
+            , br
+            , text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
+            , br
+            , imageLink
+                { imageUrl = "images/elm-logo-125x125.png"
+                , linkUrl = "https://elm-lang.org/"
+                , altText = "Elm Inside"
+                , h = 32
+                }
+            , text " "
+            , imageLink
+                { imageUrl = "images/GitHub-Mark-32px.png"
+                , linkUrl = "https://github.com/billstclair/mammudeck"
+                , altText = "GitHub"
+                , h = 32
+                }
             ]
         ]
 
@@ -4058,7 +4105,7 @@ renderColumns model =
         ]
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
-        , pageSelector model.page
+        , pageSelector (model.loginServer /= Nothing) model.page
         , br
         , text "TODO"
         ]
@@ -4110,7 +4157,7 @@ renderExplorer model =
             ]
             [ div []
                 [ h2 [] [ text "Mastodon API Explorer" ]
-                , pageSelector model.page
+                , pageSelector (model.loginServer /= Nothing) model.page
                 , primaryServerLine model
                 , p []
                     [ selectedRequestHtml LoginSelected
