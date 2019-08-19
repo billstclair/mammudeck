@@ -30,6 +30,7 @@ import Html
         , a
         , div
         , h2
+        , img
         , input
         , option
         , p
@@ -45,7 +46,8 @@ import Html
         )
 import Html.Attributes
     exposing
-        ( autofocus
+        ( alt
+        , autofocus
         , checked
         , cols
         , disabled
@@ -58,6 +60,7 @@ import Html.Attributes
         , rows
         , selected
         , size
+        , src
         , style
         , target
         , type_
@@ -314,7 +317,7 @@ type Msg
 
 
 type GlobalMsg
-    = SetPage Page
+    = SetPage String
     | SetResponseState JsonTree.State
     | SetEntityState JsonTree.State
     | ExpandAll WhichJson
@@ -1236,8 +1239,8 @@ updateInternal msg model =
 globalMsg : GlobalMsg -> Model -> ( Model, Cmd Msg )
 globalMsg msg model =
     case msg of
-        SetPage page ->
-            { model | page = page }
+        SetPage pageString ->
+            { model | page = stringToPage pageString }
                 |> withNoCmd
 
         SetResponseState state ->
@@ -3601,7 +3604,7 @@ whichGroupsSelect model =
         whichGroups =
             model.whichGroups
     in
-    select [ onInput (ExplorerUIMsg << SetWhichGroups) ] <|
+    select [ onInput (ExplorerUIMsg << SetWhichGroups) ]
         [ option
             [ value "Member"
             , selected <| Request.MemberGroups == whichGroups
@@ -3965,315 +3968,402 @@ button =
 
 view : Model -> Document Msg
 view model =
+    { title = "Mammudeck"
+    , body =
+        [ renderDialog model
+        , case model.page of
+            SplashScreenPage ->
+                renderSplashScreen model
+
+            ColumnsPage ->
+                renderColumns model
+
+            ExplorerPage ->
+                renderExplorer model
+        ]
+    }
+
+
+pageSelector : Page -> Html Msg
+pageSelector page =
+    span []
+        [ b "Page: "
+        , select [ onInput (GlobalMsg << SetPage) ]
+            [ option
+                [ value "SplashScreenPage"
+                , selected <| page == SplashScreenPage
+                ]
+                [ text "Splash Screen" ]
+            , option
+                [ value "ColumnsPage"
+                , selected <| page == ColumnsPage
+                ]
+                [ text "Columns" ]
+            , option
+                [ value "ExplorerPage"
+                , selected <| page == ExplorerPage
+                ]
+                [ text "Api Explorer" ]
+            ]
+        ]
+
+
+renderSplashScreen : Model -> Html Msg
+renderSplashScreen model =
+    div
+        [ style "width" "40em"
+        , style "margin" "auto"
+        ]
+        [ h2 [ style "text-align" "center" ]
+            [ text "Mammudeck" ]
+        , pageSelector model.page
+        , br
+        , br
+        , Markdown.toHtml []
+            """
+Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a work in progress. Keep an eye on the "Columns" page for new features. Use the "API Explorer" page to do low-level API hacking.
+
+[Wikipedia says](https://en.wikipedia.org/wiki/Mastodon) that "Mastodons... are any species of extinct proboscideans in the genus Mammut (family Mammutidae), distantly related to elephants..." I removed the ending "t" from "Mammut" and added "deck" to get "Mammudeck".
+            """
+        , p [ style "text-align" "center" ]
+            [ img
+                [ src "images/mammoth.jpg"
+                , style "width" "500"
+                , style "height" "360"
+                , alt "Mammoth"
+                ]
+                []
+            ]
+        , p [ style "text-align" "center" ]
+            [ link "GitHub" "https://github.com/billstclair/mammudeck"
+            , br
+            , link "@imacpr0n@mastodon.social"
+                "https://mastodon.social/@imacpr0n"
+            ]
+        ]
+
+
+renderColumns : Model -> Html Msg
+renderColumns model =
+    div
+        [ style "width" "40em"
+        , style "margin" "auto"
+        ]
+        [ h2 [ style "text-align" "center" ]
+            [ text "Mammudeck" ]
+        , pageSelector model.page
+        , br
+        , text "TODO"
+        ]
+
+
+renderExplorer : Model -> Html Msg
+renderExplorer model =
     let
         { backgroundColor, color } =
             getStyle model.style
     in
-    { title = "Mastodon API Explorer"
-    , body =
-        [ renderDialog model
-        , div
-            [ style "background-color" backgroundColor
-            , style "padding" "1em 0 0 0"
-            , style "margin" "0"
-            , style "width" "auto"
+    div
+        [ style "background-color" backgroundColor
+        , style "padding" "1em 0 0 0"
+        , style "margin" "0"
+        , style "width" "auto"
+        ]
+        [ div
+            [ style "color" color
+            , style "background-color" backgroundColor
+            , style "padding" "1em 3em 1em 3em"
+            , style "max-width" "fill-available"
+            , style "width" "40em"
+            , style "margin" "auto"
             ]
-            [ div
-                [ style "color" color
-                , style "background-color" backgroundColor
-                , style "padding" "1em 3em 1em 3em"
-                , style "max-width" "fill-available"
-                , style "width" "40em"
-                , style "margin" "auto"
-                ]
-                [ div []
-                    [ h2 [] [ text "Mastodon API Explorer" ]
-                    , case model.loginServer of
-                        Nothing ->
-                            text ""
+            [ div []
+                [ h2 [] [ text "Mastodon API Explorer" ]
+                , pageSelector model.page
+                , case model.loginServer of
+                    Nothing ->
+                        text ""
 
-                        Just server ->
-                            p []
-                                [ b "Use API for: "
-                                , link server <| "https://" ++ server
-                                , text " "
-                                , button (GlobalMsg Logout) "Logout"
-                                , br
-                                , case model.account of
-                                    Nothing ->
-                                        text ""
-
-                                    Just account ->
-                                        span []
-                                            [ b "Username: "
-                                            , text account.display_name
-                                            , text " ("
-                                            , link account.username account.url
-                                            , text ")"
-                                            ]
-                                ]
-                    , p []
-                        [ selectedRequestHtml LoginSelected
-                            "https://docs.joinmastodon.org/api/authentication/"
-                            model
-                            loginSelectedUI
-                        , selectedRequestHtml InstanceSelected
-                            "https://docs.joinmastodon.org/api/rest/instances/"
-                            model
-                            instanceSelectedUI
-                        , selectedRequestHtml AccountsSelected
-                            "https://docs.joinmastodon.org/api/rest/accounts/"
-                            model
-                            accountsSelectedUI
-                        , selectedRequestHtml BlocksSelected
-                            "https://docs.joinmastodon.org/api/rest/blocks/"
-                            model
-                            blocksSelectedUI
-                        , selectedRequestHtml CustomEmojisSelected
-                            "https://docs.joinmastodon.org/api/rest/custom-emojis/"
-                            model
-                            customEmojisSelectedUI
-                        , selectedRequestHtml EndorsementsSelected
-                            "https://docs.joinmastodon.org/api/rest/endorsements/"
-                            model
-                            endorsementsSelectedUI
-                        , selectedRequestHtml FavouritesSelected
-                            "https://docs.joinmastodon.org/api/rest/favourites/"
-                            model
-                            favouritesSelectedUI
-                        , selectedRequestHtml FiltersSelected
-                            "https://docs.joinmastodon.org/api/rest/filters/"
-                            model
-                            filtersSelectedUI
-                        , selectedRequestHtml FollowRequestsSelected
-                            "https://docs.joinmastodon.org/api/rest/follow-requests/"
-                            model
-                            followRequestsSelectedUI
-                        , selectedRequestHtml FollowSuggestionsSelected
-                            "https://docs.joinmastodon.org/api/rest/follow-suggestions/"
-                            model
-                            followSuggestionsSelectedUI
-                        , selectedRequestHtml GroupsSelected
-                            ""
-                            model
-                            groupsSelectedUI
-                        , selectedRequestHtml ListsSelected
-                            "https://docs.joinmastodon.org/api/rest/lists/"
-                            model
-                            listsSelectedUI
-                        , selectedRequestHtml MutesSelected
-                            "https://docs.joinmastodon.org/api/rest/mutes/"
-                            model
-                            mutesSelectedUI
-                        , selectedRequestHtml NotificationsSelected
-                            "https://docs.joinmastodon.org/api/rest/notifications/"
-                            model
-                            notificationsSelectedUI
-                        , selectedRequestHtml ReportsSelected
-                            "https://docs.joinmastodon.org/api/rest/reports/"
-                            model
-                            reportsSelectedUI
-                        , selectedRequestHtml ScheduledStatusesSelected
-                            "https://docs.joinmastodon.org/api/rest/scheduled-statuses/"
-                            model
-                            scheduledStatusesSelectedUI
-                        , selectedRequestHtml SearchSelected
-                            "https://docs.joinmastodon.org/api/rest/search/"
-                            model
-                            searchSelectedUI
-                        , selectedRequestHtml StatusesSelected
-                            "https://docs.joinmastodon.org/api/rest/statuses/"
-                            model
-                            statusesSelectedUI
-                        , selectedRequestHtml TimelinesSelected
-                            "https://docs.joinmastodon.org/api/rest/timelines/"
-                            model
-                            timelinesSelectedUI
-                        , selectedRequestHtml TrendsSelected
-                            ""
-                            model
-                            trendsSelectedUI
-                        ]
-                    , p [ style "color" "red" ]
-                        [ Maybe.withDefault "" model.msg |> text ]
-                    , p []
-                        [ span [ hidden <| model.selectedKeyValue == "" ]
-                            [ b "selected path: "
-                            , text model.selectedKeyPath
-                            , case Url.fromString model.selectedKeyValue of
+                    Just server ->
+                        p []
+                            [ b "Use API for: "
+                            , link server <| "https://" ++ server
+                            , text " "
+                            , button (GlobalMsg Logout) "Logout"
+                            , br
+                            , case model.account of
                                 Nothing ->
                                     text ""
 
-                                Just _ ->
+                                Just account ->
                                     span []
-                                        [ br
-                                        , a
-                                            [ href model.selectedKeyValue
-                                            , target "_blank"
-                                            ]
-                                            [ text "open URL in new tab" ]
+                                        [ b "Username: "
+                                        , text account.display_name
+                                        , text " ("
+                                        , link account.username account.url
+                                        , text ")"
                                         ]
-                            , br
-                            , textarea
-                                [ id "selectedKeyValue"
-                                , rows 4
-                                , cols 80
-                                , readonly True
-                                , value model.selectedKeyValue
-                                ]
-                                []
-                            , br
                             ]
-                        , WriteClipboard.writeClipboard
-                            [ WriteClipboard.write
-                                { id =
-                                    if model.altKeyDown then
-                                        ""
-
-                                    else
-                                        "selectedKeyValue"
-                                , text = model.clipboardValue
-                                , count = model.clipboardCount
-                                }
-                            ]
-                            []
-                        ]
-                    , checkBox (ExplorerUIMsg ToggleShowJsonTree)
-                        model.showJsonTree
-                        "show tree"
-                    , if model.showJsonTree then
-                        text ""
-
-                      else
-                        span []
-                            [ text " "
-                            , checkBox (ExplorerUIMsg TogglePrettify)
-                                model.prettify
-                                "prettify"
-                            ]
-                    , text " "
-                    , checkBox (ExplorerUIMsg ToggleUseElmButtonNames)
-                        model.useElmButtonNames
-                        "elm button names"
-                    , text " "
-                    , button (ExplorerUIMsg ClearSentReceived) "Clear"
-                    , p [] [ b "Sent:" ]
-                    , pre []
-                        [ case model.request of
+                , p []
+                    [ selectedRequestHtml LoginSelected
+                        "https://docs.joinmastodon.org/api/authentication/"
+                        model
+                        loginSelectedUI
+                    , selectedRequestHtml InstanceSelected
+                        "https://docs.joinmastodon.org/api/rest/instances/"
+                        model
+                        instanceSelectedUI
+                    , selectedRequestHtml AccountsSelected
+                        "https://docs.joinmastodon.org/api/rest/accounts/"
+                        model
+                        accountsSelectedUI
+                    , selectedRequestHtml BlocksSelected
+                        "https://docs.joinmastodon.org/api/rest/blocks/"
+                        model
+                        blocksSelectedUI
+                    , selectedRequestHtml CustomEmojisSelected
+                        "https://docs.joinmastodon.org/api/rest/custom-emojis/"
+                        model
+                        customEmojisSelectedUI
+                    , selectedRequestHtml EndorsementsSelected
+                        "https://docs.joinmastodon.org/api/rest/endorsements/"
+                        model
+                        endorsementsSelectedUI
+                    , selectedRequestHtml FavouritesSelected
+                        "https://docs.joinmastodon.org/api/rest/favourites/"
+                        model
+                        favouritesSelectedUI
+                    , selectedRequestHtml FiltersSelected
+                        "https://docs.joinmastodon.org/api/rest/filters/"
+                        model
+                        filtersSelectedUI
+                    , selectedRequestHtml FollowRequestsSelected
+                        "https://docs.joinmastodon.org/api/rest/follow-requests/"
+                        model
+                        followRequestsSelectedUI
+                    , selectedRequestHtml FollowSuggestionsSelected
+                        "https://docs.joinmastodon.org/api/rest/follow-suggestions/"
+                        model
+                        followSuggestionsSelectedUI
+                    , selectedRequestHtml GroupsSelected
+                        ""
+                        model
+                        groupsSelectedUI
+                    , selectedRequestHtml ListsSelected
+                        "https://docs.joinmastodon.org/api/rest/lists/"
+                        model
+                        listsSelectedUI
+                    , selectedRequestHtml MutesSelected
+                        "https://docs.joinmastodon.org/api/rest/mutes/"
+                        model
+                        mutesSelectedUI
+                    , selectedRequestHtml NotificationsSelected
+                        "https://docs.joinmastodon.org/api/rest/notifications/"
+                        model
+                        notificationsSelectedUI
+                    , selectedRequestHtml ReportsSelected
+                        "https://docs.joinmastodon.org/api/rest/reports/"
+                        model
+                        reportsSelectedUI
+                    , selectedRequestHtml ScheduledStatusesSelected
+                        "https://docs.joinmastodon.org/api/rest/scheduled-statuses/"
+                        model
+                        scheduledStatusesSelectedUI
+                    , selectedRequestHtml SearchSelected
+                        "https://docs.joinmastodon.org/api/rest/search/"
+                        model
+                        searchSelectedUI
+                    , selectedRequestHtml StatusesSelected
+                        "https://docs.joinmastodon.org/api/rest/statuses/"
+                        model
+                        statusesSelectedUI
+                    , selectedRequestHtml TimelinesSelected
+                        "https://docs.joinmastodon.org/api/rest/timelines/"
+                        model
+                        timelinesSelectedUI
+                    , selectedRequestHtml TrendsSelected
+                        ""
+                        model
+                        trendsSelectedUI
+                    ]
+                , p [ style "color" "red" ]
+                    [ Maybe.withDefault "" model.msg |> text ]
+                , p []
+                    [ span [ hidden <| model.selectedKeyValue == "" ]
+                        [ b "selected path: "
+                        , text model.selectedKeyPath
+                        , case Url.fromString model.selectedKeyValue of
                             Nothing ->
                                 text ""
 
-                            Just request ->
+                            Just _ ->
                                 span []
-                                    [ text request.method
-                                    , text " "
-                                    , text request.url
-                                    , case request.jsonBody of
-                                        Nothing ->
-                                            text ""
-
-                                        Just value ->
-                                            pre []
-                                                [ text <|
-                                                    encodeWrap model.prettify value
-                                                ]
+                                    [ br
+                                    , a
+                                        [ href model.selectedKeyValue
+                                        , target "_blank"
+                                        ]
+                                        [ text "open URL in new tab" ]
                                     ]
-                        ]
-                    , p [] <|
-                        if model.showMetadata then
-                            [ b "Headers: "
-                            , button (ExplorerUIMsg ToggleShowMetadata) "Hide"
-                            ]
-
-                        else
-                            [ b "Headers "
-                            , button (ExplorerUIMsg ToggleShowMetadata) "Show"
-                            ]
-                    , if not model.showMetadata then
-                        text ""
-
-                      else
-                        case model.metadata of
-                            Nothing ->
-                                text ""
-
-                            Just metadata ->
-                                p []
-                                    [ renderHeaders model.prettify color metadata ]
-                    , p [] <|
-                        if model.showReceived then
-                            [ b "Received:"
-                            , button (ExplorerUIMsg ToggleShowReceived) "Hide"
-                            ]
-
-                        else
-                            [ b "Received "
-                            , button (ExplorerUIMsg ToggleShowReceived) "Show"
-                            ]
-                    , renderJson ResponseJson
-                        model
-                        model.showReceived
-                        model.response
-                        Nothing
-                    , p [] <|
-                        if model.showEntity then
-                            [ b "Decoded:"
-                            , button (ExplorerUIMsg ToggleShowEntity) "Hide"
-                            ]
-
-                        else
-                            [ b "Decoded "
-                            , button (ExplorerUIMsg ToggleShowEntity) "Show"
-                            ]
-                    , renderJson DecodedJson
-                        model
-                        model.showEntity
-                        Nothing
-                        model.entity
-                    , div []
-                        [ help model ]
-                    , br
-                    , p []
-                        [ button
-                            ((GlobalMsg << SetDialog) <|
-                                ConfirmDialog
-                                    "Do you really want to erase everything?"
-                                    "Erase"
-                                    (GlobalMsg ClearAll)
-                            )
-                            "Clear All Persistent State"
-                        ]
-                    , br
-                    , p
-                        [ onClick (ExplorerUIMsg ToggleStyle)
-                        , style "cursor" "default"
-                        ]
-                        [ input
-                            [ type_ "checkbox"
-                            , checked <| model.style == DarkStyle
+                        , br
+                        , textarea
+                            [ id "selectedKeyValue"
+                            , rows 4
+                            , cols 80
+                            , readonly True
+                            , value model.selectedKeyValue
                             ]
                             []
-                        , b "Dark Mode"
+                        , br
                         ]
-                    , p []
-                        [ text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
-                        , br
-                        , link "@imacpr0n@mastodon.social"
-                            "https://mastodon.social/@imacpr0n"
-                        , br
-                        , text "API Docs: "
-                        , link "docs.joinmastodon.org"
-                            "https://docs.joinmastodon.org/api/guidelines"
-                        , br
-                        , text "Source code: "
-                        , link "GitHub"
-                            "https://github.com/billstclair/elm-mastodon"
+                    , WriteClipboard.writeClipboard
+                        [ WriteClipboard.write
+                            { id =
+                                if model.altKeyDown then
+                                    ""
+
+                                else
+                                    "selectedKeyValue"
+                            , text = model.clipboardValue
+                            , count = model.clipboardCount
+                            }
                         ]
+                        []
+                    ]
+                , checkBox (ExplorerUIMsg ToggleShowJsonTree)
+                    model.showJsonTree
+                    "show tree"
+                , if model.showJsonTree then
+                    text ""
+
+                  else
+                    span []
+                        [ text " "
+                        , checkBox (ExplorerUIMsg TogglePrettify)
+                            model.prettify
+                            "prettify"
+                        ]
+                , text " "
+                , checkBox (ExplorerUIMsg ToggleUseElmButtonNames)
+                    model.useElmButtonNames
+                    "elm button names"
+                , text " "
+                , button (ExplorerUIMsg ClearSentReceived) "Clear"
+                , p [] [ b "Sent:" ]
+                , pre []
+                    [ case model.request of
+                        Nothing ->
+                            text ""
+
+                        Just request ->
+                            span []
+                                [ text request.method
+                                , text " "
+                                , text request.url
+                                , case request.jsonBody of
+                                    Nothing ->
+                                        text ""
+
+                                    Just value ->
+                                        pre []
+                                            [ text <|
+                                                encodeWrap model.prettify value
+                                            ]
+                                ]
+                    ]
+                , p [] <|
+                    if model.showMetadata then
+                        [ b "Headers: "
+                        , button (ExplorerUIMsg ToggleShowMetadata) "Hide"
+                        ]
+
+                    else
+                        [ b "Headers "
+                        , button (ExplorerUIMsg ToggleShowMetadata) "Show"
+                        ]
+                , if not model.showMetadata then
+                    text ""
+
+                  else
+                    case model.metadata of
+                        Nothing ->
+                            text ""
+
+                        Just metadata ->
+                            p []
+                                [ renderHeaders model.prettify color metadata ]
+                , p [] <|
+                    if model.showReceived then
+                        [ b "Received:"
+                        , button (ExplorerUIMsg ToggleShowReceived) "Hide"
+                        ]
+
+                    else
+                        [ b "Received "
+                        , button (ExplorerUIMsg ToggleShowReceived) "Show"
+                        ]
+                , renderJson ResponseJson
+                    model
+                    model.showReceived
+                    model.response
+                    Nothing
+                , p [] <|
+                    if model.showEntity then
+                        [ b "Decoded:"
+                        , button (ExplorerUIMsg ToggleShowEntity) "Hide"
+                        ]
+
+                    else
+                        [ b "Decoded "
+                        , button (ExplorerUIMsg ToggleShowEntity) "Show"
+                        ]
+                , renderJson DecodedJson
+                    model
+                    model.showEntity
+                    Nothing
+                    model.entity
+                , div []
+                    [ help model ]
+                , br
+                , p []
+                    [ button
+                        ((GlobalMsg << SetDialog) <|
+                            ConfirmDialog
+                                "Do you really want to erase everything?"
+                                "Erase"
+                                (GlobalMsg ClearAll)
+                        )
+                        "Clear All Persistent State"
+                    ]
+                , br
+                , p
+                    [ onClick (ExplorerUIMsg ToggleStyle)
+                    , style "cursor" "default"
+                    ]
+                    [ input
+                        [ type_ "checkbox"
+                        , checked <| model.style == DarkStyle
+                        ]
+                        []
+                    , b "Dark Mode"
+                    ]
+                , p []
+                    [ text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
+                    , br
+                    , link "@imacpr0n@mastodon.social"
+                        "https://mastodon.social/@imacpr0n"
+                    , br
+                    , text "API Docs: "
+                    , link "docs.joinmastodon.org"
+                        "https://docs.joinmastodon.org/api/guidelines"
+                    , br
+                    , text "Source code: "
+                    , link "GitHub"
+                        "https://github.com/billstclair/elm-mastodon"
                     ]
                 ]
             ]
         ]
-    }
 
 
 renderJson : WhichJson -> Model -> Bool -> Maybe Value -> Maybe Entity -> Html Msg
@@ -6275,21 +6365,25 @@ encodePage page =
                 "ExplorerPage"
 
 
+stringToPage : String -> Page
+stringToPage string =
+    case string of
+        "ColumnsPage" ->
+            ColumnsPage
+
+        "ExplorerPage" ->
+            ExplorerPage
+
+        _ ->
+            SplashScreenPage
+
+
 pageDecoder : Decoder Page
 pageDecoder =
     JD.string
         |> JD.andThen
             (\p ->
-                JD.succeed <|
-                    case p of
-                        "ColumnsPage" ->
-                            ColumnsPage
-
-                        "ExplorerPage" ->
-                            ExplorerPage
-
-                        _ ->
-                            SplashScreenPage
+                JD.succeed <| stringToPage p
             )
 
 
