@@ -10,7 +10,7 @@
 ----------------------------------------------------------------------
 
 
-module Main exposing (dollarButtonNameToMsg, dollarButtonNameToSendName, emptyUrl, main, parseQuery, receiveCodeAndState, replaceSendButtonNames, sendButtonName)
+module Main exposing (main)
 
 import Browser exposing (Document, UrlRequest)
 import Browser.Dom as Dom
@@ -75,6 +75,23 @@ import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, require
 import Json.Encode as JE exposing (Value)
 import JsonTree exposing (TaggedValue(..))
 import List.Extra as LE
+import Mammudeck.Types
+    exposing
+        ( Feed
+        , FeedElements(..)
+        , FeedSet
+        , FeedSetDefinition
+        , FeedType(..)
+        , FetchType(..)
+        , Fetcher
+        , PublicFeedFlags
+        , Renderer
+        , UserFeedFlags
+        , allButMentionNotificationExclusions
+        , defaultNotificationExclusions
+        , defaultPublicFeedFlags
+        , defaultUserFeedFlags
+        )
 import Markdown
 import Mastodon.EncodeDecode as ED
 import Mastodon.Entity as Entity
@@ -4060,7 +4077,7 @@ Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a wo
 
 [Wikipedia says](https://en.wikipedia.org/wiki/Mastodon) that "Mastodons... are any species of extinct proboscideans in the genus Mammut (family Mammutidae), distantly related to elephants..." I removed the ending "t" from "Mammut" and added "deck" to get "Mammudeck".
 
-There's a huge list of servers at [fediverse.network](https://fediverse.network/).
+There's a huge list of servers at [fediverse.network](https://fediverse.network/). This webapp doesn't know how to register a new account (yet), so you'll have to do that on the server's web site, then come back here to log in.
             """
         , p [ style "text-align" "center" ]
             [ img

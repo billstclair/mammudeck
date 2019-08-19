@@ -13,8 +13,13 @@
 module Mammudeck.Types exposing
     ( Feed
     , FeedElements(..)
+    , FeedSet
+    , FeedSetDefinition
     , FeedType(..)
+    , FetchType(..)
+    , Fetcher
     , PublicFeedFlags
+    , Renderer
     , UserFeedFlags
     , allButMentionNotificationExclusions
     , defaultNotificationExclusions
@@ -31,6 +36,7 @@ import Mastodon.Entity
         , Results
         , Status
         )
+import Mastodon.Request exposing (Error, Response)
 
 
 type alias UserFeedFlags =
@@ -91,14 +97,39 @@ type FeedType
 
 
 type FeedElements
-    = StatusElement (List Status)
-    | NotificationElement (List Notification)
-    | ConversationElement (List Conversation)
-    | ResultsElement (List Results)
+    = StatusElements (List Status)
+    | NotificationElements (List Notification)
+    | ConversationElements (List Conversation)
+    | ResultsElements (List Results)
 
 
-type alias Feed msg =
+type alias Feed =
     { feedType : FeedType
-    , renderer : FeedElements -> Html msg
     , elements : FeedElements
+    }
+
+
+type FetchType
+    = FetchNew
+    | FetchNextPage
+    | FetchPreviousPage
+
+
+type alias Renderer msg =
+    FeedElements -> Html msg
+
+
+type alias Fetcher msg =
+    (Result Error Response -> msg) -> FetchType -> FeedElements -> Cmd msg
+
+
+type alias FeedSet =
+    { name : String
+    , feeds : List Feed
+    }
+
+
+type alias FeedSetDefinition =
+    { name : String
+    , feedTypes : List FeedType
     }
