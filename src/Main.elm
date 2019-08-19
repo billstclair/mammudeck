@@ -191,7 +191,8 @@ filterInputDecoder =
 
 
 type alias Model =
-    { token : Maybe String
+    { page : Page
+    , token : Maybe String
     , server : String
     , loginServer : Maybe String
     , prettify : Bool
@@ -295,10 +296,25 @@ type alias Model =
     }
 
 
+type Page
+    = SplashScreenPage
+    | ColumnsPage
+    | ExplorerPage
+
+
 type Msg
     = Noop
     | OnUrlRequest UrlRequest
     | OnUrlChange Url
+    | GlobalMsg GlobalMsg
+    | ColumnsUIMsg ColumnsUIMsg
+    | ColumnsSendMsg ColumnsSendMsg
+    | ExplorerUIMsg ExplorerUIMsg
+    | ExplorerSendMsg ExplorerSendMsg
+
+
+type GlobalMsg
+    = SetPage Page
     | SetResponseState JsonTree.State
     | SetEntityState JsonTree.State
     | ExpandAll WhichJson
@@ -308,7 +324,29 @@ type Msg
     | OnKeyPress String
     | OnAltKey Bool
     | SetServer String
-    | SetWhichGroups String
+    | Process Value
+    | SetLoginServer
+    | Login
+    | Logout
+    | ClearAll
+    | ReceiveRedirect (Result ( String, Error ) ( String, App, Cmd Msg ))
+    | ReceiveAuthorization (Result ( String, Error ) ( String, Authorization, Account ))
+    | ReceiveInstance (Result Error Response)
+    | ReceiveFetchAccount (Result ( String, Error ) ( String, String, Account ))
+    | ReceiveGetVerifyCredentials (Result Error Response)
+    | ReceiveAccountIdRelationships Bool (Result Error Response)
+
+
+type ColumnsUIMsg
+    = ColumnsUINoop
+
+
+type ColumnsSendMsg
+    = ColumnsSendNoop
+
+
+type ExplorerUIMsg
+    = SetWhichGroups String
     | ClearSentReceived
     | TogglePrettify
     | ToggleShowMetadata
@@ -320,18 +358,6 @@ type Msg
     | ToggleFollowing
     | ToggleFollowReblogs
     | SetSelectedRequest SelectedRequest
-    | ReceiveRedirect (Result ( String, Error ) ( String, App, Cmd Msg ))
-    | ReceiveAuthorization (Result ( String, Error ) ( String, Authorization, Account ))
-    | ReceiveInstance (Result Error Response)
-    | ReceiveFetchAccount (Result ( String, Error ) ( String, String, Account ))
-    | ReceiveGetVerifyCredentials (Result Error Response)
-    | ReceiveAccountIdRelationships Bool (Result Error Response)
-    | Process Value
-    | SetLoginServer
-    | Login
-    | Logout
-    | ClearAll
-      -- UI input setters
     | SetUsername String
     | SetAccountId String
     | SetMaxId String
@@ -408,12 +434,14 @@ type Msg
     | SetHashtag String
     | SetListId String
     | ToggleMuteNotifications
-      -- Messages from buttons that send requests over the wire.
-      -- See the `update` code for these messages for examples
-      -- of using the `Request` module.
-      -- If you add a message here, it should also be added to the
-      -- `buttonNameAlist` and `dollarButtonNameDict` values near the
-      -- bottom of the file.
+
+
+{-| If you add a message here, it should also be added to the
+`buttonNameAlist` and `dollarButtonNameDict` values near the
+bottom of the file.
+-}
+type ExplorerSendMsg
+    = SendNothing
     | SendGetInstance
     | SendGetActivity
     | SendGetPeers
@@ -523,7 +551,7 @@ main =
 keyDecoder : Decoder Msg
 keyDecoder =
     JD.field "key" JD.string
-        |> JD.map OnKeyPress
+        |> JD.map (GlobalMsg << OnKeyPress)
 
 
 altKeyDecoder : Bool -> Decoder Msg
@@ -532,7 +560,7 @@ altKeyDecoder down =
         |> JD.andThen
             (\key ->
                 if key == "Alt" then
-                    JD.succeed <| OnAltKey down
+                    JD.succeed (GlobalMsg <| OnAltKey down)
 
                 else
                     JD.fail "Not Alt key"
@@ -542,7 +570,7 @@ altKeyDecoder down =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ PortFunnels.subscriptions Process model
+        [ PortFunnels.subscriptions (GlobalMsg << Process) model
         , if model.dialog /= NoDialog then
             Events.onKeyDown keyDecoder
 
@@ -653,7 +681,8 @@ init value url key =
                 NoCode ->
                     ( Nothing, Nothing, Nothing )
     in
-    { token = Nothing
+    { page = SplashScreenPage
+    , token = Nothing
     , server = ""
     , loginServer = Nothing
     , prettify = True
@@ -762,7 +791,7 @@ init value url key =
             , case ( code, state ) of
                 ( Just cod, Just st ) ->
                     Login.getTokenTask { code = cod, state = st }
-                        |> Task.attempt ReceiveAuthorization
+                        |> Task.attempt (GlobalMsg << ReceiveAuthorization)
 
                 _ ->
                     Cmd.none
@@ -817,7 +846,7 @@ getInstance model =
             , token = Nothing
             }
     in
-    Request.serverRequest (\id -> ReceiveInstance)
+    Request.serverRequest (\id -> GlobalMsg << ReceiveInstance)
         []
         serverInfo
         ()
@@ -837,7 +866,7 @@ getVerifyCredentials model =
                         |> Tuple.second
 
                 Just token ->
-                    Request.serverRequest (\_ -> ReceiveGetVerifyCredentials)
+                    Request.serverRequest (\_ -> GlobalMsg << ReceiveGetVerifyCredentials)
                         []
                         { server = server
                         , token = Just token
@@ -894,7 +923,8 @@ handleGetModel maybeValue model =
                     }
                         |> withCmd
                             (if mdl.loginServer == Nothing then
-                                Task.perform SetServer <| Task.succeed mdl.server
+                                Task.perform (GlobalMsg << SetServer) <|
+                                    Task.succeed mdl.server
 
                              else
                                 getVerifyCredentials mdl
@@ -1187,6 +1217,29 @@ updateInternal msg model =
         OnUrlChange _ ->
             model |> withNoCmd
 
+        GlobalMsg m ->
+            globalMsg m model
+
+        ColumnsUIMsg m ->
+            columnsUIMsg m model
+
+        ColumnsSendMsg m ->
+            columnsSendMsg m model
+
+        ExplorerUIMsg m ->
+            explorerUIMsg m model
+
+        ExplorerSendMsg m ->
+            explorerSendMsg m model
+
+
+globalMsg : GlobalMsg -> Model -> ( Model, Cmd Msg )
+globalMsg msg model =
+    case msg of
+        SetPage page ->
+            { model | page = page }
+                |> withNoCmd
+
         SetResponseState state ->
             { model | responseState = state }
                 |> withNoCmd
@@ -1310,79 +1363,114 @@ updateInternal msg model =
                         Cmd.none
                     )
 
-        SetWhichGroups s ->
+        Process value ->
+            case
+                PortFunnels.processValue funnelDict
+                    value
+                    model.funnelState
+                    model
+            of
+                Err error ->
+                    { model | msg = Just <| Debug.toString error }
+                        |> withNoCmd
+
+                Ok res ->
+                    res
+
+        SetLoginServer ->
+            if model.server == "" then
+                { model
+                    | msg = Nothing
+                    , loginServer = Nothing
+                    , request = Nothing
+                    , response = Nothing
+                    , entity = Nothing
+                    , metadata = Nothing
+                    , selectedKeyPath = ""
+                    , selectedKeyValue = ""
+                }
+                    |> withNoCmd
+
+            else
+                let
+                    mdl =
+                        { model
+                            | loginServer = Just model.server
+                            , token = Nothing
+                            , account = Nothing
+                        }
+                            |> updatePatchCredentialsInputs
+                in
+                sendRequest (InstanceRequest Request.GetInstance) mdl
+
+        Login ->
             let
-                whichGroups =
-                    case s of
-                        "Featured" ->
-                            Request.FeaturedGroups
+                url =
+                    model.url
 
-                        "Admin" ->
-                            Request.AdminGroups
-
-                        _ ->
-                            Request.MemberGroups
+                sau =
+                    { client_name = "mammudeck"
+                    , server = model.server
+                    , applicationUri =
+                        { url
+                            | fragment = Nothing
+                            , query = Nothing
+                        }
+                            |> Url.toString
+                    }
             in
-            { model | whichGroups = whichGroups }
-                |> withNoCmd
+            case Login.loginTask sau <| Dict.get model.server model.tokens of
+                Redirect task ->
+                    ( model, Task.attempt (GlobalMsg << ReceiveRedirect) task )
 
-        ClearSentReceived ->
-            { model
-                | request = Nothing
-                , response = Nothing
-                , entity = Nothing
-                , metadata = Nothing
-                , selectedKeyPath = ""
-                , selectedKeyValue = ""
-            }
-                |> withNoCmd
+                FetchAccount task ->
+                    ( model, Task.attempt (GlobalMsg << ReceiveFetchAccount) task )
 
-        TogglePrettify ->
-            { model | prettify = not model.prettify }
-                |> withNoCmd
+        Logout ->
+            case model.loginServer of
+                Nothing ->
+                    model |> withNoCmd
 
-        ToggleShowMetadata ->
-            { model | showMetadata = not model.showMetadata }
-                |> withNoCmd
+                Just server ->
+                    { model
+                        | server = ""
+                        , loginServer = Nothing
+                        , account = Nothing
+                        , tokens = Dict.remove server model.tokens
+                        , token = Nothing
+                        , request = Nothing
+                        , response = Nothing
+                        , entity = Nothing
+                        , metadata = Nothing
+                        , selectedKeyPath = ""
+                        , selectedKeyValue = ""
+                        , msg = Nothing
+                    }
+                        |> updatePatchCredentialsInputs
+                        |> withCmd (putToken server Nothing)
 
-        ToggleShowReceived ->
-            { model | showReceived = not model.showReceived }
-                |> withNoCmd
-
-        ToggleShowEntity ->
-            { model | showEntity = not model.showEntity }
-                |> withNoCmd
-
-        ToggleStyle ->
-            { model
-                | style =
-                    if model.style == LightStyle then
-                        DarkStyle
-
-                    else
-                        LightStyle
-            }
-                |> withNoCmd
-
-        SetQ q ->
-            { model | q = q }
-                |> withNoCmd
-
-        ToggleResolve ->
-            { model | resolve = not model.resolve }
-                |> withNoCmd
-
-        ToggleFollowing ->
-            { model | following = not model.following }
-                |> withNoCmd
-
-        ToggleFollowReblogs ->
-            { model | followReblogs = not model.followReblogs }
-                |> withNoCmd
-
-        SetSelectedRequest selectedRequest ->
-            { model | selectedRequest = selectedRequest }
-                |> withNoCmd
+        ClearAll ->
+            let
+                mdl =
+                    { model
+                        | dialog = NoDialog
+                        , tokens = Dict.empty
+                        , server = ""
+                        , loginServer = Nothing
+                        , account = Nothing
+                        , token = Nothing
+                        , request = Nothing
+                        , response = Nothing
+                        , entity = Nothing
+                        , selectedKeyPath = ""
+                        , selectedKeyValue = ""
+                        , metadata = Nothing
+                        , msg = Nothing
+                    }
+                        |> updatePatchCredentialsInputs
+            in
+            { mdl | savedModel = Just <| modelToSavedModel mdl }
+                |> withCmd clear
 
         ReceiveRedirect result ->
             case result of
@@ -1573,114 +1661,93 @@ updateInternal msg model =
                         _ ->
                             model |> withNoCmd
 
-        Process value ->
-            case
-                PortFunnels.processValue funnelDict
-                    value
-                    model.funnelState
-                    model
-            of
-                Err error ->
-                    { model | msg = Just <| Debug.toString error }
-                        |> withNoCmd
 
-                Ok res ->
-                    res
+columnsUIMsg : ColumnsUIMsg -> Model -> ( Model, Cmd Msg )
+columnsUIMsg msg model =
+    model |> withNoCmd
 
-        SetLoginServer ->
-            if model.server == "" then
-                { model
-                    | msg = Nothing
-                    , loginServer = Nothing
-                    , request = Nothing
-                    , response = Nothing
-                    , entity = Nothing
-                    , metadata = Nothing
-                    , selectedKeyPath = ""
-                    , selectedKeyValue = ""
-                }
-                    |> withNoCmd
 
-            else
-                let
-                    mdl =
-                        { model
-                            | loginServer = Just model.server
-                            , token = Nothing
-                            , account = Nothing
-                        }
-                            |> updatePatchCredentialsInputs
-                in
-                sendRequest (InstanceRequest Request.GetInstance) mdl
+columnsSendMsg : ColumnsSendMsg -> Model -> ( Model, Cmd Msg )
+columnsSendMsg msg model =
+    model |> withNoCmd
 
-        Login ->
+
+explorerUIMsg : ExplorerUIMsg -> Model -> ( Model, Cmd Msg )
+explorerUIMsg msg model =
+    case msg of
+        SetWhichGroups s ->
             let
-                url =
-                    model.url
+                whichGroups =
+                    case s of
+                        "Featured" ->
+                            Request.FeaturedGroups
 
-                sau =
-                    { client_name = "mammudeck"
-                    , server = model.server
-                    , applicationUri =
-                        { url
-                            | fragment = Nothing
-                            , query = Nothing
-                        }
-                            |> Url.toString
-                    }
+                        "Admin" ->
+                            Request.AdminGroups
+
+                        _ ->
+                            Request.MemberGroups
             in
-            case Login.loginTask sau <| Dict.get model.server model.tokens of
-                Redirect task ->
-                    ( model, Task.attempt ReceiveRedirect task )
+            { model | whichGroups = whichGroups }
+                |> withNoCmd
 
-                FetchAccount task ->
-                    ( model, Task.attempt ReceiveFetchAccount task )
+        ClearSentReceived ->
+            { model
+                | request = Nothing
+                , response = Nothing
+                , entity = Nothing
+                , metadata = Nothing
+                , selectedKeyPath = ""
+                , selectedKeyValue = ""
+            }
+                |> withNoCmd
 
-        Logout ->
-            case model.loginServer of
-                Nothing ->
-                    model |> withNoCmd
+        TogglePrettify ->
+            { model | prettify = not model.prettify }
+                |> withNoCmd
 
-                Just server ->
-                    { model
-                        | server = ""
-                        , loginServer = Nothing
-                        , account = Nothing
-                        , tokens = Dict.remove server model.tokens
-                        , token = Nothing
-                        , request = Nothing
-                        , response = Nothing
-                        , entity = Nothing
-                        , metadata = Nothing
-                        , selectedKeyPath = ""
-                        , selectedKeyValue = ""
-                        , msg = Nothing
-                    }
-                        |> updatePatchCredentialsInputs
-                        |> withCmd (putToken server Nothing)
+        ToggleShowMetadata ->
+            { model | showMetadata = not model.showMetadata }
+                |> withNoCmd
 
-        ClearAll ->
-            let
-                mdl =
-                    { model
-                        | dialog = NoDialog
-                        , tokens = Dict.empty
-                        , server = ""
-                        , loginServer = Nothing
-                        , account = Nothing
-                        , token = Nothing
-                        , request = Nothing
-                        , response = Nothing
-                        , entity = Nothing
-                        , selectedKeyPath = ""
-                        , selectedKeyValue = ""
-                        , metadata = Nothing
-                        , msg = Nothing
-                    }
-                        |> updatePatchCredentialsInputs
-            in
-            { mdl | savedModel = Just <| modelToSavedModel mdl }
-                |> withCmd clear
+        ToggleShowReceived ->
+            { model | showReceived = not model.showReceived }
+                |> withNoCmd
+
+        ToggleShowEntity ->
+            { model | showEntity = not model.showEntity }
+                |> withNoCmd
+
+        ToggleStyle ->
+            { model
+                | style =
+                    if model.style == LightStyle then
+                        DarkStyle
+
+                    else
+                        LightStyle
+            }
+                |> withNoCmd
+
+        SetQ q ->
+            { model | q = q }
+                |> withNoCmd
+
+        ToggleResolve ->
+            { model | resolve = not model.resolve }
+                |> withNoCmd
+
+        ToggleFollowing ->
+            { model | following = not model.following }
+                |> withNoCmd
+
+        ToggleFollowReblogs ->
+            { model | followReblogs = not model.followReblogs }
+                |> withNoCmd
+
+        SetSelectedRequest selectedRequest ->
+            { model | selectedRequest = selectedRequest }
+                |> withNoCmd
 
         SetUsername username ->
             { model | username = username }
@@ -1808,7 +1875,10 @@ updateInternal msg model =
 
             else
                 model
-                    |> withCmd (File.Select.file imageMimeTypes ReceiveAvatarFile)
+                    |> withCmd
+                        (File.Select.file imageMimeTypes
+                            (ExplorerUIMsg << ReceiveAvatarFile)
+                        )
 
         ReceiveAvatarFile file ->
             { model | avatarFile = Just file }
@@ -1821,7 +1891,10 @@ updateInternal msg model =
 
             else
                 model
-                    |> withCmd (File.Select.file imageMimeTypes ReceiveHeaderFile)
+                    |> withCmd
+                        (File.Select.file imageMimeTypes
+                            (ExplorerUIMsg << ReceiveHeaderFile)
+                        )
 
         ReceiveHeaderFile file ->
             { model | headerFile = Just file }
@@ -1935,7 +2008,7 @@ updateInternal msg model =
                 model
                     |> withCmd
                         (File.Select.file imageMimeTypes
-                            ReceiveGroupCoverImage
+                            (ExplorerUIMsg << ReceiveGroupCoverImage)
                         )
 
         SetReportCommentString reportComment ->
@@ -2051,7 +2124,10 @@ updateInternal msg model =
 
             else
                 model
-                    |> withCmd (File.Select.file imageMimeTypes ReceiveMediaFile)
+                    |> withCmd
+                        (File.Select.file imageMimeTypes
+                            (ExplorerUIMsg << ReceiveMediaFile)
+                        )
 
         ReceiveMediaFile file ->
             { model | mediaFile = Just file }
@@ -2136,6 +2212,13 @@ updateInternal msg model =
         SetListId listId ->
             { model | listId = listId }
                 |> withNoCmd
+
+
+explorerSendMsg : ExplorerSendMsg -> Model -> ( Model, Cmd Msg )
+explorerSendMsg msg model =
+    case msg of
+        SendNothing ->
+            model |> withNoCmd
 
         SendGetInstance ->
             sendRequest (InstanceRequest Request.GetInstance) model
@@ -3072,7 +3155,11 @@ getAccountIdRelationships showResult model =
                             Cmd.none
 
                         accountId ->
-                            Request.serverRequest ReceiveAccountIdRelationships
+                            Request.serverRequest
+                                (\sr res ->
+                                    GlobalMsg <|
+                                        ReceiveAccountIdRelationships sr res
+                                )
                                 []
                                 { server = server
                                 , token = model.token
@@ -3460,7 +3547,10 @@ sendRequest request model =
                 , selectedKeyValue = ""
             }
                 |> withCmd
-                    (Request.rawRequestToCmd ReceiveResponse rawRequest)
+                    (Request.rawRequestToCmd
+                        (ExplorerSendMsg << ReceiveResponse)
+                        rawRequest
+                    )
 
 
 saveAuthorization : String -> Authorization -> Model -> ( Model, Cmd Msg )
@@ -3498,7 +3588,7 @@ serverSelect model =
                 Just server ->
                     server
     in
-    select [ onInput SetServer ]
+    select [ onInput (GlobalMsg << SetServer) ]
         (option [ value "" ]
             [ text "-- select a server --" ]
             :: (List.map (serverOption currentServer) <| Dict.keys model.tokens)
@@ -3511,7 +3601,7 @@ whichGroupsSelect model =
         whichGroups =
             model.whichGroups
     in
-    select [ onInput SetWhichGroups ] <|
+    select [ onInput (ExplorerUIMsg << SetWhichGroups) ] <|
         [ option
             [ value "Member"
             , selected <| Request.MemberGroups == whichGroups
@@ -3797,7 +3887,7 @@ selectedRequestRadio selectedRequest model =
         { buttonValue = selectedRequest
         , radioValue = model.selectedRequest
         , radioName = string
-        , setter = SetSelectedRequest selectedRequest
+        , setter = ExplorerUIMsg <| SetSelectedRequest selectedRequest
         , label = string
         }
 
@@ -3830,7 +3920,7 @@ privacyRadio privacy label model =
         { buttonValue = privacy
         , radioValue = model.privacy
         , radioName = radioNames.privacy
-        , setter = SetPrivacy privacy
+        , setter = ExplorerUIMsg <| SetPrivacy privacy
         , label = label
         }
 
@@ -3907,7 +3997,7 @@ view model =
                                 [ b "Use API for: "
                                 , link server <| "https://" ++ server
                                 , text " "
-                                , button Logout "Logout"
+                                , button (GlobalMsg Logout) "Logout"
                                 , br
                                 , case model.account of
                                     Nothing ->
@@ -4048,19 +4138,25 @@ view model =
                             ]
                             []
                         ]
-                    , checkBox ToggleShowJsonTree model.showJsonTree "show tree"
+                    , checkBox (ExplorerUIMsg ToggleShowJsonTree)
+                        model.showJsonTree
+                        "show tree"
                     , if model.showJsonTree then
                         text ""
 
                       else
                         span []
                             [ text " "
-                            , checkBox TogglePrettify model.prettify "prettify"
+                            , checkBox (ExplorerUIMsg TogglePrettify)
+                                model.prettify
+                                "prettify"
                             ]
                     , text " "
-                    , checkBox ToggleUseElmButtonNames model.useElmButtonNames "elm button names"
+                    , checkBox (ExplorerUIMsg ToggleUseElmButtonNames)
+                        model.useElmButtonNames
+                        "elm button names"
                     , text " "
-                    , button ClearSentReceived "Clear"
+                    , button (ExplorerUIMsg ClearSentReceived) "Clear"
                     , p [] [ b "Sent:" ]
                     , pre []
                         [ case model.request of
@@ -4086,12 +4182,12 @@ view model =
                     , p [] <|
                         if model.showMetadata then
                             [ b "Headers: "
-                            , button ToggleShowMetadata "Hide"
+                            , button (ExplorerUIMsg ToggleShowMetadata) "Hide"
                             ]
 
                         else
                             [ b "Headers "
-                            , button ToggleShowMetadata "Show"
+                            , button (ExplorerUIMsg ToggleShowMetadata) "Show"
                             ]
                     , if not model.showMetadata then
                         text ""
@@ -4107,12 +4203,12 @@ view model =
                     , p [] <|
                         if model.showReceived then
                             [ b "Received:"
-                            , button ToggleShowReceived "Hide"
+                            , button (ExplorerUIMsg ToggleShowReceived) "Hide"
                             ]
 
                         else
                             [ b "Received "
-                            , button ToggleShowReceived "Show"
+                            , button (ExplorerUIMsg ToggleShowReceived) "Show"
                             ]
                     , renderJson ResponseJson
                         model
@@ -4122,12 +4218,12 @@ view model =
                     , p [] <|
                         if model.showEntity then
                             [ b "Decoded:"
-                            , button ToggleShowEntity "Hide"
+                            , button (ExplorerUIMsg ToggleShowEntity) "Hide"
                             ]
 
                         else
                             [ b "Decoded "
-                            , button ToggleShowEntity "Show"
+                            , button (ExplorerUIMsg ToggleShowEntity) "Show"
                             ]
                     , renderJson DecodedJson
                         model
@@ -4139,17 +4235,17 @@ view model =
                     , br
                     , p []
                         [ button
-                            (SetDialog <|
+                            ((GlobalMsg << SetDialog) <|
                                 ConfirmDialog
                                     "Do you really want to erase everything?"
                                     "Erase"
-                                    ClearAll
+                                    (GlobalMsg ClearAll)
                             )
                             "Clear All Persistent State"
                         ]
                     , br
                     , p
-                        [ onClick ToggleStyle
+                        [ onClick (ExplorerUIMsg ToggleStyle)
                         , style "cursor" "default"
                         ]
                         [ input
@@ -4234,10 +4330,10 @@ renderJsonTree whichJson model value =
         ( setter, treeResponse, state ) =
             case whichJson of
                 ResponseJson ->
-                    ( SetResponseState, model.responseTree, model.responseState )
+                    ( GlobalMsg << SetResponseState, model.responseTree, model.responseState )
 
                 DecodedJson ->
-                    ( SetEntityState, model.entityTree, model.entityState )
+                    ( GlobalMsg << SetEntityState, model.entityTree, model.entityState )
 
         config =
             { colors =
@@ -4248,7 +4344,7 @@ renderJsonTree whichJson model value =
                     jsonTreeColors.light
 
             -- Should copy the text to a <TextArea> on select.
-            , onSelect = Just <| SelectTreeNode whichJson
+            , onSelect = Just <| (GlobalMsg << SelectTreeNode whichJson)
             , toMsg = setter
             }
     in
@@ -4258,9 +4354,9 @@ renderJsonTree whichJson model value =
 
         Ok root ->
             span []
-                [ button (ExpandAll whichJson) "Expand All"
+                [ button ((GlobalMsg << ExpandAll) whichJson) "Expand All"
                 , text " "
-                , button (CollapseAll whichJson) "Collapse All"
+                , button ((GlobalMsg << CollapseAll) whichJson) "Collapse All"
                 , case root.value of
                     TList nodes ->
                         span []
@@ -4280,13 +4376,13 @@ blocksSelectedUI : Model -> Html Msg
 blocksSelectedUI model =
     p []
         [ pspace
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: " 10 (ExplorerUIMsg << SetLimit) model.pagingInput.limit
         , br
         , sendButton SendGetBlocks model
         , br
         , text "-- writes below here --"
         , br
-        , textInput "account id: " 25 SetAccountId model.accountId
+        , textInput "account id: " 25 (ExplorerUIMsg << SetAccountId) model.accountId
         , br
         , sendButton SendPostBlock model
         , text " "
@@ -4328,7 +4424,7 @@ unlabeledTextInput =
 
 excludedNotificationTypeCheckbox : String -> NotificationType -> Model -> Html Msg
 excludedNotificationTypeCheckbox label notificationType model =
-    checkBox (ToggleExcludedNotificationType notificationType)
+    checkBox ((ExplorerUIMsg << ToggleExcludedNotificationType) notificationType)
         (List.member notificationType model.excludedNotificationTypes)
         label
 
@@ -4364,7 +4460,10 @@ endorsementsSelectedUI model =
         , br
         , text "-- writes below here --"
         , br
-        , textInput "account id: " 25 SetAccountId model.accountId
+        , textInput "account id: "
+            25
+            (ExplorerUIMsg << SetAccountId)
+            model.accountId
         , br
         , sendButton SendPostPinAccount model
         , sendButton SendPostUnpinAccount model
@@ -4375,13 +4474,13 @@ favouritesSelectedUI : Model -> Html Msg
 favouritesSelectedUI model =
     p []
         [ pspace
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: " 10 (ExplorerUIMsg << SetLimit) model.pagingInput.limit
         , text " "
         , sendButton SendGetFavourites model
         , br
         , text "-- writes below here --"
         , br
-        , textInput "status id: " 25 SetStatusId model.statusId
+        , textInput "status id: " 25 (ExplorerUIMsg << SetStatusId) model.statusId
         , br
         , sendButton SendPostFavourite model
         , text " "
@@ -4402,26 +4501,26 @@ filtersSelectedUI model =
         [ pspace
         , sendButton SendGetFilters model
         , br
-        , textInput "filter id: " 25 SetFilterId model.filterId
+        , textInput "filter id: " 25 (ExplorerUIMsg << SetFilterId) model.filterId
         , text " "
         , sendButton SendGetFilter model
         , br
         , text "-- writes below here --"
         , br
-        , textInput "phrase: " 50 SetFilterPhrase phrase
+        , textInput "phrase: " 50 (ExplorerUIMsg << SetFilterPhrase) phrase
         , br
         , b "context (check at least one): "
         , filterContextCheckBoxes context
         , br
-        , checkBox ToggleFilterIrreversible irreversible "irreversible"
+        , checkBox (ExplorerUIMsg ToggleFilterIrreversible) irreversible "irreversible"
         , text " "
-        , checkBox ToggleFilterWholeWord whole_word "whole word"
+        , checkBox (ExplorerUIMsg ToggleFilterWholeWord) whole_word "whole word"
         , br
-        , textInput "expires in (seconds): " 10 SetFilterExpiresIn expires_in
+        , textInput "expires in (seconds): " 10 (ExplorerUIMsg << SetFilterExpiresIn) expires_in
         , br
         , enabledSendButton canPost SendPostFilter model
         , br
-        , textInput "filter id: " 25 SetFilterId model.filterId
+        , textInput "filter id: " 25 (ExplorerUIMsg << SetFilterId) model.filterId
         , text " "
         , enabledSendButton canPost SendPutFilter model
         , text " "
@@ -4446,7 +4545,7 @@ filterContextCheckBoxes context =
 
 filterContextCheckbox : FilterContext -> List FilterContext -> Html Msg
 filterContextCheckbox context contexts =
-    checkBox (ToggleFilterInputContext context)
+    checkBox ((ExplorerUIMsg << ToggleFilterInputContext) context)
         (List.member context contexts)
         (ED.filterContextToString context |> String.toLower)
 
@@ -4455,13 +4554,13 @@ followRequestsSelectedUI : Model -> Html Msg
 followRequestsSelectedUI model =
     p []
         [ pspace
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: " 10 (ExplorerUIMsg << SetLimit) model.pagingInput.limit
         , text " "
         , sendButton SendGetFollowRequests model
         , br
         , text "-- writes below here --"
         , br
-        , textInput "account id: " 25 SetAccountId model.accountId
+        , textInput "account id: " 25 (ExplorerUIMsg << SetAccountId) model.accountId
         , br
         , sendButton SendPostAuthorizeFollow model
         , text " "
@@ -4475,7 +4574,10 @@ followSuggestionsSelectedUI model =
         [ pspace
         , sendButton SendGetFollowSuggestions model
         , br
-        , textInput "account id: " 25 SetAccountId model.accountId
+        , textInput "account id: "
+            25
+            (ExplorerUIMsg << SetAccountId)
+            model.accountId
         , text " "
         , sendButton SendDeleteFollowSuggestions model
         ]
@@ -4489,7 +4591,10 @@ groupsSelectedUI model =
         , text " "
         , sendButton SendGetGroups model
         , br
-        , textInput "group id: " 20 SetGroupId model.groupId
+        , textInput "group id: "
+            20
+            (ExplorerUIMsg << SetGroupId)
+            model.groupId
         , br
         , sendButton SendGetGroup model
         , text " "
@@ -4497,19 +4602,28 @@ groupsSelectedUI model =
         , br
         , sendButton SendGetGroupRemovedAccounts model
         , br
-        , textInput "group ids (a,b,...): " 50 SetGroupIds model.groupIds
+        , textInput "group ids (a,b,...): "
+            50
+            (ExplorerUIMsg << SetGroupIds)
+            model.groupIds
         , br
         , sendButton SendGetGroupRelationships model
         , br
         , text "-- writes below here --"
         , br
-        , textInput "group id: " 20 SetGroupId model.groupId
+        , textInput "group id: "
+            20
+            (ExplorerUIMsg << SetGroupId)
+            model.groupId
         , br
         , sendButton SendPostGroupJoin model
         , text " "
         , sendButton SendDeleteGroupJoin model
         , br
-        , textInput "acccount id: " 25 SetAccountId model.accountId
+        , textInput "acccount id: "
+            25
+            (ExplorerUIMsg << SetAccountId)
+            model.accountId
         , br
         , sendButton SendPostGroupRemovedAccounts model
         , text " "
@@ -4517,27 +4631,38 @@ groupsSelectedUI model =
         , br
         , sendButton SendPatchGroupAddAdministrator model
         , br
-        , textInput "status id: " 25 SetStatusId model.statusId
+        , textInput "status id: "
+            25
+            (ExplorerUIMsg << SetStatusId)
+            model.statusId
         , text " "
         , sendButton SendDeleteGroupStatus model
         , br
-        , textInput "title: " 60 SetGroupTitle model.groupTitle
+        , textInput "title: "
+            60
+            (ExplorerUIMsg << SetGroupTitle)
+            model.groupTitle
         , br
         , b "description:"
         , br
         , textarea
-            [ onInput SetGroupDescription
+            [ onInput (ExplorerUIMsg << SetGroupDescription)
             , value model.groupDescription
             , rows 4
             , cols 80
             ]
             []
         , br
-        , renderChooseFile "cover image (19x7): " model.groupCoverImage GetGroupCoverImage
+        , renderChooseFile "cover image (19x7): "
+            model.groupCoverImage
+            (ExplorerUIMsg << GetGroupCoverImage)
         , br
         , sendButton SendPostGroup model
         , br
-        , textInput "group id: " 20 SetGroupId model.groupId
+        , textInput "group id: "
+            20
+            (ExplorerUIMsg << SetGroupId)
+            model.groupId
         , text " "
         , sendButton SendPutGroup model
         ]
@@ -4549,29 +4674,44 @@ listsSelectedUI model =
         [ pspace
         , sendButton SendGetLists model
         , br
-        , textInput "list id: " 25 SetListId model.listId
+        , textInput "list id: "
+            25
+            (ExplorerUIMsg << SetListId)
+            model.listId
         , text " "
         , sendButton SendGetList model
         , text " "
         , sendButton SendGetListAccounts model
         , br
-        , textInput "account id: " 25 SetAccountId model.accountId
+        , textInput "account id: "
+            25
+            (ExplorerUIMsg << SetAccountId)
+            model.accountId
         , text " "
         , sendButton SendGetAccountLists model
         , br
         , text "-- writes below here --"
         , br
-        , textInput "title: " 40 SetListTitle model.listTitle
+        , textInput "title: "
+            40
+            (ExplorerUIMsg << SetListTitle)
+            model.listTitle
         , text " "
         , sendButton SendPostList model
         , br
-        , textInput "list id: " 25 SetListId model.listId
+        , textInput "list id: "
+            25
+            (ExplorerUIMsg << SetListId)
+            model.listId
         , text " "
         , sendButton SendPutList model
         , text " "
         , sendButton SendDeleteList model
         , br
-        , textInput "account ids (a,b,...): " 40 SetAccountIds model.accountIds
+        , textInput "account ids (a,b,...): "
+            40
+            (ExplorerUIMsg << SetAccountIds)
+            model.accountIds
         , br
         , sendButton SendPostListAccounts model
         , text " "
@@ -4583,21 +4723,32 @@ mutesSelectedUI : Model -> Html Msg
 mutesSelectedUI model =
     p []
         [ pspace
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: "
+            10
+            (ExplorerUIMsg << SetLimit)
+            model.pagingInput.limit
         , br
         , sendButton SendGetAccountMutes model
         , br
-        , textInput "account id: " 25 SetAccountId model.accountId
+        , textInput "account id: "
+            25
+            (ExplorerUIMsg << SetAccountId)
+            model.accountId
         , br
         , text "-- writes below here --"
         , br
-        , checkBox ToggleMuteNotifications model.muteNotifications "mute notifications"
+        , checkBox (ExplorerUIMsg ToggleMuteNotifications)
+            model.muteNotifications
+            "mute notifications"
         , text " "
         , sendButton SendPostAccountMute model
         , text " "
         , sendButton SendPostAccountUnmute model
         , br
-        , textInput "status id: " 25 SetStatusId model.statusId
+        , textInput "status id: "
+            25
+            (ExplorerUIMsg << SetStatusId)
+            model.statusId
         , br
         , sendButton SendPostStatusMute model
         , text " "
@@ -4609,15 +4760,29 @@ notificationsSelectedUI : Model -> Html Msg
 notificationsSelectedUI model =
     p []
         [ pspace
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: "
+            10
+            (ExplorerUIMsg << SetLimit)
+            model.pagingInput.limit
         , text " "
-        , checkBox ToggleSmartPaging model.smartPaging "smart paging "
+        , checkBox (ExplorerUIMsg ToggleSmartPaging)
+            model.smartPaging
+            "smart paging "
         , br
-        , textInput "max id: " 25 SetMaxId model.pagingInput.max_id
+        , textInput "max id: "
+            25
+            (ExplorerUIMsg << SetMaxId)
+            model.pagingInput.max_id
         , text " "
-        , textInput "min id: " 25 SetMinId model.pagingInput.min_id
+        , textInput "min id: "
+            25
+            (ExplorerUIMsg << SetMinId)
+            model.pagingInput.min_id
         , br
-        , textInput "since id: " 25 SetSinceId model.pagingInput.since_id
+        , textInput "since id: "
+            25
+            (ExplorerUIMsg << SetSinceId)
+            model.pagingInput.since_id
         , br
         , b "excluded notifications: "
         , excludedNotificationTypeCheckbox "follow" FollowNotification model
@@ -4626,17 +4791,25 @@ notificationsSelectedUI model =
         , excludedNotificationTypeCheckbox "favourite " FavouriteNotification model
         , excludedNotificationTypeCheckbox "poll" PollNotification model
         , br
-        , button IncludeAllNotifications "include all"
+        , button (ExplorerUIMsg IncludeAllNotifications) "include all"
         , text " "
-        , button IncludeOnlyMentionNotifications "mentions only"
+        , button (ExplorerUIMsg IncludeOnlyMentionNotifications) "mentions only"
         , br
-        , textInput "from account id only: " 25 SetNotificationsAccountId model.notificationsAccountId
+        , textInput "from account id only: "
+            25
+            (ExplorerUIMsg << SetNotificationsAccountId)
+            model.notificationsAccountId
         , br
         , sendButton SendGetNotifications model
         , br
-        , textInput "notification id: " 25 SetNotificationId model.notificationId
+        , textInput "notification id: "
+            25
+            (ExplorerUIMsg << SetNotificationId)
+            model.notificationId
         , br
-        , enabledSendButton (model.notificationId /= "") SendGetNotification model
+        , enabledSendButton (model.notificationId /= "")
+            SendGetNotification
+            model
         , br
         , text "-- writes below here --"
         , br
@@ -4645,10 +4818,10 @@ notificationsSelectedUI model =
             model
         , br
         , button
-            (SetDialog <|
+            ((GlobalMsg << SetDialog) <|
                 ConfirmDialog "Clear all notifications? This cannot be undone."
                     "OK"
-                    SendPostClearNotifications
+                    (ExplorerSendMsg SendPostClearNotifications)
             )
           <|
             sendButtonName model.useElmButtonNames SendPostClearNotifications
@@ -4662,13 +4835,19 @@ scheduledStatusesSelectedUI model =
         [ pspace
         , sendButton SendGetScheduledStatuses model
         , br
-        , textInput "scheduled status id: " 25 SetScheduledStatusId model.scheduledStatusId
+        , textInput "scheduled status id: "
+            25
+            (ExplorerUIMsg << SetScheduledStatusId)
+            model.scheduledStatusId
         , br
         , sendButton SendGetScheduledStatus model
         , text " "
         , sendButton SendDeleteScheduledStatus model
         , br
-        , textInput "scheduled at: " 40 SetScheduledAt model.scheduled_at
+        , textInput "scheduled at: "
+            40
+            (ExplorerUIMsg << SetScheduledAt)
+            model.scheduled_at
         , text " "
         , sendButton SendPutScheduledStatus model
         ]
@@ -4678,14 +4857,23 @@ searchSelectedUI : Model -> Html Msg
 searchSelectedUI model =
     p []
         [ pspace
-        , textInput "q: " 40 SetQ model.q
+        , textInput "q: "
+            40
+            (ExplorerUIMsg << SetQ)
+            model.q
         , br
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: "
+            10
+            (ExplorerUIMsg << SetLimit)
+            model.pagingInput.limit
         , text " "
-        , textInput "offset: " 10 SetOffset model.offset
+        , textInput "offset: "
+            10
+            (ExplorerUIMsg << SetOffset)
+            model.offset
         , br
-        , checkBox ToggleResolve model.resolve "resolve "
-        , checkBox ToggleFollowing model.following "following "
+        , checkBox (ExplorerUIMsg ToggleResolve) model.resolve "resolve "
+        , checkBox (ExplorerUIMsg ToggleFollowing) model.following "following "
         , br
         , sendButton SendGetSearch model
         ]
@@ -4695,21 +4883,29 @@ reportsSelectedUI : Model -> Html Msg
 reportsSelectedUI model =
     p []
         [ pspace
-        , textInput "account id: " 25 SetAccountId model.accountId
+        , textInput "account id: "
+            25
+            (ExplorerUIMsg << SetAccountId)
+            model.accountId
         , br
-        , textInput "status ids (a,b,...): " 60 SetStatusIds model.statusIds
+        , textInput "status ids (a,b,...): "
+            60
+            (ExplorerUIMsg << SetStatusIds)
+            model.statusIds
         , br
         , b "comment:"
         , br
         , textarea
-            [ onInput SetReportComment
+            [ onInput (ExplorerUIMsg << SetReportComment)
             , value model.reportComment
             , rows 4
             , cols 80
             ]
             []
         , br
-        , checkBox ToggleForwardReport model.forwardReport "forward"
+        , checkBox (ExplorerUIMsg ToggleForwardReport)
+            model.forwardReport
+            "forward"
         , text " "
         , sendButton SendPostReports model
         ]
@@ -4719,7 +4915,10 @@ statusesSelectedUI : Model -> Html Msg
 statusesSelectedUI model =
     p []
         [ pspace
-        , textInput "status id: " 25 SetStatusId model.statusId
+        , textInput "status id: "
+            25
+            (ExplorerUIMsg << SetStatusId)
+            model.statusId
         , br
         , sendButton SendGetStatus model
         , text " "
@@ -4727,7 +4926,10 @@ statusesSelectedUI model =
         , text " "
         , sendButton SendGetStatusCard model
         , br
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: "
+            10
+            (ExplorerUIMsg << SetLimit)
+            model.pagingInput.limit
         , br
         , sendButton SendGetStatusRebloggedBy model
         , text " "
@@ -4735,9 +4937,18 @@ statusesSelectedUI model =
         , br
         , text "-- writes below here --"
         , br
-        , textInput "status id: " 25 SetStatusId model.statusId
+        , textInput "status id: "
+            25
+            (ExplorerUIMsg << SetStatusId)
+            model.statusId
         , br
-        , button (SetDialog <| ConfirmDialog "Delete Status?" "OK" SendDeleteStatus) <|
+        , button
+            ((GlobalMsg << SetDialog) <|
+                ConfirmDialog "Delete Status?"
+                    "OK"
+                    (ExplorerSendMsg SendDeleteStatus)
+            )
+          <|
             sendButtonName model.useElmButtonNames SendDeleteStatus
         , text " (after confirmation)"
         , br
@@ -4755,27 +4966,39 @@ statusesSelectedUI model =
                     sendButtonName model.useElmButtonNames
                         SendPostStatus
             in
-            button ToggleShowPostStatus <| "Show '" ++ buttonName ++ "'"
+            button (ExplorerUIMsg ToggleShowPostStatus) <| "Show '" ++ buttonName ++ "'"
 
           else
             span []
                 [ b "Status:"
                 , br
                 , textarea
-                    [ onInput SetStatus
+                    [ onInput (ExplorerUIMsg << SetStatus)
                     , value model.status
                     , rows 4
                     , cols 80
                     ]
                     []
                 , br
-                , textInput "in reply to id: " 25 SetInReplyToId model.in_reply_to_id
+                , textInput "in reply to id: "
+                    25
+                    (ExplorerUIMsg << SetInReplyToId)
+                    model.in_reply_to_id
                 , br
-                , textInput "group id: " 20 SetGroupId model.groupId
+                , textInput "group id: "
+                    20
+                    (ExplorerUIMsg << SetGroupId)
+                    model.groupId
                 , br
-                , textInput "quote of id: " 25 SetInQuoteOfId model.quote_of_id
+                , textInput "quote of id: "
+                    25
+                    (ExplorerUIMsg << SetInQuoteOfId)
+                    model.quote_of_id
                 , br
-                , textInput "spoiler text: " 40 SetSpoilerText model.spoiler_text
+                , textInput "spoiler text: "
+                    40
+                    (ExplorerUIMsg << SetSpoilerText)
+                    model.spoiler_text
                 , br
                 , b "visibility: "
                 , visibilityRadio Nothing model
@@ -4784,15 +5007,27 @@ statusesSelectedUI model =
                 , visibilityRadio (Just PrivateVisibility) model
                 , visibilityRadio (Just DirectVisibility) model
                 , br
-                , textInput "scheduled at: " 40 SetScheduledAt model.scheduled_at
+                , textInput "scheduled at: "
+                    40
+                    (ExplorerUIMsg << SetScheduledAt)
+                    model.scheduled_at
                 , br
-                , textInput "language: " 2 SetLanguage model.language
+                , textInput "language: "
+                    2
+                    (ExplorerUIMsg << SetLanguage)
+                    model.language
                 , br
-                , textInput "idempotency key: " 20 SetIdempotencyKey model.idempotencyKey
+                , textInput "idempotency key: "
+                    20
+                    (ExplorerUIMsg << SetIdempotencyKey)
+                    model.idempotencyKey
                 , br
-                , textInput "media ids (a,b,...): " 50 SetMediaIds model.media_ids
+                , textInput "media ids (a,b,...): "
+                    50
+                    (ExplorerUIMsg << SetMediaIds)
+                    model.media_ids
                 , br
-                , button ToggleShowPostStatus "Hide"
+                , button (ExplorerUIMsg ToggleShowPostStatus) "Hide"
                 , text " "
                 , sendButton SendPostStatus model
                 , br
@@ -4803,18 +5038,36 @@ statusesSelectedUI model =
                     , text ")"
                     ]
                 , br
-                , renderChooseFile "media: " model.mediaFile GetMediaFile
+                , renderChooseFile "media: "
+                    model.mediaFile
+                    (ExplorerUIMsg << GetMediaFile)
                 , br
-                , textInput "description: " 50 SetMediaDescription model.mediaDescription
+                , textInput "description: "
+                    50
+                    (ExplorerUIMsg << SetMediaDescription)
+                    model.mediaDescription
                 , br
-                , textInput "focus x: " 5 SetMediaFocusX model.mediaFocus.x
-                , textInput " y: " 5 SetMediaFocusY model.mediaFocus.y
+                , textInput "focus x: "
+                    5
+                    (ExplorerUIMsg << SetMediaFocusX)
+                    model.mediaFocus.x
+                , textInput " y: "
+                    5
+                    (ExplorerUIMsg << SetMediaFocusY)
+                    model.mediaFocus.y
                 , text " "
-                , enabledSendButton (isEnabledPostMedia model) SendPostMedia model
+                , enabledSendButton (isEnabledPostMedia model)
+                    SendPostMedia
+                    model
                 , br
-                , textInput "media id: " 20 SetMediaId model.media_id
+                , textInput "media id: "
+                    20
+                    (ExplorerUIMsg << SetMediaId)
+                    model.media_id
                 , text " "
-                , enabledSendButton (isEnabledPutMedia model) SendPutMedia model
+                , enabledSendButton (isEnabledPutMedia model)
+                    SendPutMedia
+                    model
                 , br
                 , text "-- poll --"
                 , br
@@ -4827,11 +5080,14 @@ statusesSelectedUI model =
                             [ text reason
                             , br
                             ]
-                , textInput "expires in: " 10 SetExpiresIn model.expires_in
+                , textInput "expires in: "
+                    10
+                    (ExplorerUIMsg << SetExpiresIn)
+                    model.expires_in
                 , text " "
-                , checkBox ToggleMultiple model.multiple "multiple"
+                , checkBox (ExplorerUIMsg ToggleMultiple) model.multiple "multiple"
                 , text " "
-                , checkBox ToggleHideTotals model.hide_totals "hide totals"
+                , checkBox (ExplorerUIMsg ToggleHideTotals) model.hide_totals "hide totals"
                 , br
                 , b "options: "
                 , let
@@ -4839,16 +5095,18 @@ statusesSelectedUI model =
                         List.length model.pollOptions
                   in
                   span []
-                    [ enabledButton (len > 2) RemovePollOption "-"
+                    [ enabledButton (len > 2) (ExplorerUIMsg RemovePollOption) "-"
                     , text " "
-                    , enabledButton (len < 4) AddPollOption "+"
+                    , enabledButton (len < 4) (ExplorerUIMsg AddPollOption) "+"
                     ]
                 , span [] <|
                     List.concat <|
                         List.indexedMap
                             (\idx option ->
                                 [ br
-                                , unlabeledTextInput 25 (SetPollOption idx) option
+                                , unlabeledTextInput 25
+                                    (ExplorerUIMsg << SetPollOption idx)
+                                    option
                                 ]
                             )
                             model.pollOptions
@@ -4965,7 +5223,7 @@ visibilityRadio visibility model =
         { buttonValue = visibility
         , radioValue = model.visibility
         , radioName = radioNames.privacy
-        , setter = SetVisibility visibility
+        , setter = ExplorerUIMsg <| SetVisibility visibility
         , label = label
         }
 
@@ -4974,33 +5232,56 @@ timelinesSelectedUI : Model -> Html Msg
 timelinesSelectedUI model =
     p []
         [ pspace
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: "
+            10
+            (ExplorerUIMsg << SetLimit)
+            model.pagingInput.limit
         , text " "
-        , checkBox ToggleSmartPaging model.smartPaging "smart paging "
+        , checkBox (ExplorerUIMsg ToggleSmartPaging)
+            model.smartPaging
+            "smart paging "
         , br
-        , textInput "max id: " 25 SetMaxId model.pagingInput.max_id
+        , textInput "max id: "
+            25
+            (ExplorerUIMsg << SetMaxId)
+            model.pagingInput.max_id
         , text " "
-        , textInput "min id: " 25 SetMinId model.pagingInput.min_id
+        , textInput "min id: "
+            25
+            (ExplorerUIMsg << SetMinId)
+            model.pagingInput.min_id
         , br
-        , textInput "since id: " 25 SetSinceId model.pagingInput.since_id
+        , textInput "since id: "
+            25
+            (ExplorerUIMsg << SetSinceId)
+            model.pagingInput.since_id
         , br
         , sendButton SendGetHomeTimeline model
         , text " "
         , sendButton SendGetConversations model
         , br
-        , checkBox ToggleLocal model.local "local "
-        , checkBox ToggleOnlyMedia model.onlyMedia "media only "
+        , checkBox (ExplorerUIMsg ToggleLocal) model.local "local "
+        , checkBox (ExplorerUIMsg ToggleOnlyMedia) model.onlyMedia "media only "
         , sendButton SendGetPublicTimeline model
         , br
-        , textInput "hashtag: " 30 SetHashtag model.hashtag
+        , textInput "hashtag: "
+            30
+            (ExplorerUIMsg << SetHashtag)
+            model.hashtag
         , text " "
         , sendButton SendGetTagTimeline model
         , br
-        , textInput "list id: " 20 SetListId model.listId
+        , textInput "list id: "
+            20
+            (ExplorerUIMsg << SetListId)
+            model.listId
         , text " "
         , sendButton SendGetListTimeline model
         , br
-        , textInput "group id: " 20 SetGroupId model.groupId
+        , textInput "group id: "
+            20
+            (ExplorerUIMsg << SetGroupId)
+            model.groupId
         , text " "
         , sendButton SendGetGroupTimeline model
         ]
@@ -5070,55 +5351,95 @@ accountsSelectedUI model =
         [ pspace
         , sendButton SendGetVerifyCredentials model
         , br
-        , textInput "username: " 30 SetUsername model.username
+        , textInput "username: "
+            30
+            (ExplorerUIMsg << SetUsername)
+            model.username
         , text " "
         , sendButton SendGetAccountByUsername model
         , br
-        , textInput "account id: " 20 SetAccountId model.accountId
+        , textInput "account id: "
+            20
+            (ExplorerUIMsg << SetAccountId)
+            model.accountId
         , text " "
         , sendButton SendGetAccount model
         , br
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: "
+            10
+            (ExplorerUIMsg << SetLimit)
+            model.pagingInput.limit
         , text " "
         , sendButton SendGetFollowers model
         , text " "
         , sendButton SendGetFollowing model
         , br
-        , textInput "max id: " 25 SetMaxId model.pagingInput.max_id
+        , textInput "max id: "
+            25
+            (ExplorerUIMsg << SetMaxId)
+            model.pagingInput.max_id
         , text " "
-        , textInput "min id: " 25 SetMinId model.pagingInput.min_id
+        , textInput "min id: "
+            25
+            (ExplorerUIMsg << SetMinId)
+            model.pagingInput.min_id
         , br
-        , textInput "since id: " 25 SetSinceId model.pagingInput.since_id
+        , textInput "since id: "
+            25
+            (ExplorerUIMsg << SetSinceId)
+            model.pagingInput.since_id
         , text " "
-        , checkBox ToggleSmartPaging model.smartPaging "smart paging "
+        , checkBox (ExplorerUIMsg ToggleSmartPaging)
+            model.smartPaging
+            "smart paging "
         , br
-        , checkBox ToggleOnlyMedia model.onlyMedia "media only"
+        , checkBox (ExplorerUIMsg ToggleOnlyMedia)
+            model.onlyMedia
+            "media only"
         , text " "
-        , checkBox TogglePinned model.pinned "pinned"
+        , checkBox (ExplorerUIMsg TogglePinned) model.pinned "pinned"
         , text " "
-        , checkBox ToggleExcludeReplies (not model.excludeReplies) "replies"
+        , checkBox (ExplorerUIMsg ToggleExcludeReplies)
+            (not model.excludeReplies)
+            "replies"
         , text " "
-        , checkBox ToggleExcludeReblogs (not model.excludeReblogs) "reblogs"
+        , checkBox (ExplorerUIMsg ToggleExcludeReblogs)
+            (not model.excludeReblogs)
+            "reblogs"
         , text " "
         , sendButton SendGetStatuses model
         , br
-        , textInput "ids (1,2,...): " 40 SetAccountIds model.accountIds
+        , textInput "ids (1,2,...): "
+            40
+            (ExplorerUIMsg << SetAccountIds)
+            model.accountIds
         , text " "
         , sendButton SendGetRelationships model
         , br
-        , textInput "q: " 40 SetQ model.q
+        , textInput "q: " 40 (ExplorerUIMsg << SetQ) model.q
         , br
-        , textInput "limit: " 10 SetLimit model.pagingInput.limit
+        , textInput "limit: "
+            10
+            (ExplorerUIMsg << SetLimit)
+            model.pagingInput.limit
         , text " "
-        , checkBox ToggleResolve model.resolve " resolve "
-        , checkBox ToggleFollowing model.following " following "
+        , checkBox
+            (ExplorerUIMsg ToggleResolve)
+            model.resolve
+            " resolve "
+        , checkBox (ExplorerUIMsg ToggleFollowing) model.following " following "
         , sendButton SendGetSearchAccounts model
         , br
         , text "-- writes below here --"
         , br
-        , textInput "account id: " 20 SetAccountId model.accountId
+        , textInput "account id: "
+            20
+            (ExplorerUIMsg << SetAccountId)
+            model.accountId
         , text " "
-        , checkBox ToggleFollowReblogs model.followReblogs "reblogs "
+        , checkBox (ExplorerUIMsg ToggleFollowReblogs)
+            model.followReblogs
+            "reblogs "
         , if model.isAccountFollowed then
             sendButton SendPostUnfollow model
 
@@ -5139,35 +5460,45 @@ accountsSelectedUI model =
                     sendButtonName model.useElmButtonNames
                         SendPatchUpdateCredentials
             in
-            button ToggleShowUpdateCredentials <| "Show '" ++ buttonName ++ "'"
+            button (ExplorerUIMsg ToggleShowUpdateCredentials) <|
+                "Show '"
+                    ++ buttonName
+                    ++ "'"
 
           else
             span []
-                [ textInput "display name: " 40 SetDisplayName model.displayName
+                [ textInput "display name: "
+                    40
+                    (ExplorerUIMsg << SetDisplayName)
+                    model.displayName
                 , br
                 , b "note:"
                 , br
                 , textarea
                     [ rows 4
                     , cols 50
-                    , onInput SetNote
+                    , onInput (ExplorerUIMsg << SetNote)
                     , value model.note
                     ]
                     []
                 , br
-                , renderChooseFile "avatar: " model.avatarFile GetAvatarFile
+                , renderChooseFile "avatar: "
+                    model.avatarFile
+                    (ExplorerUIMsg << GetAvatarFile)
                 , br
-                , renderChooseFile "header: " model.headerFile GetHeaderFile
+                , renderChooseFile "header: "
+                    model.headerFile
+                    (ExplorerUIMsg << GetHeaderFile)
                 , br
                 , b "privacy: "
                 , privacyRadio PublicPrivacy "public " model
                 , privacyRadio UnlistedPrivacy "unlisted " model
                 , privacyRadio PrivatePrivacy "private " model
                 , br
-                , checkBox ToggleLocked model.locked "blocked"
-                , checkBox ToggleSensitive model.sensitive "sensitive "
+                , checkBox (ExplorerUIMsg ToggleLocked) model.locked "blocked"
+                , checkBox (ExplorerUIMsg ToggleSensitive) model.sensitive "sensitive "
                 , br
-                , textInput "Language: " 2 SetLanguage model.language
+                , textInput "Language: " 2 (ExplorerUIMsg << SetLanguage) model.language
                 , br
                 , b "Profile metadata:"
                 , br
@@ -5178,7 +5509,7 @@ accountsSelectedUI model =
                     |> List.concat
                     |> span []
                 , br
-                , button ToggleShowUpdateCredentials "Hide"
+                , button (ExplorerUIMsg ToggleShowUpdateCredentials) "Hide"
                 , text " "
                 , sendButton SendPatchUpdateCredentials model
                 ]
@@ -5189,7 +5520,7 @@ fieldEditorUI : Field -> Int -> List (Html Msg)
 fieldEditorUI field idx =
     [ input
         [ size 20
-        , onInput <| SetField idx False
+        , onInput <| (ExplorerUIMsg << SetField idx False)
         , value field.name
         , placeholder "name"
         ]
@@ -5197,7 +5528,7 @@ fieldEditorUI field idx =
     , text " "
     , input
         [ size 30
-        , onInput <| SetField idx True
+        , onInput <| (ExplorerUIMsg << SetField idx True)
         , value field.value
         , placeholder "value"
         ]
@@ -5212,7 +5543,7 @@ loginSelectedUI model =
         , b "server: "
         , input
             [ size 30
-            , onInput SetServer
+            , onInput (GlobalMsg << SetServer)
             , value model.server
             , placeholder "mastodon.social"
             ]
@@ -5221,12 +5552,12 @@ loginSelectedUI model =
         , serverSelect model
         , br
         , Html.button
-            [ onClick Login
+            [ onClick (GlobalMsg Login)
             , disabled <| model.server == ""
             ]
             [ b "Login" ]
         , text " "
-        , button SetLoginServer "Set Server"
+        , button (GlobalMsg SetLoginServer) "Set Server"
         ]
 
 
@@ -5285,7 +5616,7 @@ renderDialog model =
         , content = [ text content ]
         , actionBar =
             [ Html.button
-                [ onClick <| SetDialog NoDialog
+                [ onClick <| (GlobalMsg << SetDialog) NoDialog
                 , id cancelButtonId
                 ]
                 [ b "Cancel" ]
@@ -5731,6 +6062,7 @@ encodeWrap prettify value =
 
 type alias SavedModel =
     { loginServer : Maybe String
+    , page : Page
     , token : Maybe String
     , server : String
     , prettify : Bool
@@ -5778,6 +6110,7 @@ type alias SavedModel =
 modelToSavedModel : Model -> SavedModel
 modelToSavedModel model =
     { loginServer = model.loginServer
+    , page = model.page
     , token = model.token
     , server = model.server
     , prettify = model.prettify
@@ -5826,6 +6159,7 @@ savedModelToModel : SavedModel -> Model -> Model
 savedModelToModel savedModel model =
     { model
         | loginServer = savedModel.loginServer
+        , page = savedModel.page
         , token = savedModel.token
         , server = savedModel.server
         , prettify = savedModel.prettify
@@ -5927,10 +6261,43 @@ pagingInputDecoder =
         |> required "limit" JD.string
 
 
+encodePage : Page -> Value
+encodePage page =
+    JE.string <|
+        case page of
+            SplashScreenPage ->
+                "SplashScreenPage"
+
+            ColumnsPage ->
+                "ColumnsPage"
+
+            ExplorerPage ->
+                "ExplorerPage"
+
+
+pageDecoder : Decoder Page
+pageDecoder =
+    JD.string
+        |> JD.andThen
+            (\p ->
+                JD.succeed <|
+                    case p of
+                        "ColumnsPage" ->
+                            ColumnsPage
+
+                        "ExplorerPage" ->
+                            ExplorerPage
+
+                        _ ->
+                            SplashScreenPage
+            )
+
+
 encodeSavedModel : SavedModel -> Value
 encodeSavedModel savedModel =
     JE.object
         [ ( "loginServer", ED.encodeMaybe JE.string savedModel.loginServer )
+        , ( "page", encodePage savedModel.page )
         , ( "token", ED.encodeMaybe JE.string savedModel.token )
         , ( "server", JE.string savedModel.server )
         , ( "prettify", JE.bool savedModel.prettify )
@@ -5983,6 +6350,7 @@ savedModelDecoder : Decoder SavedModel
 savedModelDecoder =
     JD.succeed SavedModel
         |> optional "loginServer" (JD.nullable JD.string) Nothing
+        |> required "page" pageDecoder
         |> optional "token" (JD.nullable JD.string) Nothing
         |> required "server" JD.string
         |> optional "prettify" JD.bool True
@@ -6119,7 +6487,7 @@ webSocketSend message =
 -}
 getCmdPort : String -> model -> (Value -> Cmd Msg)
 getCmdPort moduleName _ =
-    PortFunnels.getCmdPort Process moduleName False
+    PortFunnels.getCmdPort (GlobalMsg << Process) moduleName False
 
 
 funnelDict : FunnelDict Model Msg
@@ -6162,7 +6530,7 @@ special =
 ---
 
 
-dollarButtonNameDict : Dict String Msg
+dollarButtonNameDict : Dict String ExplorerSendMsg
 dollarButtonNameDict =
     Dict.fromList
         [ ( "GetGroups", SendGetGroups )
@@ -6259,13 +6627,13 @@ dollarButtonNameDict =
         ]
 
 
-dollarButtonNameToMsg : String -> Msg
+dollarButtonNameToMsg : String -> ExplorerSendMsg
 dollarButtonNameToMsg dollarButtonName =
     Dict.get (String.dropLeft 1 dollarButtonName) dollarButtonNameDict
-        |> Maybe.withDefault Noop
+        |> Maybe.withDefault SendNothing
 
 
-buttonNameAlist : List ( Msg, ( String, String ) )
+buttonNameAlist : List ( ExplorerSendMsg, ( String, String ) )
 buttonNameAlist =
     [ ( SendGetGroups, ( "GetGroups", "GET groups" ) )
     , ( SendGetGroup, ( "GetGroup", "GET groups/:id" ) )
@@ -6375,7 +6743,7 @@ unknownButtonName =
     "**Unknown**"
 
 
-sendButtonName : Bool -> Msg -> String
+sendButtonName : Bool -> ExplorerSendMsg -> String
 sendButtonName useElmButtonNames msg =
     case LE.find (\( m, _ ) -> m == msg) buttonNameAlist of
         Nothing ->
@@ -6385,11 +6753,12 @@ sendButtonName useElmButtonNames msg =
             tupleToButtonName useElmButtonNames tuple
 
 
-enabledSendButton : Bool -> Msg -> Model -> Html Msg
+enabledSendButton : Bool -> ExplorerSendMsg -> Model -> Html Msg
 enabledSendButton enabled msg model =
-    enabledButton enabled msg <| sendButtonName model.useElmButtonNames msg
+    enabledButton enabled (ExplorerSendMsg msg) <|
+        sendButtonName model.useElmButtonNames msg
 
 
-sendButton : Msg -> Model -> Html Msg
+sendButton : ExplorerSendMsg -> Model -> Html Msg
 sendButton =
     enabledSendButton True
