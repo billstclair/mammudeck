@@ -13,7 +13,7 @@
 module Main exposing (main)
 
 import Browser exposing (Document, UrlRequest)
-import Browser.Dom as Dom
+import Browser.Dom as Dom exposing (Viewport)
 import Browser.Events as Events
 import Browser.Navigation as Navigation exposing (Key)
 import Char
@@ -122,6 +122,7 @@ import PortFunnels exposing (FunnelDict, Handler(..), State)
 import Regex
 import String.Extra as SE
 import Task
+import Time exposing (Month, Posix, Zone)
 import Url exposing (Url)
 import Url.Parser as Parser exposing ((<?>))
 import Url.Parser.Query as QP
@@ -319,6 +320,9 @@ type alias Model =
     , msg : Maybe String
     , started : Started
     , funnelState : State
+    , here : Zone
+    , now : Maybe Posix
+    , windowSize : ( Int, Int )
     }
 
 
@@ -340,7 +344,10 @@ type Msg
 
 
 type GlobalMsg
-    = SetPage String
+    = WindowResize Int Int
+    | Here Zone
+    | Now Posix
+    | SetPage String
     | SetResponseState JsonTree.State
     | SetEntityState JsonTree.State
     | ExpandAll WhichJson
@@ -597,6 +604,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ PortFunnels.subscriptions (GlobalMsg << Process) model
+        , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
         , if model.dialog /= NoDialog then
             Events.onKeyDown keyDecoder
 
@@ -711,7 +719,7 @@ init value url key =
     , token = Nothing
     , server = ""
     , loginServer = Nothing
-    , feedSetDefinition = Types.emptyFeedSetDefinition
+    , feedSetDefinition = Types.defaultFeedSetDefinition
     , prettify = True
     , style = LightStyle
     , selectedRequest = LoginSelected
@@ -754,7 +762,7 @@ init value url key =
 
     -- Non-persistent below here
     , dialog = NoDialog
-    , feedSet = Types.emptyFeedSet
+    , feedSet = Types.defaultFeedSet
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -809,6 +817,9 @@ init value url key =
     , msg = msg
     , started = NotStarted
     , funnelState = initialFunnelState
+    , here = Time.utc
+    , now = Nothing
+    , windowSize = ( 1024, 768 )
     }
         -- As soon as the localStorage module reports in,
         -- we'll load the saved model,
@@ -823,7 +834,19 @@ init value url key =
 
                 _ ->
                     Cmd.none
+            , Task.perform getViewport Dom.getViewport
+            , Task.perform (GlobalMsg << Here) Time.here
+            , Task.perform (GlobalMsg << Now) Time.now
             ]
+
+
+getViewport : Viewport -> Msg
+getViewport viewport =
+    let
+        vp =
+            viewport.viewport
+    in
+    GlobalMsg <| WindowResize (round vp.width) (round vp.height)
 
 
 storageHandler : LocalStorage.Response -> PortFunnels.State -> Model -> ( Model, Cmd Msg )
@@ -1266,6 +1289,20 @@ updateInternal msg model =
 globalMsg : GlobalMsg -> Model -> ( Model, Cmd Msg )
 globalMsg msg model =
     case msg of
+        WindowResize w h ->
+            { model
+                | windowSize = ( w, h )
+            }
+                |> withNoCmd
+
+        Here zone ->
+            { model | here = zone }
+                |> withNoCmd
+
+        Now posix ->
+            { model | now = Just posix }
+                |> withNoCmd
+
         SetPage pageString ->
             { model | page = stringToPage pageString }
                 |> withNoCmd

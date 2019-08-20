@@ -22,6 +22,8 @@ module Mammudeck.Types exposing
     , Renderer
     , UserFeedFlags
     , allButMentionNotificationExclusions
+    , defaultFeedSet
+    , defaultFeedSetDefinition
     , defaultNotificationExclusions
     , defaultPublicFeedFlags
     , defaultUserFeedFlags
@@ -42,6 +44,8 @@ import Mastodon.Entity
         , Status
         )
 import Mastodon.Request exposing (Error, Response)
+import Task
+import Time exposing (Month, Posix, Zone)
 
 
 type alias UserFeedFlags =
@@ -185,6 +189,27 @@ emptyFeedSetDefinition =
     }
 
 
+defaultFeedSetDefinition : FeedSetDefinition
+defaultFeedSetDefinition =
+    { name = "default"
+    , feedTypes =
+        [ PublicFeed { flags = Nothing }
+        , PublicFeed
+            { flags =
+                Just
+                    { local = False
+                    , media_only = False
+                    }
+            }
+        ]
+    }
+
+
 emptyFeedSet : FeedSet
 emptyFeedSet =
     feedSetDefinitionToFeedSet emptyFeedSetDefinition
+
+
+defaultFeedSet : FeedSet
+defaultFeedSet =
+    feedSetDefinitionToFeedSet defaultFeedSetDefinition
