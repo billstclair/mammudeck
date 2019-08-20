@@ -4056,60 +4056,79 @@ pageSelector showColumns page =
 
 renderSplashScreen : Model -> Html Msg
 renderSplashScreen model =
+    let
+        { backgroundColor, color } =
+            getStyle model.style
+    in
     div
-        [ style "width" "40em"
-        , style "margin" "auto"
+        [ style "background-color" backgroundColor
+        , style "padding" "1em 0 0 0"
+        , style "margin" "0"
+        , style "width" "auto"
         ]
-        [ h2 [ style "text-align" "center" ]
-            [ text "Mammudeck" ]
-        , pageSelector (model.loginServer /= Nothing) model.page
-        , if model.loginServer == Nothing then
-            p []
-                [ text "Enter a 'server' name and click 'Login' or 'Set Server'."
-                ]
+        [ div
+            [ style "color" color
+            , style "background-color" backgroundColor
+            , style "padding" "1em 3em 1em 3em"
+            , style "max-width" "fill-available"
+            , style "width" "40em"
+            , style "margin" "auto"
+            ]
+            [ h2 [ style "text-align" "center" ]
+                [ text "Mammudeck" ]
+            , pageSelector (model.loginServer /= Nothing) model.page
+            , if model.loginServer == Nothing then
+                p []
+                    [ text "Enter a 'server' name and click 'Login' or 'Set Server'."
+                    ]
 
-          else
-            primaryServerLine model
-        , loginSelectedUI model
-        , Markdown.toHtml []
-            """
+              else
+                primaryServerLine model
+            , loginSelectedUI model
+            , Markdown.toHtml []
+                """
 Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a work in progress. Keep an eye on the "Columns" page for new features. Use the "API Explorer" page to do low-level API hacking.
 
 [Wikipedia says](https://en.wikipedia.org/wiki/Mastodon) that "Mastodons... are any species of extinct proboscideans in the genus Mammut (family Mammutidae), distantly related to elephants..." I removed the ending "t" from "Mammut" and added "deck" to get "Mammudeck".
 
 There's a huge list of servers at [fediverse.network](https://fediverse.network/). This webapp doesn't know how to register a new account (yet), so you'll have to do that on the server's web site, then come back here to log in.
             """
-        , p [ style "text-align" "center" ]
-            [ img
-                [ src "images/mammoth.jpg"
-                , style "width" "500"
-                , style "height" "360"
-                , alt "Mammoth"
+            , p [ style "text-align" "center" ]
+                [ img
+                    [ src "images/mammoth-500x360.png"
+                    , style "width" "500"
+                    , style "height" "360"
+                    , alt "Mammoth"
+                    ]
+                    []
                 ]
-                []
-            ]
-        , p [ style "text-align" "center" ]
-            [ link "@imacpr0n@mastodon.social"
-                "https://mastodon.social/@imacpr0n"
-            , br
-            , link "@billstclair@accela.online"
-                "https://accela.online/billstclair"
-            , br
-            , text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
-            , br
-            , imageLink
-                { imageUrl = "images/elm-logo-125x125.png"
-                , linkUrl = "https://elm-lang.org/"
-                , altText = "Elm Inside"
-                , h = 32
-                }
-            , text " "
-            , imageLink
-                { imageUrl = "images/GitHub-Mark-32px.png"
-                , linkUrl = "https://github.com/billstclair/mammudeck"
-                , altText = "GitHub"
-                , h = 32
-                }
+            , p [ style "text-align" "center" ]
+                [ checkBox (ExplorerUIMsg ToggleStyle)
+                    (model.style == DarkStyle)
+                    "Dark Mode"
+                , br
+                , link "@imacpr0n@mastodon.social"
+                    "https://mastodon.social/@imacpr0n"
+                , br
+                , link "@billstclair@accela.online"
+                    "https://accela.online/billstclair"
+                , br
+                , text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
+                , br
+                , imageLink
+                    { imageUrl = "images/elm-logo-125x125.png"
+                    , linkUrl = "https://elm-lang.org/"
+                    , altText = "Elm Inside"
+                    , h = 32
+                    }
+                , text " "
+                , imageLink
+                    { imageUrl = "images/GitHub-Mark-32px.png"
+                    , linkUrl = "https://github.com/billstclair/mammudeck"
+                    , altText = "GitHub"
+                    , h = 32
+                    }
+                ]
             ]
         ]
 
