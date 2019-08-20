@@ -25,6 +25,11 @@ module Mammudeck.Types exposing
     , defaultNotificationExclusions
     , defaultPublicFeedFlags
     , defaultUserFeedFlags
+    , emptyFeedSet
+    , emptyFeedSetDefinition
+    , feedSetDefinitionToFeedSet
+    , feedSetToDefinition
+    , feedTypeToElements
     )
 
 import Html exposing (Html)
@@ -93,14 +98,31 @@ type FeedType
         { accountId : Maybe String
         , exclusions : List NotificationType
         }
+    | ConversationsFeed
     | SearchFeed { q : String, resolve : Bool, following : Bool }
 
 
 type FeedElements
     = StatusElements (List Status)
     | NotificationElements (List Notification)
-    | ConversationElements (List Conversation)
+    | ConversationsElements (List Conversation)
     | ResultsElements (List Results)
+
+
+feedTypeToElements : FeedType -> FeedElements
+feedTypeToElements feedType =
+    case feedType of
+        NotificationFeed _ ->
+            NotificationElements []
+
+        ConversationsFeed ->
+            ConversationsElements []
+
+        SearchFeed _ ->
+            ResultsElements []
+
+        _ ->
+            StatusElements []
 
 
 type alias Feed =
@@ -133,3 +155,36 @@ type alias FeedSetDefinition =
     { name : String
     , feedTypes : List FeedType
     }
+
+
+feedSetToDefinition : FeedSet -> FeedSetDefinition
+feedSetToDefinition { name, feeds } =
+    { name = name
+    , feedTypes = List.map .feedType feeds
+    }
+
+
+feedSetDefinitionToFeedSet : FeedSetDefinition -> FeedSet
+feedSetDefinitionToFeedSet { name, feedTypes } =
+    { name = name
+    , feeds =
+        List.map
+            (\feedType ->
+                { feedType = feedType
+                , elements = feedTypeToElements feedType
+                }
+            )
+            feedTypes
+    }
+
+
+emptyFeedSetDefinition : FeedSetDefinition
+emptyFeedSetDefinition =
+    { name = ""
+    , feedTypes = []
+    }
+
+
+emptyFeedSet : FeedSet
+emptyFeedSet =
+    feedSetDefinitionToFeedSet emptyFeedSetDefinition
