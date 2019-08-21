@@ -93,7 +93,8 @@ allButMentionNotificationExclusions =
 
 
 type FeedType
-    = UserFeed { username : String, id : String, flags : Maybe UserFeedFlags }
+    = HomeFeed
+    | UserFeed { username : String, id : String, flags : Maybe UserFeedFlags }
     | PublicFeed { flags : Maybe PublicFeedFlags }
     | HashtagFeed String
     | ListFeed String
@@ -193,15 +194,8 @@ defaultFeedSetDefinition : FeedSetDefinition
 defaultFeedSetDefinition =
     { name = "default"
     , feedTypes =
-        [ PublicFeed { flags = Nothing }
-
-        --        , PublicFeed
-        --            { flags =
-        --                Just
-        --                    { local = False
-        --                    , only_media = False
-        --                    }
-        --            }
+        [ HomeFeed
+        , PublicFeed { flags = Nothing }
         ]
     }
 

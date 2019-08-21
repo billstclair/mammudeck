@@ -69,6 +69,8 @@ import Html.Attributes
         , value
         )
 import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
+import Html.Parser as Parser exposing (Node)
+import Html.Parser.Util as Util
 import Http
 import Json.Decode as JD exposing (Decoder)
 import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, required)
@@ -1760,6 +1762,11 @@ reloadFeed { feedType } model =
     let
         request =
             case feedType of
+                HomeFeed ->
+                    Just <|
+                        TimelinesRequest <|
+                            Request.GetHomeTimeline { paging = Nothing }
+
                 PublicFeed { flags } ->
                     Just <|
                         TimelinesRequest <|
@@ -4323,24 +4330,41 @@ leftColumnWidth =
 
 renderLeftColumn : Model -> Html Msg
 renderLeftColumn model =
-    span []
+    let
+        { color } =
+            getStyle model.style
+    in
+    div [ style "color" color ]
         [ button (ColumnsUIMsg ReloadAllColumns) "reload"
+        , br
+        , checkBox (ExplorerUIMsg ToggleStyle)
+            (model.style == DarkStyle)
+            "dark"
         ]
 
 
 renderFeed : Model -> Feed -> Html Msg
 renderFeed model { feedType, elements } =
+    let
+        { color } =
+            getStyle model.style
+    in
     case elements of
         StatusElements statuses ->
-            table
-                [ style "width" "100%"
-                ]
-                [ tr [ style "width" "100%" ] <|
-                    List.map (renderStatus model) statuses
-                ]
+            sectionDiv color <|
+                List.map (renderStatus model) statuses
 
         _ ->
             text ""
+
+
+sectionDiv : String -> List (Html Msg) -> Html Msg
+sectionDiv color body =
+    div
+        [ style "width" "100%"
+        , style "border" <| "1px solid " ++ color
+        ]
+        body
 
 
 renderStatus : Model -> Status -> Html Msg
@@ -4348,16 +4372,29 @@ renderStatus model status =
     let
         account =
             status.account
+
+        { color } =
+            getStyle model.style
+
+        body =
+            case Parser.run status.content of
+                Ok nodes ->
+                    Util.toVirtualDom nodes
+
+                Err _ ->
+                    [ text status.content ]
     in
-    td
-        [ style "width" "100%"
-        , style "border" "1px solid black"
-        ]
-        [ b account.username
-        , br
-        , b account.display_name
-        , p []
-            [ text status.content ]
+    sectionDiv
+        color
+        [ sectionDiv
+            color
+            [ b account.username
+            , br
+            , b account.display_name
+            ]
+        , sectionDiv
+            color
+            body
         ]
 
 
