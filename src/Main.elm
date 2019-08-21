@@ -101,6 +101,7 @@ import Mastodon.Entity as Entity
         , Focus
         , NotificationType(..)
         , Privacy(..)
+        , Status
         , Visibility(..)
         )
 import Mastodon.Login as Login exposing (FetchAccountOrRedirect(..))
@@ -372,6 +373,7 @@ type GlobalMsg
 
 type ColumnsUIMsg
     = ColumnsUINoop
+    | ReloadAllColumns
 
 
 type ColumnsSendMsg
@@ -1735,7 +1737,12 @@ These change the Model, but don't send anything over the wire to any instances.
 -}
 columnsUIMsg : ColumnsUIMsg -> Model -> ( Model, Cmd Msg )
 columnsUIMsg msg model =
-    model |> withNoCmd
+    case msg of
+        ColumnsUINoop ->
+            model |> withNoCmd
+
+        ReloadAllColumns ->
+            model |> withNoCmd
 
 
 {-| Process Requests sent from the columns page.
@@ -4209,14 +4216,103 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
         ]
 
 
+{-| Pixels
+-}
+columnWidth : Int
+columnWidth =
+    120
+
+
+leftColumnWidth : Int
+leftColumnWidth =
+    columnWidth
+
+
+renderLeftColumn : Model -> Html Msg
+renderLeftColumn model =
+    span []
+        [ button (ColumnsUIMsg ReloadAllColumns) "reload"
+        ]
+
+
+renderFeed : Model -> Feed -> Html Msg
+renderFeed model { feedType, elements } =
+    case elements of
+        StatusElements statuses ->
+            table
+                [ style "width" "100%"
+                ]
+                [ tr [ style "width" "100%" ] <|
+                    List.map (renderStatus model) statuses
+                ]
+
+        _ ->
+            text ""
+
+
+renderStatus : Model -> Status -> Html Msg
+renderStatus model status =
+    let
+        account =
+            status.account
+    in
+    td
+        [ style "width" "100%"
+        , style "border" "1px solid black"
+        ]
+        [ b account.username
+        , br
+        , b account.display_name
+        , p []
+            [ text status.content ]
+        ]
+
+
+px : Int -> String
+px int =
+    String.fromInt int ++ "px"
+
+
 renderColumns : Model -> Html Msg
 renderColumns model =
+    let
+        { feeds } =
+            model.feedSet
+
+        ( _, h ) =
+            model.windowSize
+
+        tableWidth =
+            leftColumnWidth + List.length feeds * columnWidth
+    in
     renderCenteredScreen model
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
         , pageSelector (model.loginServer /= Nothing) model.page
         , br
-        , text "TODO"
+        , table
+            [ style "width" <| px tableWidth
+            , style "height" <| px h
+            ]
+            [ tr [ style "width" <| px tableWidth ] <|
+                List.concat
+                    [ [ td
+                            [ style "width" <| px leftColumnWidth
+                            , style "vertical-align" "top"
+                            ]
+                            [ renderLeftColumn model ]
+                      ]
+                    , List.map
+                        (\feed ->
+                            td
+                                [ style "width" <| px columnWidth
+                                , style "vertical-align" "top"
+                                ]
+                                [ renderFeed model feed ]
+                        )
+                        feeds
+                    ]
+            ]
         ]
 
 
