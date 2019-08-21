@@ -49,7 +49,7 @@ import Time exposing (Month, Posix, Zone)
 
 
 type alias UserFeedFlags =
-    { media_only : Bool
+    { only_media : Bool
     , pinned : Bool
     , replies : Bool
     , reblogs : Bool
@@ -58,7 +58,7 @@ type alias UserFeedFlags =
 
 defaultUserFeedFlags : UserFeedFlags
 defaultUserFeedFlags =
-    { media_only = False
+    { only_media = False
     , pinned = False
     , replies = True
     , reblogs = True
@@ -67,14 +67,14 @@ defaultUserFeedFlags =
 
 type alias PublicFeedFlags =
     { local : Bool
-    , media_only : Bool
+    , only_media : Bool
     }
 
 
 defaultPublicFeedFlags : PublicFeedFlags
 defaultPublicFeedFlags =
     { local = True
-    , media_only = False
+    , only_media = False
     }
 
 
@@ -194,13 +194,14 @@ defaultFeedSetDefinition =
     { name = "default"
     , feedTypes =
         [ PublicFeed { flags = Nothing }
-        , PublicFeed
-            { flags =
-                Just
-                    { local = False
-                    , media_only = False
-                    }
-            }
+
+        --        , PublicFeed
+        --            { flags =
+        --                Just
+        --                    { local = False
+        --                    , only_media = False
+        --                    }
+        --            }
         ]
     }
 

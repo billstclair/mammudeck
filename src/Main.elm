@@ -378,6 +378,7 @@ type ColumnsUIMsg
 
 type ColumnsSendMsg
     = ColumnsSendNoop
+    | ReceiveFeed FeedType (Result Error Response)
 
 
 type ExplorerUIMsg
@@ -1742,7 +1743,52 @@ columnsUIMsg msg model =
             model |> withNoCmd
 
         ReloadAllColumns ->
+            let
+                getFeed : Feed -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+                getFeed feed ( mdl, cmds ) =
+                    let
+                        ( mdl2, cmd ) =
+                            reloadFeed feed mdl
+                    in
+                    ( mdl2, Cmd.batch [ cmd, cmds ] )
+            in
+            List.foldr getFeed ( model, Cmd.none ) model.feedSet.feeds
+
+
+reloadFeed : Feed -> Model -> ( Model, Cmd Msg )
+reloadFeed { feedType } model =
+    let
+        request =
+            case feedType of
+                PublicFeed { flags } ->
+                    Just <|
+                        TimelinesRequest <|
+                            Request.GetPublicTimeline <|
+                                -- Need to handle paging
+                                case flags of
+                                    Nothing ->
+                                        { local = True
+                                        , only_media = False
+                                        , paging = Nothing
+                                        }
+
+                                    Just { local, only_media } ->
+                                        { local = local
+                                        , only_media = only_media
+                                        , paging = Nothing
+                                        }
+
+                _ ->
+                    Nothing
+    in
+    case request of
+        Nothing ->
             model |> withNoCmd
+
+        Just req ->
+            sendGeneralRequest (ColumnsSendMsg << ReceiveFeed feedType)
+                req
+                model
 
 
 {-| Process Requests sent from the columns page.
@@ -1752,7 +1798,52 @@ These send requests over the wire to instances.
 -}
 columnsSendMsg : ColumnsSendMsg -> Model -> ( Model, Cmd Msg )
 columnsSendMsg msg model =
-    model |> withNoCmd
+    case msg of
+        ColumnsSendNoop ->
+            model |> withNoCmd
+
+        ReceiveFeed feedType result ->
+            let
+                ( mdl, cmd ) =
+                    receiveResponse result model
+            in
+            case mdl.msg of
+                Just _ ->
+                    mdl |> withCmd cmd
+
+                Nothing ->
+                    case mdl.entity of
+                        Nothing ->
+                            mdl |> withCmd cmd
+
+                        Just e ->
+                            case e of
+                                StatusListEntity statuses ->
+                                    let
+                                        feedSet =
+                                            mdl.feedSet
+
+                                        feeds =
+                                            LE.updateIf
+                                                (\feed ->
+                                                    feedType == feed.feedType
+                                                )
+                                                (\feed ->
+                                                    { feed
+                                                        | elements =
+                                                            StatusElements statuses
+                                                    }
+                                                )
+                                                feedSet.feeds
+                                    in
+                                    { mdl
+                                        | feedSet =
+                                            { feedSet | feeds = feeds }
+                                    }
+                                        |> withCmd cmd
+
+                                _ ->
+                                    mdl |> withCmd cmd
 
 
 {-| Process UI messages from the API Explorer page.
@@ -3617,7 +3708,12 @@ smartPaging entities getid paging model =
 
 
 sendRequest : Request -> Model -> ( Model, Cmd Msg )
-sendRequest request model =
+sendRequest =
+    sendGeneralRequest (ExplorerSendMsg << ReceiveResponse)
+
+
+sendGeneralRequest : (Result Error Response -> Msg) -> Request -> Model -> ( Model, Cmd Msg )
+sendGeneralRequest tagger request model =
     case model.loginServer of
         Nothing ->
             model |> withNoCmd
@@ -3640,10 +3736,7 @@ sendRequest request model =
                 , selectedKeyValue = ""
             }
                 |> withCmd
-                    (Request.rawRequestToCmd
-                        (ExplorerSendMsg << ReceiveResponse)
-                        rawRequest
-                    )
+                    (Request.rawRequestToCmd tagger rawRequest)
 
 
 saveAuthorization : String -> Authorization -> Model -> ( Model, Cmd Msg )
