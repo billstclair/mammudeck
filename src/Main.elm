@@ -4374,25 +4374,26 @@ renderFeed model { feedType, elements } =
     div
         [ style "width" <| px columnWidth
         , style "height" <| px (h - 60)
-        , style "overflow-y" "scroll"
-        , style "overflow-x" "hidden"
         , style "border" <| "1px solid " ++ color
         ]
-    <|
-        List.concat
-            [ [ div
-                    [ style "border" <| "1px solid " ++ color
-                    , style "text-align" "center"
-                    ]
-                    [ feedTitle feedType ]
-              ]
-            , case elements of
+        [ div
+            [ style "border" <| "1px solid " ++ color
+            , style "text-align" "center"
+            ]
+            [ feedTitle feedType ]
+        , div
+            [ style "height" "calc(100% - 1.4em)"
+            , style "overflow-y" "auto"
+            , style "overflow-x" "hidden"
+            ]
+          <|
+            case elements of
                 StatusElements statuses ->
                     List.map (renderStatus model) statuses
 
                 _ ->
                     [ text "" ]
-            ]
+        ]
 
 
 feedTitle : FeedType -> Html Msg
