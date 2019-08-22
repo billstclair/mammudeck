@@ -30,8 +30,10 @@ import Html.Styled as Html
         ( Attribute
         , Html
         , a
+        , col
         , div
         , h2
+        , hr
         , img
         , input
         , option
@@ -51,6 +53,7 @@ import Html.Styled.Attributes
         ( alt
         , autofocus
         , checked
+        , class
         , cols
         , disabled
         , height
@@ -72,6 +75,7 @@ import Html.Styled.Attributes
         )
 import Html.Styled.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
 import Http
+import Iso8601
 import Json.Decode as JD exposing (Decoder)
 import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, required)
 import Json.Encode as JE exposing (Value)
@@ -96,6 +100,8 @@ import Mastodon.Entity as Entity
     exposing
         ( Account
         , App
+        , Attachment
+        , AttachmentType(..)
         , Authorization
         , Entity(..)
         , Field
@@ -126,6 +132,8 @@ import Regex
 import String.Extra as SE
 import Task
 import Time exposing (Month, Posix, Zone)
+import Time.Format as Format
+import Time.Format.Config.Configs as Configs
 import Url exposing (Url)
 import Url.Parser as Parser exposing ((<?>))
 import Url.Parser.Query as QP
@@ -1296,7 +1304,7 @@ globalMsg msg model =
     case msg of
         WindowResize w h ->
             { model
-                | windowSize = ( w, h )
+                | windowSize = Debug.log "windowSize" ( w, h )
             }
                 |> withNoCmd
 
@@ -4122,7 +4130,7 @@ type alias ImageSpec =
     { imageUrl : String
     , linkUrl : String
     , altText : String
-    , h : Int
+    , h : String
     }
 
 
@@ -4135,7 +4143,7 @@ imageLink { imageUrl, linkUrl, altText, h } =
         [ img
             [ src imageUrl
             , alt altText
-            , height h
+            , style "height" h
             , title altText
             ]
             []
@@ -4199,17 +4207,16 @@ view model =
     }
 
 
-pageSelector : Bool -> Page -> Html Msg
-pageSelector showColumns page =
+pageSelector : Bool -> Bool -> Page -> Html Msg
+pageSelector showLabel showColumns page =
     span []
-        [ b "Page: "
+        [ if showLabel then
+            b "Page: "
+
+          else
+            text ""
         , select [ onInput (GlobalMsg << SetPage) ]
-            [ option
-                [ value "SplashScreenPage"
-                , selected <| page == SplashScreenPage
-                ]
-                [ text "Splash Screen" ]
-            , if showColumns then
+            [ if showColumns then
                 option
                     [ value "ColumnsPage"
                     , selected <| page == ColumnsPage
@@ -4218,6 +4225,11 @@ pageSelector showColumns page =
 
               else
                 text ""
+            , option
+                [ value "SplashScreenPage"
+                , selected <| page == SplashScreenPage
+                ]
+                [ text "Splash Screen" ]
             , option
                 [ value "ExplorerPage"
                 , selected <| page == ExplorerPage
@@ -4235,14 +4247,14 @@ renderCenteredScreen model body =
     in
     div
         [ style "background-color" backgroundColor
-        , style "padding" "1em 0 0 0"
+        , style "padding" "0 0 0 0"
         , style "margin" "0"
         , style "width" "auto"
         ]
         [ div
             [ style "color" color
             , style "background-color" backgroundColor
-            , style "padding" "1em 3em 1em 3em"
+            , style "padding" "0em 3em 0em 3em"
             , style "max-width" "fill-available"
             , style "width" "40em"
             , style "margin" "auto"
@@ -4256,7 +4268,7 @@ renderSplashScreen model =
     renderCenteredScreen model
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
-        , pageSelector (model.loginServer /= Nothing) model.page
+        , pageSelector True (model.loginServer /= Nothing) model.page
         , if model.loginServer == Nothing then
             p []
                 [ text "Enter a 'server' name and click 'Login' or 'Set Server'."
@@ -4291,8 +4303,8 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
             , link "@imacpr0n@mastodon.social"
                 "https://mastodon.social/@imacpr0n"
             , br
-            , link "@billstclair@accela.online"
-                "https://accela.online/billstclair"
+            , link "@billstclair@kiwifarms.cc"
+                "https://kiwifarms.cc/billstclair"
             , br
             , text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
             , br
@@ -4300,7 +4312,7 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
                 { imageUrl = "images/elm-logo-125x125.png"
                 , linkUrl = "https://elm-lang.org/"
                 , altText = "Elm Inside"
-                , h = 32
+                , h = "32px"
                 }
             , text " "
             , imageLink
@@ -4312,7 +4324,7 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
                         "images/GitHub-Mark-32px.png"
                 , linkUrl = "https://github.com/billstclair/mammudeck"
                 , altText = "GitHub"
-                , h = 32
+                , h = "32px"
                 }
             ]
         ]
@@ -4322,12 +4334,12 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
 -}
 columnWidth : Int
 columnWidth =
-    120
+    300
 
 
 leftColumnWidth : Int
 leftColumnWidth =
-    columnWidth
+    120
 
 
 renderLeftColumn : Model -> Html Msg
@@ -4336,8 +4348,13 @@ renderLeftColumn model =
         { color } =
             getStyle model.style
     in
-    div [ style "color" color ]
+    div
+        [ style "color" color
+        , style "width" <| px leftColumnWidth
+        ]
         [ button (ColumnsUIMsg ReloadAllColumns) "reload"
+        , br
+        , pageSelector False (model.loginServer /= Nothing) model.page
         , br
         , checkBox (ExplorerUIMsg ToggleStyle)
             (model.style == DarkStyle)
@@ -4350,23 +4367,48 @@ renderFeed model { feedType, elements } =
     let
         { color } =
             getStyle model.style
+
+        ( _, h ) =
+            model.windowSize
     in
-    case elements of
-        StatusElements statuses ->
-            sectionDiv color <|
-                List.map (renderStatus model) statuses
+    div
+        [ style "width" <| px columnWidth
+        , style "height" <| px (h - 60)
+        , style "overflow-y" "scroll"
+        , style "overflow-x" "hidden"
+        , style "border" <| "1px solid " ++ color
+        ]
+    <|
+        List.concat
+            [ [ div
+                    [ style "border" <| "1px solid " ++ color
+                    , style "text-align" "center"
+                    ]
+                    [ feedTitle feedType ]
+              ]
+            , case elements of
+                StatusElements statuses ->
+                    List.map (renderStatus model) statuses
+
+                _ ->
+                    [ text "" ]
+            ]
+
+
+feedTitle : FeedType -> Html Msg
+feedTitle feedType =
+    case feedType of
+        HomeFeed ->
+            b "Home"
+
+        UserFeed { username } ->
+            b <| "User: " ++ username
+
+        PublicFeed _ ->
+            b "Public"
 
         _ ->
             text ""
-
-
-sectionDiv : String -> List (Html Msg) -> Html Msg
-sectionDiv color body =
-    div
-        [ style "width" "100%"
-        , style "border" <| "1px solid " ++ color
-        ]
-        body
 
 
 renderStatus : Model -> Status -> Html Msg
@@ -4386,23 +4428,89 @@ renderStatus model status =
                 Err _ ->
                     [ text status.content ]
     in
-    sectionDiv
-        color
-        [ sectionDiv
-            color
-            [ b account.username
-            , br
-            , b account.display_name
+    div [ style "border" <| "1px solid " ++ color ]
+        [ div []
+            [ div
+                [ class "content"
+                , style "color" color
+                ]
+                [ table []
+                    [ tr []
+                        [ td []
+                            [ imageLink
+                                { imageUrl = account.avatar
+                                , linkUrl = account.url
+                                , altText = "avatar"
+                                , h = "3em"
+                                }
+                            ]
+                        , td []
+                            [ b account.display_name
+                            , br
+                            , link account.username account.url
+                            , br
+                            , let
+                                timeString =
+                                    formatIso8601 model.here status.created_at
+                              in
+                              case status.url of
+                                Nothing ->
+                                    text timeString
+
+                                Just url ->
+                                    link timeString url
+                            ]
+                        ]
+                    ]
+                ]
+            , hr [ style "width" "95%" ] []
+            , div
+                [ class "content"
+                , style "color" color
+                ]
+                body
+            , div [] <|
+                List.map (renderAttachment model) status.media_attachments
             ]
-        , sectionDiv
-            color
-            body
         ]
+
+
+formatIso8601 : Zone -> String -> String
+formatIso8601 zone iso8601 =
+    case Iso8601.toTime iso8601 of
+        Err _ ->
+            iso8601
+
+        Ok posix ->
+            Format.format (Configs.getConfig "en_us")
+                "%y%m%d %-H:%M:%S"
+                zone
+                posix
+
+
+renderAttachment : Model -> Attachment -> Html Msg
+renderAttachment model attachment =
+    case attachment.type_ of
+        ImageAttachment ->
+            img
+                [ src attachment.preview_url
+                , alt "image"
+                , style "width" "100%"
+                ]
+                []
+
+        _ ->
+            text ""
 
 
 px : Int -> String
 px int =
     String.fromInt int ++ "px"
+
+
+pxBang : Int -> String
+pxBang int =
+    px int ++ " !important"
 
 
 renderColumns : Model -> Html Msg
@@ -4418,28 +4526,15 @@ renderColumns model =
             leftColumnWidth + List.length feeds * columnWidth
     in
     renderCenteredScreen model
-        [ h2 [ style "text-align" "center" ]
-            [ text "Mammudeck" ]
-        , pageSelector (model.loginServer /= Nothing) model.page
-        , br
-        , table
-            [ style "width" <| px tableWidth
-            , style "height" <| px h
-            ]
+        [ table [ style "width" <| px tableWidth ]
             [ tr [ style "width" <| px tableWidth ] <|
                 List.concat
-                    [ [ td
-                            [ style "width" <| px leftColumnWidth
-                            , style "vertical-align" "top"
-                            ]
+                    [ [ td [ style "vertical-align" "top" ]
                             [ renderLeftColumn model ]
                       ]
                     , List.map
                         (\feed ->
-                            td
-                                [ style "width" <| px columnWidth
-                                , style "vertical-align" "top"
-                                ]
+                            td [ style "vertical-align" "top" ]
                                 [ renderFeed model feed ]
                         )
                         feeds
@@ -4481,7 +4576,7 @@ renderExplorer model =
     renderCenteredScreen model
         [ div []
             [ h2 [] [ text "Mastodon API Explorer" ]
-            , pageSelector (model.loginServer /= Nothing) model.page
+            , pageSelector True (model.loginServer /= Nothing) model.page
             , primaryServerLine model
             , p []
                 [ selectedRequestHtml LoginSelected
