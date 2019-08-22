@@ -23,7 +23,9 @@ import Dialog
 import Dict exposing (Dict)
 import File exposing (File)
 import File.Select
-import Html
+import Html.Parser as Parser exposing (Node)
+import Html.Parser.Util as Util
+import Html.Styled as Html
     exposing
         ( Attribute
         , Html
@@ -44,7 +46,7 @@ import Html
         , th
         , tr
         )
-import Html.Attributes
+import Html.Styled.Attributes
     exposing
         ( alt
         , autofocus
@@ -68,9 +70,7 @@ import Html.Attributes
         , type_
         , value
         )
-import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
-import Html.Parser as Parser exposing (Node)
-import Html.Parser.Util as Util
+import Html.Styled.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
 import Http
 import Json.Decode as JD exposing (Decoder)
 import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, required)
@@ -4184,16 +4184,17 @@ view : Model -> Document Msg
 view model =
     { title = "Mammudeck"
     , body =
-        [ renderDialog model
-        , case model.page of
-            SplashScreenPage ->
-                renderSplashScreen model
+        [ Html.toUnstyled <| renderDialog model
+        , Html.toUnstyled <|
+            case model.page of
+                SplashScreenPage ->
+                    renderSplashScreen model
 
-            ColumnsPage ->
-                renderColumns model
+                ColumnsPage ->
+                    renderColumns model
 
-            ExplorerPage ->
-                renderExplorer model
+                ExplorerPage ->
+                    renderExplorer model
         ]
     }
 
@@ -4264,8 +4265,9 @@ renderSplashScreen model =
           else
             primaryServerLine model
         , loginSelectedUI model
-        , Markdown.toHtml []
-            """
+        , Html.fromUnstyled <|
+            Markdown.toHtml []
+                """
 Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a work in progress. Keep an eye on the "Columns" page for new features. Use the "API Explorer" page to do low-level API hacking.
 
 [Wikipedia says](https://en.wikipedia.org/wiki/Mastodon) that "Mastodons... are any species of extinct proboscideans in the genus Mammut (family Mammutidae), distantly related to elephants..." I removed the ending "t" from "Mammut" and added "deck" to get "Mammudeck".
@@ -4379,7 +4381,7 @@ renderStatus model status =
         body =
             case Parser.run status.content of
                 Ok nodes ->
-                    Util.toVirtualDom nodes
+                    List.map Html.fromUnstyled <| Util.toVirtualDom nodes
 
                 Err _ ->
                     [ text status.content ]
@@ -4593,19 +4595,20 @@ renderExplorer model =
                         []
                     , br
                     ]
-                , WriteClipboard.writeClipboard
-                    [ WriteClipboard.write
-                        { id =
-                            if model.altKeyDown then
-                                ""
+                , Html.fromUnstyled <|
+                    WriteClipboard.writeClipboard
+                        [ WriteClipboard.write
+                            { id =
+                                if model.altKeyDown then
+                                    ""
 
-                            else
-                                "selectedKeyValue"
-                        , text = model.clipboardValue
-                        , count = model.clipboardCount
-                        }
-                    ]
-                    []
+                                else
+                                    "selectedKeyValue"
+                            , text = model.clipboardValue
+                            , count = model.clipboardCount
+                            }
+                        ]
+                        []
                 ]
             , checkBox (ExplorerUIMsg ToggleShowJsonTree)
                 model.showJsonTree
@@ -4834,7 +4837,7 @@ renderJsonTree whichJson model value =
                     _ ->
                         text ""
                 , br
-                , JsonTree.view root config state
+                , Html.fromUnstyled <| JsonTree.view root config state
                 ]
 
 
@@ -6089,21 +6092,23 @@ renderDialog model =
                 ConfirmDialog cont ok m ->
                     ( cont, ok, m )
     in
-    Dialog.render
-        { styles = [ ( "width", "40%" ) ]
-        , title = "Confirm"
-        , content = [ text content ]
-        , actionBar =
-            [ Html.button
-                [ onClick <| (GlobalMsg << SetDialog) NoDialog
-                , id cancelButtonId
-                ]
-                [ b "Cancel" ]
-            , text <| String.repeat 4 special.nbsp
-            , button msg okButtonText
-            ]
-        }
-        (model.dialog /= NoDialog)
+    Html.fromUnstyled <|
+        Dialog.render
+            { styles = [ ( "width", "40%" ) ]
+            , title = "Confirm"
+            , content = List.map Html.toUnstyled [ text content ]
+            , actionBar =
+                List.map Html.toUnstyled <|
+                    [ Html.button
+                        [ onClick <| (GlobalMsg << SetDialog) NoDialog
+                        , id cancelButtonId
+                        ]
+                        [ b "Cancel" ]
+                    , text <| String.repeat 4 special.nbsp
+                    , button msg okButtonText
+                    ]
+            }
+            (model.dialog /= NoDialog)
 
 
 dollarButtonNameToSendName : Bool -> String -> String
@@ -6136,11 +6141,12 @@ replaceSendButtonNames useElmButtonNames string =
 -}
 explorerHelp : Model -> Html Msg
 explorerHelp model =
-    Markdown.toHtml [] <|
-        replaceSendButtonNames model.useElmButtonNames <|
-            case model.selectedRequest of
-                InstanceSelected ->
-                    """
+    Html.fromUnstyled <|
+        Markdown.toHtml [] <|
+            replaceSendButtonNames model.useElmButtonNames <|
+                case model.selectedRequest of
+                    InstanceSelected ->
+                        """
 **Instance Information Help**
 
 The "$GetInstance" button fetches the `Instance` entity for the "Use API for" instance.
@@ -6150,8 +6156,8 @@ The "$GetActivity" button fetches a list of `Activity` entities.
 The "$GetPeers" button fetches a list of peer domain names.
                 """
 
-                AccountsSelected ->
-                    """
+                    AccountsSelected ->
+                        """
 **AccountsRequest Help**
 
 The "$GetVerifyCredentials" button fetches the `Account` entity for the logged-in user.
@@ -6175,8 +6181,8 @@ The "$PatchUpdateCredentials" button changes account profile information from "D
 The "Hide" button to the left of "$PatchUpdateCredentials" hides that section of the user interface again.
               """
 
-                BlocksSelected ->
-                    """
+                    BlocksSelected ->
+                        """
 **BlocksRequest Help**
 
 The "$GetBlocks" button gets a list of blocked accounts, limited in number by "limit".
@@ -6186,15 +6192,15 @@ The "$PostBlock" button blocks the "account id", and returns a `Relationship` en
 The "$PostUnblock" button unblocks the "account id", and returns a `Relationship` entity.
               """
 
-                CustomEmojisSelected ->
-                    """
+                    CustomEmojisSelected ->
+                        """
 **CustomEmojisRequest Help**
 
 The "$GetCustomEmojis" button gets a list of `Emoji` entities.
                    """
 
-                EndorsementsSelected ->
-                    """
+                    EndorsementsSelected ->
+                        """
 **EndorsementsRequest Help**
 
 The "$GetEndorsements" button gets a list of endorsed "Account" entities.
@@ -6204,8 +6210,8 @@ The "$PostPinAccount" button adds "account id" to the list of endorsed accounts.
 The "$PostUnpinAccount" button removes "account id" from the list of endorsed accounts.
                    """
 
-                FavouritesSelected ->
-                    """
+                    FavouritesSelected ->
+                        """
 **FavouritesRequest Help**
 
 The "$GetFavourites" button gets a maximum of "limit" `Favourites` entities.
@@ -6215,8 +6221,8 @@ The "$PostFavourite" button add "status id" to your list of favourites.
 The "$PostUnfavourite" button removes "status id" from your list of favourites.
                    """
 
-                FiltersSelected ->
-                    """
+                    FiltersSelected ->
+                        """
 **FiltersRequest Help**
 
 The "$GetFilters" button gets your list of `Filter` entities.
@@ -6230,8 +6236,8 @@ The "$PutFilter" button updates the filter parameters for "filter id".
 The "$DeleteFilter" button deletes "filter id".
                     """
 
-                FollowRequestsSelected ->
-                    """
+                    FollowRequestsSelected ->
+                        """
 **FollowRequestsRequest Help**
 
 The "$GetFollowRequests" button gets a maximum of "limit" `FollowRequest` entities.
@@ -6242,8 +6248,8 @@ The "$PostRejectFollow" button rejects the follow request from "account id".
 
                    """
 
-                FollowSuggestionsSelected ->
-                    """
+                    FollowSuggestionsSelected ->
+                        """
 **FollowSuggestionsRequest Help**
 
 The "$GetFollowSuggestions" button requests a list of suggested Account entities.
@@ -6251,8 +6257,8 @@ The "$GetFollowSuggestions" button requests a list of suggested Account entities
 The "$DeleteFollowSuggestions" button deletes "account id" from the suggestion list.
                    """
 
-                GroupsSelected ->
-                    """
+                    GroupsSelected ->
+                        """
 **GroupsRequest Help**
 
 Groups are a Gab-only feature.
@@ -6284,8 +6290,8 @@ Click "$PostGroup" to create a new group from "title", "description", and "cover
 Click $PutGroup to change the "title", "description", and/or "cover image" for "group id". Leave a field blank or the image unspecified to not change it.
             """
 
-                StatusesSelected ->
-                    """
+                    StatusesSelected ->
+                        """
 **StatusesRequest Help**
 
 Click "$GetStatus" to get the `Status` entity for "status id".
@@ -6315,8 +6321,8 @@ If you want to add media to a status, you can do that in the "-- new media --" s
 To edit the description or focus of a "media id", fill in one or both of those, and click "$PutMedia".
                 """
 
-                ListsSelected ->
-                    """
+                    ListsSelected ->
+                        """
 **ListsSelected Help**
 
 The "$GetLists" button gets your list of `List` entities.
@@ -6338,8 +6344,8 @@ The "$PostListAccounts" button adds the (comma-separated) "account ids" to "list
 The "$DeleteListAccounts" button removes the "account ids" from "list id".
                     """
 
-                MutesSelected ->
-                    """
+                    MutesSelected ->
+                        """
 **MutesRequest Help**
 
 The "$GetAccountMutes" button gets a list of muted accounts, limited in number by "limit".
@@ -6353,8 +6359,8 @@ The "$PostStatusMute" button mutes the "status id".
 The "$PostStatusUnmute" button unmutes the "status id".
                     """
 
-                NotificationsSelected ->
-                    """
+                    NotificationsSelected ->
+                        """
 **NotificationsRequest Help**
 
 The "include all" and "mentions only" buttons change the "excluded notifications" checkboxes to the two most common configurations.
@@ -6368,15 +6374,15 @@ The "$PostDismissNotification" button deletes the notification with the given "n
 The "$PostClearNotifications" button deletes all notifications for your account, after confirmation.
                    """
 
-                ReportsSelected ->
-                    """
+                    ReportsSelected ->
+                        """
 **ReportsRequest Help**
 
 The "$PostReports" button sends "comment" to the instance administrator about the comma-separated list of "status ids" from "account id".
                     """
 
-                ScheduledStatusesSelected ->
-                    """
+                    ScheduledStatusesSelected ->
+                        """
 **ScheduledStatusesRequest Help**
 
 The "$GetScheduledStatuses" button returns a list of `ScheduledStatus` entitities.
@@ -6388,15 +6394,15 @@ The "$DeleteScheduledStatus" button deletes "scheduled status id".
 The "$PutScheduledStatus" button changes the "scheduled at" timestamp for "scheduled status id".
                     """
 
-                SearchSelected ->
-                    """
+                    SearchSelected ->
+                        """
 **SearchRequest Help**
 
 The "$GetSearch" button searches for the query string, "q" in accounts, hashtags, and statuses, and returns a `Results` entity. "limit" is the maximum number of results. "offset" is the offset in the results. "resolve" attempts a WebFinger lookup if true. "following" includes only accounts the user is following.
                     """
 
-                TimelinesSelected ->
-                    """
+                    TimelinesSelected ->
+                        """
 **TimelinesRequest Help**
 
 The paging parameters, "limit", "max id", "min id", and "since id" are used for all the timelines requests. The ids are `Status` ids for `GetXXXTimeline` and `Conversation` ids for `GetConversations`.
@@ -6416,15 +6422,15 @@ The "$GetListTimeline" button returns posts for the list with the given "list id
 The "$GetGroupTimeline" button returns posts for the given "group id".
               """
 
-                TrendsSelected ->
-                    """
+                    TrendsSelected ->
+                        """
 ** TrendsRequest Help**
 
 The "$GetTrends" button fetches a list of `Tag` entities, containing information about trending hashtags. Some servers always return an empty list for this.
                     """
 
-                LoginSelected ->
-                    """
+                    LoginSelected ->
+                        """
 **General and Login Help**
 
 Click a radio button to choose the user interface for that section of the API. The names (mostly) match the variant names in the [`Mastodon.Request`](https://github.com/billstclair/elm-mastodon/blob/master/src/Mastodon/Request.elm)`.Request` type.
