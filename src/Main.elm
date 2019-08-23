@@ -81,6 +81,7 @@ import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, require
 import Json.Encode as JE exposing (Value)
 import JsonTree exposing (TaggedValue(..))
 import List.Extra as LE
+import Mammudeck.EncodeDecode as MED
 import Mammudeck.Types as Types
     exposing
         ( Feed
@@ -221,10 +222,10 @@ filterInputDecoder =
 
 
 type alias Model =
-    { page : Page
+    { loginServer : Maybe String
+    , page : Page
     , token : Maybe String
     , server : String
-    , loginServer : Maybe String
 
     -- Columns page state
     , feedSetDefinition : FeedSetDefinition
@@ -4373,12 +4374,13 @@ renderFeed model { feedType, elements } =
     in
     div
         [ style "width" <| px columnWidth
-        , style "height" <| px (h - 60)
+        , style "height" <| px (h - 20)
         , style "border" <| "1px solid " ++ color
         ]
         [ div
             [ style "border" <| "1px solid " ++ color
             , style "text-align" "center"
+            , style "color" color
             ]
             [ feedTitle feedType ]
         , div
@@ -4445,7 +4447,7 @@ renderStatus model status =
                                 , h = "3em"
                                 }
                             ]
-                        , td []
+                        , td [ style "color" color ]
                             [ b account.display_name
                             , br
                             , link account.username account.url
@@ -6646,6 +6648,7 @@ type alias SavedModel =
     , page : Page
     , token : Maybe String
     , server : String
+    , feedSetDefinition : FeedSetDefinition
     , prettify : Bool
     , style : Style
     , selectedRequest : SelectedRequest
@@ -6694,6 +6697,7 @@ modelToSavedModel model =
     , page = model.page
     , token = model.token
     , server = model.server
+    , feedSetDefinition = model.feedSetDefinition
     , prettify = model.prettify
     , style = model.style
     , selectedRequest = model.selectedRequest
@@ -6743,6 +6747,7 @@ savedModelToModel savedModel model =
         , page = savedModel.page
         , token = savedModel.token
         , server = savedModel.server
+        , feedSetDefinition = savedModel.feedSetDefinition
         , prettify = savedModel.prettify
         , style = savedModel.style
         , selectedRequest = savedModel.selectedRequest
@@ -6885,6 +6890,7 @@ encodeSavedModel savedModel =
         , ( "page", encodePage savedModel.page )
         , ( "token", ED.encodeMaybe JE.string savedModel.token )
         , ( "server", JE.string savedModel.server )
+        , ( "feedSetDefinition", MED.encodeFeedSetDefinition savedModel.feedSetDefinition )
         , ( "prettify", JE.bool savedModel.prettify )
         , ( "darkstyle", JE.bool <| savedModel.style == DarkStyle )
         , ( "selectedRequest", encodeSelectedRequest savedModel.selectedRequest )
@@ -6938,6 +6944,9 @@ savedModelDecoder =
         |> required "page" pageDecoder
         |> optional "token" (JD.nullable JD.string) Nothing
         |> required "server" JD.string
+        |> optional "feedSetDefinition"
+            MED.feedSetDefinitionDecoder
+            Types.defaultFeedSetDefinition
         |> optional "prettify" JD.bool True
         |> optional "darkstyle"
             (JD.bool
