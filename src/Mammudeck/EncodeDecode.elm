@@ -22,6 +22,7 @@ import Mammudeck.Types as Types
     exposing
         ( FeedSetDefinition
         , FeedType(..)
+        , PublicFeedFlags
         , UserFeedFlags
         )
 import Mastodon.EncodeDecode as ED
@@ -46,6 +47,21 @@ userFeedFlagsDecoder =
         |> required "reblogs" JD.bool
 
 
+encodePublicFeedFlags : PublicFeedFlags -> Value
+encodePublicFeedFlags { local, only_media } =
+    JE.object
+        [ ( "local", JE.bool local )
+        , ( "only_media", JE.bool only_media )
+        ]
+
+
+publicFeedFlagsDecoder : Decoder PublicFeedFlags
+publicFeedFlagsDecoder =
+    JD.succeed PublicFeedFlags
+        |> required "local" JD.bool
+        |> required "only_media" JD.bool
+
+
 encodeFeedType : FeedType -> Value
 encodeFeedType feedType =
     case feedType of
@@ -60,9 +76,129 @@ encodeFeedType feedType =
                 , ( "flags", ED.encodeMaybe encodeUserFeedFlags flags )
                 ]
 
-        _ ->
-            -- TODO
-            JE.null
+        PublicFeed { flags } ->
+            JE.object
+                [ ( "feedType", JE.string "PublicFeed" )
+                , ( "flags", ED.encodeMaybe encodePublicFeedFlags flags )
+                ]
+
+        HashtagFeed hashtag ->
+            JE.object
+                [ ( "feedType", JE.string "HashtagFeed" )
+                , ( "hashtag", JE.string hashtag )
+                ]
+
+        ListFeed listname ->
+            JE.object
+                [ ( "feedType", JE.string "ListFeed" )
+                , ( "listname", JE.string listname )
+                ]
+
+        GroupFeed groupname ->
+            JE.object
+                [ ( "feedType", JE.string "GroupFeed" )
+                , ( "groupname", JE.string groupname )
+                ]
+
+        NotificationFeed { accountId, exclusions } ->
+            JE.object
+                [ ( "feedType", JE.string "NotificationFeed" )
+                , ( "accountId", ED.encodeMaybe JE.string accountId )
+                , ( "exclusions", JE.list ED.encodeNotificationType exclusions )
+                ]
+
+        ConversationsFeed ->
+            JE.string "ConversationsFeed"
+
+        SearchFeed { q, resolve, following } ->
+            JE.object
+                [ ( "feedType", JE.string "SearchFeed" )
+                , ( "q", JE.string q )
+                , ( "resolve", JE.bool resolve )
+                , ( "following", JE.bool following )
+                ]
+
+
+feedTypeDecoder : Decoder FeedType
+feedTypeDecoder =
+    JD.oneOf
+        [ JD.string
+            |> JD.andThen
+                (\s ->
+                    case s of
+                        "HomeFeed" ->
+                            JD.succeed HomeFeed
+
+                        "ConversationsFeed" ->
+                            JD.succeed ConversationsFeed
+
+                        _ ->
+                            JD.fail <| "Unknown FeedType: " ++ s
+                )
+        , JD.field "feedType" JD.string
+            |> JD.andThen
+                (\feedType ->
+                    case feedType of
+                        "UserFeed" ->
+                            JD.succeed
+                                (\username id flags ->
+                                    UserFeed
+                                        { username = username
+                                        , id = id
+                                        , flags = flags
+                                        }
+                                )
+                                |> required "username" JD.string
+                                |> required "id" JD.string
+                                |> optional "flags" (JD.nullable userFeedFlagsDecoder) Nothing
+
+                        "PublicFeed" ->
+                            JD.succeed
+                                (\flags ->
+                                    PublicFeed { flags = flags }
+                                )
+                                |> optional "flags" (JD.nullable publicFeedFlagsDecoder) Nothing
+
+                        "HashtagFeed" ->
+                            JD.succeed HashtagFeed
+                                |> required "hashtag" JD.string
+
+                        "ListFeed" ->
+                            JD.succeed ListFeed
+                                |> required "listname" JD.string
+
+                        "GroupFeed" ->
+                            JD.succeed GroupFeed
+                                |> required "groupname" JD.string
+
+                        "NotificationFeed" ->
+                            JD.succeed
+                                (\accountId exclusions ->
+                                    NotificationFeed
+                                        { accountId = accountId
+                                        , exclusions = exclusions
+                                        }
+                                )
+                                |> optional "accountId" (JD.nullable JD.string) Nothing
+                                |> required "exclusions" (JD.list ED.notificationTypeDecoder)
+
+                        "SearchFeed" ->
+                            JD.succeed
+                                (\q resolve following ->
+                                    SearchFeed
+                                        { q = q
+                                        , resolve = resolve
+                                        , following = following
+                                        }
+                                )
+                                |> required "q" JD.string
+                                |> required "resolve" JD.bool
+                                |> required "following" JD.bool
+
+                        _ ->
+                            JD.fail <| "Unknown feedType: " ++ feedType
+                )
+        ]
 
 
 encodeFeedSetDefinition : FeedSetDefinition -> Value
@@ -75,4 +211,6 @@ encodeFeedSetDefinition { name, feedTypes } =
 
 feedSetDefinitionDecoder : Decoder FeedSetDefinition
 feedSetDefinitionDecoder =
-    JD.succeed Types.defaultFeedSetDefinition
+    JD.succeed FeedSetDefinition
+        |> required "name" JD.string
+        |> required "feedTypes" (JD.list feedTypeDecoder)
