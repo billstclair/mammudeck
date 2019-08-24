@@ -4698,6 +4698,12 @@ renderAccount color zone account description datetime url =
         ]
 
 
+{-| TODO.
+
+If status.reblog is not `Nothing`, print "`display_name` reblogged",
+then THAT status, not the one in your hand.
+
+-}
 renderStatus : Model -> Status -> Html Msg
 renderStatus model status =
     let
