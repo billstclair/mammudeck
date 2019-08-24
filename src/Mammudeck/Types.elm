@@ -18,6 +18,7 @@ module Mammudeck.Types exposing
     , FeedType(..)
     , FetchType(..)
     , Fetcher
+    , GangedNotification
     , PublicFeedFlags
     , Renderer
     , UserFeedFlags
@@ -37,7 +38,8 @@ module Mammudeck.Types exposing
 import Html exposing (Html)
 import Mastodon.Entity
     exposing
-        ( Conversation
+        ( Account
+        , Conversation
         , Notification
         , NotificationType(..)
         , Results
@@ -220,3 +222,10 @@ emptyFeedSet =
 defaultFeedSet : FeedSet
 defaultFeedSet =
     feedSetDefinitionToFeedSet defaultFeedSetDefinition
+
+
+type alias GangedNotification =
+    { id : String
+    , notification : Notification
+    , accounts : List Account
+    }

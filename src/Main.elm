@@ -90,6 +90,7 @@ import Mammudeck.Types as Types
         , FeedType(..)
         , FetchType(..)
         , Fetcher
+        , GangedNotification
         , PublicFeedFlags
         , Renderer
         , UserFeedFlags
@@ -3482,7 +3483,7 @@ receiveResponse result model =
             { mdl
                 | msg = Nothing
                 , metadata = Just response.metadata
-                , response = Just <| ED.entityValue (Debug.log "entity" response.entity)
+                , response = Just <| ED.entityValue response.entity
                 , entity = Just response.entity
             }
                 |> updateJsonTrees
@@ -4415,19 +4416,146 @@ renderFeed model { feedType, elements } =
                     List.map (renderStatus model) statuses
 
                 NotificationElements notifications ->
-                    List.map (renderNotification model) notifications
+                    let
+                        gangedNotifications =
+                            gangNotifications notifications
+
+                        ( _, _ ) =
+                            ( Debug.log "notifications" <| List.length notifications
+                            , Debug.log "  ganged" <| List.length gangedNotifications
+                            )
+                    in
+                    List.map (renderGangedNotification model) gangedNotifications
 
                 _ ->
                     [ text "" ]
         ]
 
 
+renderGangedNotification : Model -> GangedNotification -> Html Msg
+renderGangedNotification model gangedNotification =
+    -- TODO
+    let
+        notification =
+            gangedNotification.notification
+    in
+    case gangedNotification.accounts of
+        account :: others ->
+            if others == [] then
+                renderNotification model notification
+
+            else
+                renderMultiNotification model
+                    account
+                    others
+                    notification
+
+        _ ->
+            renderNotification model notification
+
+
+renderMultiNotification : Model -> Account -> List Account -> Notification -> Html Msg
+renderMultiNotification model account others notification =
+    let
+        { color } =
+            getStyle model.style
+
+        othersCount =
+            List.length others
+
+        display_name =
+            account.display_name ++ " and " ++ String.fromInt othersCount ++ " others "
+
+        description =
+            notificationDescriptionWithDisplayName display_name notification
+
+        timeString =
+            formatIso8601 model.here notification.created_at
+    in
+    div
+        [ style "border" <| "1px solid" ++ color
+        , style "color" color
+        , style "padding" "0 3px"
+        ]
+        [ description
+        , br
+        , text timeString
+        , br
+        , List.map
+            (\other ->
+                imageLink
+                    { imageUrl = other.avatar
+                    , linkUrl = other.url
+                    , altText = other.display_name
+                    , h = "1.5em"
+                    }
+            )
+            (account :: others)
+            |> List.intersperse (text " ")
+            |> span []
+        , renderNotificationBody model notification
+        ]
+
+
+notificationStatusId : Notification -> String
+notificationStatusId notification =
+    case notification.status of
+        Just { id } ->
+            id
+
+        Nothing ->
+            ""
+
+
+gangNotifications : List Notification -> List GangedNotification
+gangNotifications notifications =
+    let
+        loop : List Notification -> List GangedNotification -> List GangedNotification
+        loop tail res =
+            case tail of
+                [] ->
+                    List.reverse res
+
+                car :: cdr ->
+                    let
+                        id =
+                            notificationStatusId car
+                    in
+                    case
+                        LE.find
+                            (\gn ->
+                                (id == gn.id)
+                                    && (car.type_ == gn.notification.type_)
+                            )
+                            res
+                    of
+                        Nothing ->
+                            loop cdr <|
+                                { id = id
+                                , notification = car
+                                , accounts = [ car.account ]
+                                }
+                                    :: res
+
+                        Just gn ->
+                            loop cdr <|
+                                { gn
+                                    | accounts = car.account :: gn.accounts
+                                }
+                                    :: List.filter ((/=) gn) res
+    in
+    loop notifications []
+
+
 notificationDescription : Notification -> Html Msg
 notificationDescription notification =
-    let
-        display_name =
-            notification.account.display_name
+    notificationDescriptionWithDisplayName notification.account.display_name
+        notification
 
+
+notificationDescriptionWithDisplayName : String -> Notification -> Html Msg
+notificationDescriptionWithDisplayName display_name notification =
+    let
         postName =
             if notification.type_ == PollNotification then
                 text "poll"
@@ -4469,45 +4597,54 @@ renderNotification model notification =
                 description
                 notification.created_at
                 Nothing
-            , case notification.status of
-                Nothing ->
-                    text ""
-
-                Just status ->
-                    let
-                        body =
-                            case Parser.run status.content of
-                                Ok nodes ->
-                                    List.map Html.fromUnstyled <| Util.toVirtualDom nodes
-
-                                Err _ ->
-                                    [ text status.content ]
-
-                        timeString =
-                            formatIso8601 model.here status.created_at
-
-                        postLink =
-                            case status.url of
-                                Nothing ->
-                                    text timeString
-
-                                Just url ->
-                                    link timeString url
-                    in
-                    div []
-                        [ hr
-                        , div
-                            [ class "content"
-                            , style "color" color
-                            ]
-                          <|
-                            postLink
-                                :: body
-                        , div [] <|
-                            List.map (renderAttachment model) status.media_attachments
-                        ]
+            , renderNotificationBody model notification
             ]
         ]
+
+
+renderNotificationBody : Model -> Notification -> Html Msg
+renderNotificationBody model notification =
+    let
+        { color } =
+            getStyle model.style
+    in
+    case notification.status of
+        Nothing ->
+            text ""
+
+        Just status ->
+            let
+                body =
+                    case Parser.run status.content of
+                        Ok nodes ->
+                            List.map Html.fromUnstyled <| Util.toVirtualDom nodes
+
+                        Err _ ->
+                            [ text status.content ]
+
+                timeString =
+                    formatIso8601 model.here status.created_at
+
+                postLink =
+                    case status.url of
+                        Nothing ->
+                            text timeString
+
+                        Just url ->
+                            link timeString url
+            in
+            div []
+                [ hr
+                , div
+                    [ class "content"
+                    , style "color" color
+                    ]
+                  <|
+                    postLink
+                        :: body
+                , div [] <|
+                    List.map (renderAttachment model) status.media_attachments
+                ]
 
 
 feedTitle : FeedType -> Html Msg
@@ -4537,7 +4674,7 @@ renderAccount color zone account description datetime url =
                 [ imageLink
                     { imageUrl = account.avatar
                     , linkUrl = account.url
-                    , altText = "avatar"
+                    , altText = ""
                     , h = "3em"
                     }
                 ]
