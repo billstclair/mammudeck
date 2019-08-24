@@ -108,6 +108,7 @@ import Mastodon.Entity as Entity
         , Field
         , FilterContext(..)
         , Focus
+        , Notification
         , NotificationType(..)
         , Privacy(..)
         , Status
@@ -1794,6 +1795,15 @@ reloadFeed { feedType } model =
                                         , paging = Nothing
                                         }
 
+                NotificationFeed { accountId, exclusions } ->
+                    Just <|
+                        NotificationsRequest <|
+                            Request.GetNotifications
+                                { paging = Nothing
+                                , exclude_types = exclusions
+                                , account_id = accountId
+                                }
+
                 _ ->
                     Nothing
     in
@@ -1833,33 +1843,41 @@ columnsSendMsg msg model =
                             mdl |> withCmd cmd
 
                         Just e ->
-                            case e of
-                                StatusListEntity statuses ->
-                                    let
-                                        feedSet =
-                                            mdl.feedSet
+                            let
+                                elements =
+                                    case e of
+                                        StatusListEntity statuses ->
+                                            Just <| StatusElements statuses
 
-                                        feeds =
+                                        NotificationListEntity notifications ->
+                                            Just <| NotificationElements notifications
+
+                                        _ ->
+                                            Nothing
+
+                                feedSet =
+                                    mdl.feedSet
+
+                                feeds =
+                                    case elements of
+                                        Nothing ->
+                                            feedSet.feeds
+
+                                        Just elem ->
                                             LE.updateIf
                                                 (\feed ->
                                                     feedType == feed.feedType
                                                 )
                                                 (\feed ->
-                                                    { feed
-                                                        | elements =
-                                                            StatusElements statuses
-                                                    }
+                                                    { feed | elements = elem }
                                                 )
                                                 feedSet.feeds
-                                    in
-                                    { mdl
-                                        | feedSet =
-                                            { feedSet | feeds = feeds }
-                                    }
-                                        |> withCmd cmd
-
-                                _ ->
-                                    mdl |> withCmd cmd
+                            in
+                            { mdl
+                                | feedSet =
+                                    { feedSet | feeds = feeds }
+                            }
+                                |> withCmd cmd
 
 
 {-| Process UI messages from the API Explorer page.
@@ -4393,8 +4411,51 @@ renderFeed model { feedType, elements } =
                 StatusElements statuses ->
                     List.map (renderStatus model) statuses
 
+                NotificationElements notifications ->
+                    List.map (renderNotification model) notifications
+
                 _ ->
                     [ text "" ]
+        ]
+
+
+notificationTypeToString : NotificationType -> String
+notificationTypeToString notificationType =
+    case notificationType of
+        FollowNotification ->
+            "Followed"
+
+        MentionNotification ->
+            "Mentioned"
+
+        ReblogNotification ->
+            "Reblogged"
+
+        FavouriteNotification ->
+            "Favorited"
+
+        PollNotification ->
+            "Poll is closed"
+
+
+renderNotification : Model -> Notification -> Html Msg
+renderNotification model notification =
+    let
+        typeString =
+            notificationTypeToString notification.type_
+
+        { color } =
+            getStyle model.style
+    in
+    div [ style " border" <| "1px solid" ++ color ]
+        [ div []
+            [ div
+                [ class "content"
+                , style "color" color
+                ]
+                [ text typeString
+                ]
+            ]
         ]
 
 
@@ -4409,6 +4470,9 @@ feedTitle feedType =
 
         PublicFeed _ ->
             b "Public"
+
+        NotificationFeed _ ->
+            b "Notifications"
 
         _ ->
             text ""

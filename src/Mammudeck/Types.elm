@@ -94,7 +94,11 @@ allButMentionNotificationExclusions =
 
 type FeedType
     = HomeFeed
-    | UserFeed { username : String, id : String, flags : Maybe UserFeedFlags }
+    | UserFeed
+        { username : String
+        , id : String
+        , flags : Maybe UserFeedFlags
+        }
     | PublicFeed { flags : Maybe PublicFeedFlags }
     | HashtagFeed String
     | ListFeed String
@@ -104,7 +108,11 @@ type FeedType
         , exclusions : List NotificationType
         }
     | ConversationsFeed
-    | SearchFeed { q : String, resolve : Bool, following : Bool }
+    | SearchFeed
+        { q : String
+        , resolve : Bool
+        , following : Bool
+        }
 
 
 type FeedElements
@@ -195,6 +203,10 @@ defaultFeedSetDefinition =
     { name = "default"
     , feedTypes =
         [ HomeFeed
+        , NotificationFeed
+            { accountId = Nothing
+            , exclusions = defaultNotificationExclusions
+            }
         , PublicFeed { flags = Nothing }
         ]
     }
