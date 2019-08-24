@@ -35,6 +35,7 @@
             "Skinney/murmur3": "2.0.8",
             "elm/bytes": "1.0.8",
             "elm/parser": "1.1.0",
+            "elm/random": "1.0.0",
             "elm/virtual-dom": "1.0.2",
             "elm-community/dict-extra": "2.4.0",
             "pzp1997/assoc-list": "1.0.0",
@@ -43,7 +44,8 @@
         }
     },
     "test-dependencies": {
-        "direct": {},
+        "direct": { "elm-explorations/test": "1.2.2"
+                  },
         "indirect": {}
     }
 }
