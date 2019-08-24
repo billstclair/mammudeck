@@ -4259,8 +4259,8 @@ pageSelector showLabel showColumns page =
         ]
 
 
-renderCenteredScreen : Model -> List (Html msg) -> Html msg
-renderCenteredScreen model body =
+renderCenteredScreen : Model -> String -> List (Html msg) -> Html msg
+renderCenteredScreen model width body =
     let
         { backgroundColor, color } =
             getStyle model.style
@@ -4274,9 +4274,9 @@ renderCenteredScreen model body =
         [ div
             [ style "color" color
             , style "background-color" backgroundColor
-            , style "padding" "0em 3em 0em 3em"
+            , style "padding" "0 5px 0 5px"
             , style "max-width" "fill-available"
-            , style "width" "40em"
+            , style "width" width
             , style "margin" "auto"
             ]
             body
@@ -4286,6 +4286,7 @@ renderCenteredScreen model body =
 renderSplashScreen : Model -> Html Msg
 renderSplashScreen model =
     renderCenteredScreen model
+        "40em"
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
         , pageSelector True (model.loginServer /= Nothing) model.page
@@ -4371,6 +4372,7 @@ renderLeftColumn model =
     div
         [ style "color" color
         , style "width" <| px leftColumnWidth
+        , style "padding-top" "5px"
         ]
         [ pageSelector False (model.loginServer /= Nothing) model.page
         , br
@@ -4657,8 +4659,14 @@ renderColumns model =
             leftColumnWidth + List.length feeds * columnWidth
     in
     renderCenteredScreen model
-        [ table [ style "width" <| px tableWidth ]
-            [ tr [ style "width" <| px tableWidth ] <|
+        ""
+        [ table
+            [--style "width" <| px tableWidth
+            ]
+            [ tr
+                [-- style "width" <| px tableWidth
+                ]
+              <|
                 List.concat
                     [ [ td [ style "vertical-align" "top" ]
                             [ renderLeftColumn model ]
@@ -4705,6 +4713,7 @@ renderExplorer model =
             getStyle model.style
     in
     renderCenteredScreen model
+        "40em"
         [ div []
             [ h2 [] [ text "Mastodon API Explorer" ]
             , pageSelector True (model.loginServer /= Nothing) model.page
