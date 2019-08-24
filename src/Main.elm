@@ -33,7 +33,6 @@ import Html.Styled as Html
         , col
         , div
         , h2
-        , hr
         , img
         , input
         , option
@@ -104,6 +103,7 @@ import Mastodon.Entity as Entity
         , Attachment
         , AttachmentType(..)
         , Authorization
+        , Datetime
         , Entity(..)
         , Field
         , FilterContext(..)
@@ -112,6 +112,7 @@ import Mastodon.Entity as Entity
         , NotificationType(..)
         , Privacy(..)
         , Status
+        , UrlString
         , Visibility(..)
         )
 import Mastodon.Login as Login exposing (FetchAccountOrRedirect(..))
@@ -4371,9 +4372,9 @@ renderLeftColumn model =
         [ style "color" color
         , style "width" <| px leftColumnWidth
         ]
-        [ button (ColumnsUIMsg ReloadAllColumns) "reload"
+        [ pageSelector False (model.loginServer /= Nothing) model.page
         , br
-        , pageSelector False (model.loginServer /= Nothing) model.page
+        , button (ColumnsUIMsg ReloadAllColumns) "reload"
         , br
         , checkBox (ExplorerUIMsg ToggleStyle)
             (model.style == DarkStyle)
@@ -4419,42 +4420,90 @@ renderFeed model { feedType, elements } =
         ]
 
 
-notificationTypeToString : NotificationType -> String
-notificationTypeToString notificationType =
-    case notificationType of
+notificationDescription : Notification -> Html Msg
+notificationDescription notification =
+    let
+        display_name =
+            notification.account.display_name
+
+        postName =
+            if notification.type_ == PollNotification then
+                text "poll"
+
+            else
+                text "your post"
+    in
+    case notification.type_ of
         FollowNotification ->
-            "Followed"
+            span [] [ b display_name, text " followed you" ]
 
         MentionNotification ->
-            "Mentioned"
+            span [] [ b display_name, text " mentioned you" ]
 
         ReblogNotification ->
-            "Reblogged"
+            span [] [ b display_name, text " reblogged ", postName ]
 
         FavouriteNotification ->
-            "Favorited"
+            span [] [ b display_name, text " favorited ", postName ]
 
         PollNotification ->
-            "Poll is closed"
+            span [] [ b display_name, text "'s ", postName, text " is closed" ]
 
 
 renderNotification : Model -> Notification -> Html Msg
 renderNotification model notification =
     let
-        typeString =
-            notificationTypeToString notification.type_
+        description =
+            notificationDescription notification
 
         { color } =
             getStyle model.style
     in
-    div [ style " border" <| "1px solid" ++ color ]
+    div [ style "border" <| "1px solid" ++ color ]
         [ div []
-            [ div
-                [ class "content"
-                , style "color" color
-                ]
-                [ text typeString
-                ]
+            [ renderAccount color
+                model.here
+                notification.account
+                description
+                notification.created_at
+                Nothing
+            , case notification.status of
+                Nothing ->
+                    text ""
+
+                Just status ->
+                    let
+                        body =
+                            case Parser.run status.content of
+                                Ok nodes ->
+                                    List.map Html.fromUnstyled <| Util.toVirtualDom nodes
+
+                                Err _ ->
+                                    [ text status.content ]
+
+                        timeString =
+                            formatIso8601 model.here status.created_at
+
+                        postLink =
+                            case status.url of
+                                Nothing ->
+                                    text timeString
+
+                                Just url ->
+                                    link timeString url
+                    in
+                    div []
+                        [ hr
+                        , div
+                            [ class "content"
+                            , style "color" color
+                            ]
+                          <|
+                            postLink
+                                :: body
+                        , div [] <|
+                            List.map (renderAttachment model) status.media_attachments
+                        ]
             ]
         ]
 
@@ -4476,6 +4525,38 @@ feedTitle feedType =
 
         _ ->
             text ""
+
+
+renderAccount : String -> Zone -> Account -> Html Msg -> Datetime -> Maybe UrlString -> Html Msg
+renderAccount color zone account description datetime url =
+    table []
+        [ tr []
+            [ td []
+                [ imageLink
+                    { imageUrl = account.avatar
+                    , linkUrl = account.url
+                    , altText = "avatar"
+                    , h = "3em"
+                    }
+                ]
+            , td [ style "color" color ]
+                [ description
+                , br
+                , link ("@" ++ account.username) account.url
+                , br
+                , let
+                    timeString =
+                        formatIso8601 zone datetime
+                  in
+                  case url of
+                    Nothing ->
+                        text timeString
+
+                    Just u ->
+                        link timeString u
+                ]
+            ]
+        ]
 
 
 renderStatus : Model -> Status -> Html Msg
@@ -4501,36 +4582,14 @@ renderStatus model status =
                 [ class "content"
                 , style "color" color
                 ]
-                [ table []
-                    [ tr []
-                        [ td []
-                            [ imageLink
-                                { imageUrl = account.avatar
-                                , linkUrl = account.url
-                                , altText = "avatar"
-                                , h = "3em"
-                                }
-                            ]
-                        , td [ style "color" color ]
-                            [ b account.display_name
-                            , br
-                            , link account.username account.url
-                            , br
-                            , let
-                                timeString =
-                                    formatIso8601 model.here status.created_at
-                              in
-                              case status.url of
-                                Nothing ->
-                                    text timeString
-
-                                Just url ->
-                                    link timeString url
-                            ]
-                        ]
-                    ]
+                [ renderAccount color
+                    model.here
+                    account
+                    (b account.display_name)
+                    status.created_at
+                    status.url
                 ]
-            , hr [ style "width" "95%" ] []
+            , hr
             , div
                 [ class "content"
                 , style "color" color
@@ -4540,6 +4599,11 @@ renderStatus model status =
                 List.map (renderAttachment model) status.media_attachments
             ]
         ]
+
+
+hr : Html msg
+hr =
+    Html.hr [ style "width" "90%" ] []
 
 
 formatIso8601 : Zone -> String -> String

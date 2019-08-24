@@ -11,4 +11,9 @@ Then aim your browser at http://localhost:8000/site/index.html
 
 After code changes, use `bin/build` to create `site/elm.js`, then reload the browser window.
 
+To test `Mammudeck.EncodeDecode`:
+
+    cd ~/.../elm-mammudeck
+    elm-test
+
 Bill St. Clair, 4 July 2019
