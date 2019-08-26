@@ -115,6 +115,7 @@ import Mastodon.Entity as Entity
         , Status
         , UrlString
         , Visibility(..)
+        , WrappedStatus(..)
         )
 import Mastodon.Login as Login exposing (FetchAccountOrRedirect(..))
 import Mastodon.Request as Request
@@ -4698,17 +4699,16 @@ renderAccount color zone account description datetime url =
         ]
 
 
-{-| TODO.
-
-If status.reblog is not `Nothing`, print "`display_name` reblogged",
-then THAT status, not the one in your hand.
-
--}
 renderStatus : Model -> Status -> Html Msg
-renderStatus model status =
+renderStatus model statusIn =
     let
-        account =
-            status.account
+        ( status, account, reblogAccount ) =
+            case statusIn.reblog of
+                Nothing ->
+                    ( statusIn, statusIn.account, Nothing )
+
+                Just (WrappedStatus reblog) ->
+                    ( reblog, reblog.account, Just statusIn.account )
 
         { color } =
             getStyle model.style
@@ -4727,7 +4727,16 @@ renderStatus model status =
                 [ class "content"
                 , style "color" color
                 ]
-                [ renderAccount color
+                [ case reblogAccount of
+                    Nothing ->
+                        text ""
+
+                    Just acct ->
+                        span []
+                            [ link acct.display_name acct.url
+                            , text " reblogged:"
+                            ]
+                , renderAccount color
                     model.here
                     account
                     (b account.display_name)
