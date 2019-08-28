@@ -150,6 +150,7 @@ import Time exposing (Month, Posix, Zone)
 import Time.Format as Format
 import Time.Format.Config.Configs as Configs
 import Url exposing (Url)
+import Url.Builder as Builder
 import Url.Parser as Parser exposing ((<?>))
 import Url.Parser.Query as QP
 
@@ -1050,7 +1051,11 @@ handleGetModel maybeValue model =
         | page =
             case page of
                 Nothing ->
-                    mdl.page
+                    if request == Nothing then
+                        mdl.page
+
+                    else
+                        ExplorerPage
 
                 Just p ->
                     p
@@ -1372,6 +1377,23 @@ update msg model =
     }
         |> withCmds
             [ cmd
+            , if
+                (model2.page == ExplorerPage)
+                    && ((model.page /= ExplorerPage)
+                            || (model2.selectedRequest /= model.selectedRequest)
+                       )
+              then
+                let
+                    query =
+                        Builder.string "api" <|
+                            selectedRequestToUrlValue model2.selectedRequest
+                in
+                Navigation.replaceUrl model.key <|
+                    model.url.path
+                        ++ Builder.toQuery [ query ]
+
+              else
+                Cmd.none
             , if needsSaving then
                 put pk.model (Just <| encodeSavedModel savedModel)
 
@@ -4171,30 +4193,45 @@ selectedRequestDecoder =
             )
 
 
+selectedRequestUrlDictPairs : List ( String, SelectedRequest )
+selectedRequestUrlDictPairs =
+    [ ( "instance", InstanceSelected )
+    , ( "accounts", AccountsSelected )
+    , ( "blocks", BlocksSelected )
+    , ( "customemojis", CustomEmojisSelected )
+    , ( "endorsements", EndorsementsSelected )
+    , ( "favourites", FavouritesSelected )
+    , ( "filters", FiltersSelected )
+    , ( "followrequests", FollowRequestsSelected )
+    , ( "followsuggestions", FollowSuggestionsSelected )
+    , ( "groups", GroupsSelected )
+    , ( "lists", ListsSelected )
+    , ( "mutes", MutesSelected )
+    , ( "search", SearchSelected )
+    , ( "scheduledstatus", ScheduledStatusesSelected )
+    , ( "notifications", NotificationsSelected )
+    , ( "reports", ReportsSelected )
+    , ( "statuses", StatusesSelected )
+    , ( "timelines", TimelinesSelected )
+    , ( "trends", TrendsSelected )
+    , ( "login", LoginSelected )
+    ]
+
+
+selectedRequestToUrlValue : SelectedRequest -> String
+selectedRequestToUrlValue request =
+    case LE.find (\( _, req ) -> req == request) selectedRequestUrlDictPairs of
+        Nothing ->
+            -- Can't happen
+            "login"
+
+        Just ( str, _ ) ->
+            str
+
+
 selectedRequestFromUrlDict : Dict String SelectedRequest
 selectedRequestFromUrlDict =
-    Dict.fromList
-        [ ( "instance", InstanceSelected )
-        , ( "accounts", AccountsSelected )
-        , ( "blocks", BlocksSelected )
-        , ( "customemojis", CustomEmojisSelected )
-        , ( "endorsements", EndorsementsSelected )
-        , ( "favourites", FavouritesSelected )
-        , ( "filters", FiltersSelected )
-        , ( "followrequests", FollowRequestsSelected )
-        , ( "followsuggestions", FollowSuggestionsSelected )
-        , ( "groups", GroupsSelected )
-        , ( "lists", ListsSelected )
-        , ( "mutes", MutesSelected )
-        , ( "search", SearchSelected )
-        , ( "scheduledstatus", ScheduledStatusesSelected )
-        , ( "notifications", NotificationsSelected )
-        , ( "reports", ReportsSelected )
-        , ( "statuses", StatusesSelected )
-        , ( "timelines", TimelinesSelected )
-        , ( "trends", TrendsSelected )
-        , ( "login", LoginSelected )
-        ]
+    Dict.fromList selectedRequestUrlDictPairs
 
 
 selectedRequestFromStringDict : Dict String SelectedRequest
