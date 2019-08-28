@@ -8,6 +8,16 @@
 -- See LICENSE
 --
 ----------------------------------------------------------------------
+--
+-- Startup URLs
+-- See `parseInitialPage`.
+--
+-- https://mamudeck.com/...
+--
+--   ?page=[splash|columns|api]
+--   &api=[key in selectedRequestFromUrlDict]
+--
+----------------------------------------------------------------------
 
 
 module Main exposing (main)
@@ -277,6 +287,7 @@ type alias Model =
     , scheduledStatusId : String
 
     -- Non-persistent below here
+    , initialPage : InitialPage
     , dialog : Dialog
     , feedSet : FeedSet
 
@@ -676,6 +687,65 @@ parseQuery queryString =
         |> Maybe.withDefault (CodeErrorState Nothing Nothing Nothing)
 
 
+type alias InitialPage =
+    { page : Maybe Page
+    , request : Maybe SelectedRequest
+    }
+
+
+emptyInitialPage : InitialPage
+emptyInitialPage =
+    InitialPage Nothing Nothing
+
+
+parseInitialPage : Url -> InitialPage
+parseInitialPage urlin =
+    case urlin.query of
+        Nothing ->
+            emptyInitialPage
+
+        Just queryString ->
+            let
+                url =
+                    { emptyUrl | query = Just queryString }
+
+                parser page request =
+                    { page =
+                        case page of
+                            Nothing ->
+                                Nothing
+
+                            Just p ->
+                                case p of
+                                    "splash" ->
+                                        Just SplashScreenPage
+
+                                    "columns" ->
+                                        Just ColumnsPage
+
+                                    "api" ->
+                                        Just ExplorerPage
+
+                                    _ ->
+                                        Nothing
+                    , request =
+                        case request of
+                            Nothing ->
+                                Nothing
+
+                            Just r ->
+                                Dict.get r selectedRequestFromUrlDict
+                    }
+
+                qp =
+                    QP.map2 parser
+                        (QP.string "page")
+                        (QP.string "api")
+            in
+            Parser.parse (Parser.s emptyElement <?> qp) url
+                |> Maybe.withDefault emptyInitialPage
+
+
 type CodeAndState
     = CodeAndState String (Maybe String)
     | CodeErrorAndState String (Maybe String)
@@ -735,6 +805,9 @@ init value url key =
 
                 NoCode ->
                     ( Nothing, Nothing, Nothing )
+
+        initialPage =
+            Debug.log "initialPage" <| parseInitialPage url
     in
     { page = SplashScreenPage
     , token = Nothing
@@ -782,6 +855,7 @@ init value url key =
     , scheduledStatusId = ""
 
     -- Non-persistent below here
+    , initialPage = initialPage
     , dialog = NoDialog
     , feedSet = Types.defaultFeedSet
     , altKeyDown = False
@@ -963,6 +1037,34 @@ handleListKeysResponse maybeLabel prefix keys model =
 
 handleGetModel : Maybe Value -> Model -> ( Model, Cmd Msg )
 handleGetModel maybeValue model =
+    let
+        ( mdl, cmd ) =
+            handleGetModelInternal maybeValue model
+
+        { page, request } =
+            mdl.initialPage
+    in
+    { mdl
+        | page =
+            case page of
+                Nothing ->
+                    mdl.page
+
+                Just p ->
+                    p
+        , selectedRequest =
+            case request of
+                Nothing ->
+                    mdl.selectedRequest
+
+                Just r ->
+                    r
+    }
+        |> withCmd cmd
+
+
+handleGetModelInternal : Maybe Value -> Model -> ( Model, Cmd Msg )
+handleGetModelInternal maybeValue model =
     case maybeValue of
         Nothing ->
             { model
@@ -986,8 +1088,7 @@ handleGetModel maybeValue model =
                 Ok savedModel ->
                     let
                         mdl =
-                            Debug.log "savedModelToModel" <|
-                                savedModelToModel savedModel model
+                            savedModelToModel savedModel model
                     in
                     { mdl
                         | started = Started
@@ -4015,68 +4116,66 @@ selectedRequestDecoder =
             )
 
 
+selectedRequestFromUrlDict : Dict String SelectedRequest
+selectedRequestFromUrlDict =
+    Dict.fromList
+        [ ( "instance", InstanceSelected )
+        , ( "accounts", AccountsSelected )
+        , ( "blocks", BlocksSelected )
+        , ( "customemojis", CustomEmojisSelected )
+        , ( "endorsements", EndorsementsSelected )
+        , ( "favourites", FavouritesSelected )
+        , ( "filters", FiltersSelected )
+        , ( "followrequests", FollowRequestsSelected )
+        , ( "followsuggestions", FollowSuggestionsSelected )
+        , ( "groups", GroupsSelected )
+        , ( "lists", ListsSelected )
+        , ( "mutes", MutesSelected )
+        , ( "search", SearchSelected )
+        , ( "scheduledstatus", ScheduledStatusesSelected )
+        , ( "notifications", NotificationsSelected )
+        , ( "reports", ReportsSelected )
+        , ( "statuses", StatusesSelected )
+        , ( "timelines", TimelinesSelected )
+        , ( "trends", TrendsSelected )
+        , ( "login", LoginSelected )
+        ]
+
+
+selectedRequestFromStringDict : Dict String SelectedRequest
+selectedRequestFromStringDict =
+    Dict.fromList
+        [ ( "Instance Information", InstanceSelected )
+        , ( "AccountsRequest", AccountsSelected )
+        , ( "BlocksRequest", BlocksSelected )
+        , ( "CustomEmojisRequest", CustomEmojisSelected )
+        , ( "EndorsementsRequest", EndorsementsSelected )
+        , ( "FavouritesRequest", FavouritesSelected )
+        , ( "FiltersRequest", FiltersSelected )
+        , ( "FollowRequestsRequest", FollowRequestsSelected )
+        , ( "FollowSuggestionsRequest", FollowSuggestionsSelected )
+        , ( "GroupsRequest", GroupsSelected )
+        , ( "ListsRequest", ListsSelected )
+        , ( "MutesRequest", MutesSelected )
+        , ( "SearchRequest", SearchSelected )
+        , ( "ScheduledStatusRequest", ScheduledStatusesSelected )
+        , ( "NotificationsRequest", NotificationsSelected )
+        , ( "ReportsRequest", ReportsSelected )
+        , ( "StatusesRequest", StatusesSelected )
+        , ( "TimelinesRequest", TimelinesSelected )
+        , ( "TrendsRequest", TrendsSelected )
+        , ( "Login", LoginSelected )
+        ]
+
+
 selectedRequestFromString : String -> SelectedRequest
 selectedRequestFromString s =
-    case s of
-        "Instance Information" ->
-            InstanceSelected
-
-        "AccountsRequest" ->
-            AccountsSelected
-
-        "BlocksRequest" ->
-            BlocksSelected
-
-        "CustomEmojisRequest" ->
-            CustomEmojisSelected
-
-        "EndorsementsRequest" ->
-            EndorsementsSelected
-
-        "FavouritesRequest" ->
-            FavouritesSelected
-
-        "FiltersRequest" ->
-            FiltersSelected
-
-        "FollowRequestsRequest" ->
-            FollowRequestsSelected
-
-        "FollowSuggestionsRequest" ->
-            FollowSuggestionsSelected
-
-        "GroupsRequest" ->
-            GroupsSelected
-
-        "ListsRequest" ->
-            ListsSelected
-
-        "MutesRequest" ->
-            MutesSelected
-
-        "SearchRequest" ->
-            SearchSelected
-
-        "ScheduledStatusRequest" ->
-            ScheduledStatusesSelected
-
-        "NotificationsRequest" ->
-            NotificationsSelected
-
-        "ReportsRequest" ->
-            ReportsSelected
-
-        "StatusesRequest" ->
-            StatusesSelected
-
-        "TimelinesRequest" ->
-            TimelinesSelected
-
-        "TrendsRequest" ->
-            TrendsSelected
-
-        _ ->
+    case Dict.get s selectedRequestFromStringDict of
+        Nothing ->
             LoginSelected
+
+        Just request ->
+            request
 
 
 radioNames =
