@@ -406,6 +406,8 @@ type ColumnsUIMsg
     | DismissDialog
     | AddHomeColumn
     | AddNotificationsColumn
+    | AddPublicColumn
+    | DeleteFeed FeedType
 
 
 type ColumnsSendMsg
@@ -1392,6 +1394,12 @@ update msg model =
                     model.url.path
                         ++ Builder.toQuery [ query ]
 
+              else if
+                (model2.page /= ExplorerPage)
+                    && (model.page == ExplorerPage)
+              then
+                Navigation.replaceUrl model.key model.url.path
+
               else
                 Cmd.none
             , if needsSaving then
@@ -1916,6 +1924,43 @@ columnsUIMsg msg model =
                     }
                 )
                 model
+
+        AddPublicColumn ->
+            addFeedType (PublicFeed { flags = Nothing }) model
+
+        DeleteFeed feedType ->
+            deleteFeedType feedType model
+
+
+deleteFeedType : FeedType -> Model -> ( Model, Cmd Msg )
+deleteFeedType feedType model =
+    let
+        feedSetDefinition =
+            model.feedSetDefinition
+
+        feedTypes =
+            feedSetDefinition.feedTypes
+
+        newFeedSetDefinition =
+            { feedSetDefinition
+                | feedTypes =
+                    List.filter ((/=) feedType) feedTypes
+            }
+
+        feedSet =
+            model.feedSet
+
+        newFeedSet =
+            { feedSet
+                | feeds =
+                    List.filter (.feedType >> (/=) feedType) feedSet.feeds
+            }
+    in
+    { model
+        | feedSetDefinition = newFeedSetDefinition
+        , feedSet = newFeedSet
+    }
+        |> withCmd (putFeedSetDefinition newFeedSetDefinition)
 
 
 addFeedType : FeedType -> Model -> ( Model, Cmd Msg )
@@ -6762,7 +6807,36 @@ editColumnDialogRows model =
                     [ row [ text "Notifications" ]
                         (ColumnsUIMsg AddNotificationsColumn)
                     ]
+            , case
+                LE.find
+                    (\feedType ->
+                        case feedType of
+                            PublicFeed _ ->
+                                True
+
+                            _ ->
+                                False
+                    )
+                    feedTypes
+              of
+                Just _ ->
+                    []
+
+                Nothing ->
+                    [ row [ text "Public" ]
+                        (ColumnsUIMsg AddPublicColumn)
+                    ]
             ]
+    , hr
+    , let
+        feedRow feedType =
+            tr []
+                [ td [] [ feedTitle feedType ]
+                , td [] [ button (ColumnsUIMsg <| DeleteFeed feedType) "-" ]
+                ]
+      in
+      table [] <|
+        List.map feedRow feedTypes
     ]
 
 
