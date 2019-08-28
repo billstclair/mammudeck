@@ -27,7 +27,7 @@ import Browser.Dom as Dom exposing (Viewport)
 import Browser.Events as Events
 import Browser.Navigation as Navigation exposing (Key)
 import Char
-import Cmd.Extra exposing (withCmd, withCmds, withNoCmd)
+import Cmd.Extra exposing (addCmd, withCmd, withCmds, withNoCmd)
 import CustomElement.WriteClipboard as WriteClipboard
 import Dialog
 import Dict exposing (Dict)
@@ -403,6 +403,8 @@ type ColumnsUIMsg
     | ReloadAllColumns
     | ShowEditColumnsDialog
     | DismissDialog
+    | AddHomeColumn
+    | AddNotificationsColumn
 
 
 type ColumnsSendMsg
@@ -1880,6 +1882,59 @@ columnsUIMsg msg model =
         DismissDialog ->
             { model | dialog = NoDialog }
                 |> withNoCmd
+
+        AddHomeColumn ->
+            addFeedType HomeFeed model
+
+        AddNotificationsColumn ->
+            addFeedType
+                (NotificationFeed
+                    { accountId = Nothing
+                    , exclusions = []
+                    }
+                )
+                model
+
+
+addFeedType : FeedType -> Model -> ( Model, Cmd Msg )
+addFeedType feedType model =
+    let
+        feedSetDefinition =
+            model.feedSetDefinition
+
+        feedTypes =
+            feedSetDefinition.feedTypes
+
+        newFeedSetDefinition =
+            { feedSetDefinition
+                | feedTypes = List.append feedTypes [ feedType ]
+            }
+
+        feedSet =
+            model.feedSet
+
+        newFeed =
+            { feedType = feedType
+            , elements = Types.feedTypeToElements feedType
+            }
+
+        newFeedSet =
+            { feedSet
+                | feeds =
+                    List.append feedSet.feeds [ newFeed ]
+            }
+    in
+    { model
+        | feedSetDefinition = newFeedSetDefinition
+        , feedSet = newFeedSet
+    }
+        |> reloadFeed newFeed
+        |> addCmd (putFeedSetDefinition newFeedSetDefinition)
+
+
+putFeedSetDefinition : FeedSetDefinition -> Cmd Msg
+putFeedSetDefinition feedSetDefinition =
+    put pk.feedSetDefinition (Just <| MED.encodeFeedSetDefinition feedSetDefinition)
 
 
 reloadFeed : Feed -> Model -> ( Model, Cmd Msg )
@@ -4484,7 +4539,16 @@ renderLeftColumn model =
         , style "width" <| px leftColumnWidth
         , style "padding-top" "5px"
         ]
-        [ pageSelector False (model.loginServer /= Nothing) model.page
+        [ case model.loginServer of
+            Nothing ->
+                text ""
+
+            Just server ->
+                span []
+                    [ link server <| "https://" ++ server
+                    , br
+                    ]
+        , pageSelector False (model.loginServer /= Nothing) model.page
         , br
         , button (ColumnsUIMsg ReloadAllColumns) "reload"
         , br
@@ -6609,12 +6673,60 @@ editColumnsDialog model =
     Dialog.render
         { styles = [ ( "width", "40%" ) ]
         , title = "Edit Columns"
-        , content =
-            [ Html.text "foo" ]
+        , content = editColumnDialogRows model
         , actionBar =
             [ button (ColumnsUIMsg DismissDialog) "OK" ]
         }
         True
+
+
+plus : String
+plus =
+    "+"
+
+
+editColumnDialogRows : Model -> List (Html Msg)
+editColumnDialogRows model =
+    let
+        feedTypes =
+            model.feedSetDefinition.feedTypes
+
+        row : List (Html Msg) -> Msg -> Html Msg
+        row td1 msg =
+            tr []
+                [ td [] td1
+                , td [] [ button msg "+" ]
+                ]
+    in
+    -- This will change quite a bit when I add multiple-server support
+    [ table [] <|
+        List.concat
+            [ if List.member HomeFeed feedTypes then
+                []
+
+              else
+                [ row [ text "Home" ] (ColumnsUIMsg AddHomeColumn) ]
+            , case
+                LE.find
+                    (\feedType ->
+                        case feedType of
+                            NotificationFeed _ ->
+                                True
+
+                            _ ->
+                                False
+                    )
+                    feedTypes
+              of
+                Just _ ->
+                    []
+
+                Nothing ->
+                    [ row [ text "Notifications" ]
+                        (ColumnsUIMsg AddNotificationsColumn)
+                    ]
+            ]
+    ]
 
 
 dollarButtonNameToSendName : Bool -> String -> String
@@ -7505,6 +7617,7 @@ funnelDict =
 pk =
     { model = "model"
     , token = "token"
+    , feedSetDefinition = "feedSetDefinition"
     }
 
 
