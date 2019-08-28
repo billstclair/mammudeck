@@ -98,7 +98,7 @@ type FeedType
     = HomeFeed
     | UserFeed
         { username : String
-        , id : String
+        , server : String
         , flags : Maybe UserFeedFlags
         }
     | PublicFeed { flags : Maybe PublicFeedFlags }

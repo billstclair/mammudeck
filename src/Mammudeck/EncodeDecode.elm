@@ -68,11 +68,11 @@ encodeFeedType feedType =
         HomeFeed ->
             JE.string "HomeFeed"
 
-        UserFeed { username, id, flags } ->
+        UserFeed { username, server, flags } ->
             JE.object
                 [ ( "feedType", JE.string "UserFeed" )
                 , ( "username", JE.string username )
-                , ( "id", JE.string id )
+                , ( "server", JE.string server )
                 , ( "flags", ED.encodeMaybe encodeUserFeedFlags flags )
                 ]
 
@@ -141,15 +141,15 @@ feedTypeDecoder =
                     case feedType of
                         "UserFeed" ->
                             JD.succeed
-                                (\username id flags ->
+                                (\username server flags ->
                                     UserFeed
                                         { username = username
-                                        , id = id
+                                        , server = server
                                         , flags = flags
                                         }
                                 )
                                 |> required "username" JD.string
-                                |> required "id" JD.string
+                                |> required "server" JD.string
                                 |> optional "flags" (JD.nullable userFeedFlagsDecoder) Nothing
 
                         "PublicFeed" ->

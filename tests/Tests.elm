@@ -87,9 +87,21 @@ fsdData =
       }
     , { name = "fsd2"
       , feedTypes =
-            [ UserFeed { username = "un1", id = "id1", flags = Nothing }
-            , UserFeed { username = "un2", id = "id2", flags = Just uff1 }
-            , UserFeed { username = "un3", id = "id3", flags = Just uff2 }
+            [ UserFeed
+                { username = "un1"
+                , server = "mastodon.social"
+                , flags = Nothing
+                }
+            , UserFeed
+                { username = "un2"
+                , server = "kiwifarms.cc"
+                , flags = Just uff1
+                }
+            , UserFeed
+                { username = "un3"
+                , server = "gab.com"
+                , flags = Just uff2
+                }
             ]
       }
     , { name = "fsd3"
