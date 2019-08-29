@@ -404,10 +404,8 @@ type ColumnsUIMsg
     | ReloadAllColumns
     | ShowEditColumnsDialog
     | DismissDialog
-    | AddHomeColumn
-    | AddNotificationsColumn
-    | AddPublicColumn
-    | DeleteFeed FeedType
+    | AddFeedColumn FeedType
+    | DeleteFeedColumn FeedType
 
 
 type ColumnsSendMsg
@@ -1946,22 +1944,10 @@ columnsUIMsg msg model =
             { model | dialog = NoDialog }
                 |> withNoCmd
 
-        AddHomeColumn ->
-            addFeedType HomeFeed model
+        AddFeedColumn feedType ->
+            addFeedType feedType model
 
-        AddNotificationsColumn ->
-            addFeedType
-                (NotificationFeed
-                    { accountId = Nothing
-                    , exclusions = []
-                    }
-                )
-                model
-
-        AddPublicColumn ->
-            addFeedType (PublicFeed { flags = Nothing }) model
-
-        DeleteFeed feedType ->
+        DeleteFeedColumn feedType ->
             deleteFeedType feedType model
 
 
@@ -2032,6 +2018,33 @@ addFeedType feedType model =
         |> addCmd (putFeedSetDefinition newFeedSetDefinition)
 
 
+{-| TODO:
+
+This needs to be sent to `server`, not `model.loginServer`.
+Or maybe that should be a parameter.
+
+-}
+startReloadUserFeed : Types.UserFeedParams -> Request
+startReloadUserFeed params =
+    let
+        { username, server } =
+            params
+    in
+    AccountsRequest <|
+        Request.GetSearchAccounts
+            { q = username
+            , limit = Nothing
+            , resolve = False
+            , following = False
+            }
+
+
+continueReloadUserFeed : List Account -> Cmd Msg
+continueReloadUserFeed accounts =
+    -- TODO
+    Cmd.none
+
+
 reloadFeed : Feed -> Model -> ( Model, Cmd Msg )
 reloadFeed { feedType } model =
     let
@@ -2041,6 +2054,9 @@ reloadFeed { feedType } model =
                     Just <|
                         TimelinesRequest <|
                             Request.GetHomeTimeline { paging = Nothing }
+
+                UserFeed params ->
+                    Just <| startReloadUserFeed params
 
                 PublicFeed { flags } ->
                     Just <|
@@ -2117,32 +2133,45 @@ columnsSendMsg msg model =
                                         NotificationListEntity notifications ->
                                             Just <| NotificationElements notifications
 
+                                        AccountListEntity accounts ->
+                                            Just <| AccountElements accounts
+
                                         _ ->
                                             Nothing
 
                                 feedSet =
                                     mdl.feedSet
 
-                                feeds =
+                                ( feeds, cmd2 ) =
                                     case elements of
                                         Nothing ->
-                                            feedSet.feeds
+                                            ( feedSet.feeds, Cmd.none )
 
                                         Just elem ->
-                                            LE.updateIf
-                                                (\feed ->
-                                                    feedType == feed.feedType
-                                                )
-                                                (\feed ->
-                                                    { feed | elements = elem }
-                                                )
-                                                feedSet.feeds
+                                            case elem of
+                                                AccountElements accounts ->
+                                                    ( feedSet.feeds
+                                                    , continueReloadUserFeed
+                                                        accounts
+                                                    )
+
+                                                _ ->
+                                                    ( LE.updateIf
+                                                        (\feed ->
+                                                            feedType == feed.feedType
+                                                        )
+                                                        (\feed ->
+                                                            { feed | elements = elem }
+                                                        )
+                                                        feedSet.feeds
+                                                    , Cmd.none
+                                                    )
                             in
                             { mdl
                                 | feedSet =
                                     { feedSet | feeds = feeds }
                             }
-                                |> withCmd cmd
+                                |> withCmds [ cmd, cmd2 ]
 
 
 {-| Process UI messages from the API Explorer page.
@@ -6820,7 +6849,7 @@ editColumnDialogRows model =
                 []
 
               else
-                [ row [ b "Home" ] (ColumnsUIMsg AddHomeColumn) ]
+                [ row [ b "Home" ] (ColumnsUIMsg <| AddFeedColumn HomeFeed) ]
             , case
                 LE.find
                     (\feedType ->
@@ -6838,7 +6867,14 @@ editColumnDialogRows model =
 
                 Nothing ->
                     [ row [ b "Notifications" ]
-                        (ColumnsUIMsg AddNotificationsColumn)
+                        (ColumnsUIMsg <|
+                            AddFeedColumn
+                                (NotificationFeed
+                                    { accountId = Nothing
+                                    , exclusions = []
+                                    }
+                                )
+                        )
                     ]
             , case
                 LE.find
@@ -6857,7 +6893,9 @@ editColumnDialogRows model =
 
                 Nothing ->
                     [ row [ b "Public" ]
-                        (ColumnsUIMsg AddPublicColumn)
+                        (ColumnsUIMsg <|
+                            AddFeedColumn (PublicFeed { flags = Nothing })
+                        )
                     ]
             ]
     , hrpct 100
@@ -6865,7 +6903,7 @@ editColumnDialogRows model =
         feedRow feedType =
             tr []
                 [ td [] [ feedTitle feedType ]
-                , td [] [ button (ColumnsUIMsg <| DeleteFeed feedType) "-" ]
+                , td [] [ button (ColumnsUIMsg <| DeleteFeedColumn feedType) "-" ]
                 ]
       in
       table [] <|

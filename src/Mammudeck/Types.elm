@@ -19,9 +19,12 @@ module Mammudeck.Types exposing
     , FetchType(..)
     , Fetcher
     , GangedNotification
+    , NotificationFeedParams
     , PublicFeedFlags
+    , PublicFeedParams
     , Renderer
     , UserFeedFlags
+    , UserFeedParams
     , allButMentionNotificationExclusions
     , defaultFeedSet
     , defaultFeedSetDefinition
@@ -94,21 +97,31 @@ allButMentionNotificationExclusions =
     ]
 
 
+type alias UserFeedParams =
+    { username : String
+    , server : String
+    , flags : Maybe UserFeedFlags
+    }
+
+
+type alias PublicFeedParams =
+    { flags : Maybe PublicFeedFlags }
+
+
+type alias NotificationFeedParams =
+    { accountId : Maybe String
+    , exclusions : List NotificationType
+    }
+
+
 type FeedType
     = HomeFeed
-    | UserFeed
-        { username : String
-        , server : String
-        , flags : Maybe UserFeedFlags
-        }
-    | PublicFeed { flags : Maybe PublicFeedFlags }
+    | UserFeed UserFeedParams
+    | PublicFeed PublicFeedParams
     | HashtagFeed String
     | ListFeed String
     | GroupFeed String
-    | NotificationFeed
-        { accountId : Maybe String
-        , exclusions : List NotificationType
-        }
+    | NotificationFeed NotificationFeedParams
     | ConversationsFeed
     | SearchFeed
         { q : String
@@ -120,6 +133,7 @@ type FeedType
 type FeedElements
     = StatusElements (List Status)
     | NotificationElements (List Notification)
+    | AccountElements (List Account)
     | ConversationsElements (List Conversation)
     | ResultsElements (List Results)
 
