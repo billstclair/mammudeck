@@ -2030,6 +2030,8 @@ startReloadUserFeed params =
         { username, server } =
             params
     in
+    -- TODO
+    -- Add a table from username@server to account id.
     AccountsRequest <|
         Request.GetSearchAccounts
             { q = username
@@ -2039,10 +2041,53 @@ startReloadUserFeed params =
             }
 
 
-continueReloadUserFeed : List Account -> Cmd Msg
-continueReloadUserFeed accounts =
-    -- TODO
-    Cmd.none
+{-| This processes the result of the `GetSearchAccounts` request above.
+-}
+continueReloadUserFeed : FeedType -> List Account -> Model -> ( Model, Cmd Msg )
+continueReloadUserFeed feedType accounts model =
+    case feedType of
+        UserFeed { username, server, flags } ->
+            let
+                userAtServer =
+                    if Just server == model.loginServer then
+                        username
+
+                    else
+                        username ++ "@" ++ server
+            in
+            case LE.find (.acct >> (==) userAtServer) accounts of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just { id } ->
+                    let
+                        ( ( only_media, pinned ), ( exclude_replies, exclude_reblogs ) ) =
+                            case flags of
+                                Nothing ->
+                                    ( ( False, False ), ( False, False ) )
+
+                                Just flgs ->
+                                    ( ( flgs.only_media, flgs.pinned )
+                                    , ( not flgs.replies, not flgs.reblogs )
+                                    )
+
+                        req =
+                            AccountsRequest <|
+                                Request.GetStatuses
+                                    { id = id
+                                    , only_media = only_media
+                                    , pinned = pinned
+                                    , exclude_replies = exclude_replies
+                                    , exclude_reblogs = exclude_reblogs
+                                    , paging = Nothing
+                                    }
+                    in
+                    sendGeneralRequest (ColumnsSendMsg << ReceiveFeed feedType)
+                        req
+                        model
+
+        _ ->
+            model |> withNoCmd
 
 
 reloadFeed : Feed -> Model -> ( Model, Cmd Msg )
@@ -2142,17 +2187,19 @@ columnsSendMsg msg model =
                                 feedSet =
                                     mdl.feedSet
 
-                                ( feeds, cmd2 ) =
+                                ( feeds, ( mdl2, cmd2 ) ) =
                                     case elements of
                                         Nothing ->
-                                            ( feedSet.feeds, Cmd.none )
+                                            ( feedSet.feeds, ( mdl, Cmd.none ) )
 
                                         Just elem ->
                                             case elem of
                                                 AccountElements accounts ->
                                                     ( feedSet.feeds
                                                     , continueReloadUserFeed
+                                                        feedType
                                                         accounts
+                                                        mdl
                                                     )
 
                                                 _ ->
@@ -2164,10 +2211,10 @@ columnsSendMsg msg model =
                                                             { feed | elements = elem }
                                                         )
                                                         feedSet.feeds
-                                                    , Cmd.none
+                                                    , ( mdl, Cmd.none )
                                                     )
                             in
-                            { mdl
+                            { mdl2
                                 | feedSet =
                                     { feedSet | feeds = feeds }
                             }
