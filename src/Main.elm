@@ -818,7 +818,7 @@ init value url key =
     , token = Nothing
     , server = ""
     , loginServer = Nothing
-    , feedSetDefinition = Types.defaultFeedSetDefinition
+    , feedSetDefinition = Types.emptyFeedSetDefinition
     , prettify = True
     , style = LightStyle
     , selectedRequest = LoginSelected
@@ -862,7 +862,7 @@ init value url key =
     -- Non-persistent below here
     , initialPage = initialPage
     , dialog = NoDialog
-    , feedSet = Types.defaultFeedSet
+    , feedSet = Types.emptyFeedSet
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -972,6 +972,7 @@ storageHandler response state model =
             then
                 Cmd.batch
                     [ get pk.model
+                    , getFeedSetDefinition
                     , listKeysLabeled pk.token (pk.token ++ ".")
                     ]
 
@@ -1113,6 +1114,35 @@ handleGetModelInternal maybeValue model =
                             )
 
 
+handleGetFeedSetDefinition : Maybe Value -> Model -> ( Model, Cmd Msg )
+handleGetFeedSetDefinition maybeValue model =
+    let
+        feedSetDefinition =
+            case maybeValue of
+                Nothing ->
+                    Types.defaultFeedSetDefinition
+
+                Just value ->
+                    case JD.decodeValue MED.feedSetDefinitionDecoder value of
+                        Err _ ->
+                            Types.defaultFeedSetDefinition
+
+                        Ok fsd ->
+                            fsd
+
+        feedSet =
+            Types.feedSetDefinitionToFeedSet feedSetDefinition
+    in
+    { model
+        | feedSetDefinition = feedSetDefinition
+        , feedSet = feedSet
+    }
+        |> withCmd
+            (Task.perform identity <|
+                Task.succeed (ColumnsUIMsg ReloadAllColumns)
+            )
+
+
 handleGetToken : String -> Value -> Model -> ( Model, Cmd Msg )
 handleGetToken key value model =
     case JD.decodeValue JD.string value of
@@ -1142,6 +1172,9 @@ handleGetResponse maybeLabel key maybeValue model =
         Nothing ->
             if key == pk.model then
                 handleGetModel maybeValue model
+
+            else if key == pk.feedSetDefinition then
+                handleGetFeedSetDefinition maybeValue model
 
             else
                 model |> withNoCmd
@@ -1997,11 +2030,6 @@ addFeedType feedType model =
     }
         |> reloadFeed newFeed
         |> addCmd (putFeedSetDefinition newFeedSetDefinition)
-
-
-putFeedSetDefinition : FeedSetDefinition -> Cmd Msg
-putFeedSetDefinition feedSetDefinition =
-    put pk.feedSetDefinition (Just <| MED.encodeFeedSetDefinition feedSetDefinition)
 
 
 reloadFeed : Feed -> Model -> ( Model, Cmd Msg )
@@ -5011,9 +5039,14 @@ renderStatus model statusIn =
         ]
 
 
+hrpct : Int -> Html msg
+hrpct pct =
+    Html.hr [ style "width" <| String.fromInt pct ++ "%" ] []
+
+
 hr : Html msg
 hr =
-    Html.hr [ style "width" "90%" ] []
+    hrpct 90
 
 
 formatIso8601 : Zone -> String -> String
@@ -6787,7 +6820,7 @@ editColumnDialogRows model =
                 []
 
               else
-                [ row [ text "Home" ] (ColumnsUIMsg AddHomeColumn) ]
+                [ row [ b "Home" ] (ColumnsUIMsg AddHomeColumn) ]
             , case
                 LE.find
                     (\feedType ->
@@ -6804,7 +6837,7 @@ editColumnDialogRows model =
                     []
 
                 Nothing ->
-                    [ row [ text "Notifications" ]
+                    [ row [ b "Notifications" ]
                         (ColumnsUIMsg AddNotificationsColumn)
                     ]
             , case
@@ -6823,11 +6856,11 @@ editColumnDialogRows model =
                     []
 
                 Nothing ->
-                    [ row [ text "Public" ]
+                    [ row [ b "Public" ]
                         (ColumnsUIMsg AddPublicColumn)
                     ]
             ]
-    , hr
+    , hrpct 100
     , let
         feedRow feedType =
             tr []
@@ -7677,6 +7710,16 @@ putToken server token =
 
             Just tok ->
                 Just <| JE.string tok
+
+
+getFeedSetDefinition : Cmd Msg
+getFeedSetDefinition =
+    get pk.feedSetDefinition
+
+
+putFeedSetDefinition : FeedSetDefinition -> Cmd Msg
+putFeedSetDefinition feedSetDefinition =
+    put pk.feedSetDefinition (Just <| MED.encodeFeedSetDefinition feedSetDefinition)
 
 
 clear : Cmd Msg
