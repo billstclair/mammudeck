@@ -7484,6 +7484,7 @@ type alias SavedModel =
     , filterId : String
     , filterInput : FilterInput
     , scheduledStatusId : String
+    , userNameInput : String
     }
 
 
@@ -7533,6 +7534,7 @@ modelToSavedModel model =
     , filterId = model.filterId
     , filterInput = model.filterInput
     , scheduledStatusId = model.scheduledStatusId
+    , userNameInput = model.userNameInput
     }
 
 
@@ -7583,6 +7585,7 @@ savedModelToModel savedModel model =
         , filterId = savedModel.filterId
         , filterInput = savedModel.filterInput
         , scheduledStatusId = savedModel.scheduledStatusId
+        , userNameInput = savedModel.userNameInput
     }
 
 
@@ -7730,6 +7733,7 @@ encodeSavedModel savedModel =
         , ( "filterId", JE.string savedModel.filterId )
         , ( "filterInput", encodeFilterInput savedModel.filterInput )
         , ( "scheduledStatusId", JE.string savedModel.scheduledStatusId )
+        , ( "userNameInput", JE.string savedModel.userNameInput )
         ]
 
 
@@ -7794,6 +7798,7 @@ savedModelDecoder =
         |> optional "filterId" JD.string ""
         |> optional "filterInput" filterInputDecoder emptyFilterInput
         |> optional "scheduledStatusId" JD.string ""
+        |> optional "userNameInput" JD.string ""
 
 
 put : String -> Maybe Value -> Cmd Msg
