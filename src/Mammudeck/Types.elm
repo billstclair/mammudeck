@@ -31,6 +31,7 @@ module Mammudeck.Types exposing
     , defaultNotificationExclusions
     , defaultPublicFeedFlags
     , defaultUserFeedFlags
+    , defaultUserFeedType
     , emptyFeedSet
     , emptyFeedSetDefinition
     , feedSetDefinitionToFeedSet
@@ -102,6 +103,15 @@ type alias UserFeedParams =
     , server : String
     , flags : Maybe UserFeedFlags
     }
+
+
+defaultUserFeedType : FeedType
+defaultUserFeedType =
+    UserFeed
+        { username = ""
+        , server = ""
+        , flags = Nothing
+        }
 
 
 type alias PublicFeedParams =

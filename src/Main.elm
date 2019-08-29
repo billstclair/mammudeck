@@ -286,6 +286,7 @@ type alias Model =
     , filterId : String
     , filterInput : FilterInput
     , scheduledStatusId : String
+    , userNameInput : String
 
     -- Non-persistent below here
     , initialPage : InitialPage
@@ -406,6 +407,7 @@ type ColumnsUIMsg
     | DismissDialog
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
+    | UserNameInput String
 
 
 type ColumnsSendMsg
@@ -856,6 +858,7 @@ init value url key =
     , filterId = ""
     , filterInput = emptyFilterInput
     , scheduledStatusId = ""
+    , userNameInput = ""
 
     -- Non-persistent below here
     , initialPage = initialPage
@@ -1945,10 +1948,41 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
         AddFeedColumn feedType ->
-            addFeedType feedType model
+            addFeedType (fillinFeedType feedType model) model
 
         DeleteFeedColumn feedType ->
             deleteFeedType feedType model
+
+        UserNameInput userNameInput ->
+            { model | userNameInput = userNameInput }
+                |> withNoCmd
+
+
+fillinFeedType : FeedType -> Model -> FeedType
+fillinFeedType feedType model =
+    case feedType of
+        UserFeed _ ->
+            let
+                ( username, server ) =
+                    case String.split "@" model.userNameInput of
+                        [] ->
+                            -- Can't happen
+                            ( "", "" )
+
+                        [ name ] ->
+                            ( name, "" )
+
+                        name :: s :: _ ->
+                            ( name, s )
+            in
+            UserFeed
+                { username = username
+                , server = server
+                , flags = Nothing
+                }
+
+        _ ->
+            feedType
 
 
 deleteFeedType : FeedType -> Model -> ( Model, Cmd Msg )
@@ -2031,7 +2065,7 @@ startReloadUserFeed params =
             params
     in
     -- TODO
-    -- Add a table from username@server to account id.
+    -- Add a table from username@server to Account.
     AccountsRequest <|
         Request.GetSearchAccounts
             { q = username
@@ -2049,7 +2083,7 @@ continueReloadUserFeed feedType accounts model =
         UserFeed { username, server, flags } ->
             let
                 userAtServer =
-                    if Just server == model.loginServer then
+                    if (server == "") || (Just server == model.loginServer) then
                         username
 
                     else
@@ -6944,6 +6978,20 @@ editColumnDialogRows model =
                             AddFeedColumn (PublicFeed { flags = Nothing })
                         )
                     ]
+            , [ row
+                    [ b "User: "
+                    , input
+                        [ size 30
+                        , onInput (ColumnsUIMsg << UserNameInput)
+                        , value model.userNameInput
+                        , placeholder <|
+                            "username@"
+                                ++ Maybe.withDefault "server" model.loginServer
+                        ]
+                        []
+                    ]
+                    (ColumnsUIMsg <| AddFeedColumn Types.defaultUserFeedType)
+              ]
             ]
     , hrpct 100
     , let
