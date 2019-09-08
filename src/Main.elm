@@ -237,8 +237,27 @@ filterInputDecoder =
         |> required "expires_in" JD.string
 
 
-type alias Model =
+type alias RenderEnv =
     { loginServer : Maybe String
+    , style : Style
+
+    -- not persistent
+    , windowSize : ( Int, Int )
+    , here : Zone
+    }
+
+
+emptyRenderEnv : RenderEnv
+emptyRenderEnv =
+    { loginServer = Nothing
+    , style = LightStyle
+    , windowSize = ( 1024, 768 )
+    , here = Time.utc
+    }
+
+
+type alias Model =
+    { renderEnv : RenderEnv
     , page : Page
     , token : Maybe String
     , server : String
@@ -248,7 +267,6 @@ type alias Model =
 
     -- API Explorer page state
     , prettify : Bool
-    , style : Style
     , selectedRequest : SelectedRequest
     , username : String
     , accountId : String
@@ -350,9 +368,7 @@ type alias Model =
     , msg : Maybe String
     , started : Started
     , funnelState : State
-    , here : Zone
     , now : Maybe Posix
-    , windowSize : ( Int, Int )
     }
 
 
@@ -814,13 +830,12 @@ init value url key =
         initialPage =
             Debug.log "initialPage" <| parseInitialPage url
     in
-    { page = SplashScreenPage
+    { renderEnv = emptyRenderEnv
+    , page = SplashScreenPage
     , token = Nothing
     , server = ""
-    , loginServer = Nothing
     , feedSetDefinition = Types.emptyFeedSetDefinition
     , prettify = True
-    , style = LightStyle
     , selectedRequest = LoginSelected
     , username = ""
     , accountId = ""
@@ -918,9 +933,7 @@ init value url key =
     , msg = msg
     , started = NotStarted
     , funnelState = initialFunnelState
-    , here = Time.utc
     , now = Nothing
-    , windowSize = ( 1024, 768 )
     }
         -- As soon as the localStorage module reports in,
         -- we'll load the saved model,
@@ -1008,7 +1021,7 @@ getInstance model =
 
 getVerifyCredentials : Model -> Cmd Msg
 getVerifyCredentials model =
-    case model.loginServer of
+    case model.renderEnv.loginServer of
         Nothing ->
             Cmd.none
 
@@ -1106,7 +1119,7 @@ handleGetModelInternal maybeValue model =
                         , msg = Nothing
                     }
                         |> withCmd
-                            (if mdl.loginServer == Nothing then
+                            (if mdl.renderEnv.loginServer == Nothing then
                                 Task.perform (GlobalMsg << SetServer) <|
                                     Task.succeed mdl.server
 
@@ -1476,15 +1489,23 @@ updateInternal msg model =
 -}
 globalMsg : GlobalMsg -> Model -> ( Model, Cmd Msg )
 globalMsg msg model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
     case msg of
         WindowResize w h ->
             { model
-                | windowSize = Debug.log "windowSize" ( w, h )
+                | renderEnv =
+                    { renderEnv | windowSize = Debug.log "windowSize" ( w, h ) }
             }
                 |> withNoCmd
 
         Here zone ->
-            { model | here = zone }
+            { model
+                | renderEnv =
+                    { renderEnv | here = zone }
+            }
                 |> withNoCmd
 
         Now posix ->
@@ -1636,7 +1657,8 @@ globalMsg msg model =
             if model.server == "" then
                 { model
                     | msg = Nothing
-                    , loginServer = Nothing
+                    , renderEnv =
+                        { renderEnv | loginServer = Nothing }
                     , request = Nothing
                     , response = Nothing
                     , entity = Nothing
@@ -1650,7 +1672,8 @@ globalMsg msg model =
                 let
                     mdl =
                         { model
-                            | loginServer = Just model.server
+                            | renderEnv =
+                                { renderEnv | loginServer = Just model.server }
                             , token = Nothing
                             , account = Nothing
                         }
@@ -1682,7 +1705,7 @@ globalMsg msg model =
                     ( model, Task.attempt (GlobalMsg << ReceiveFetchAccount) task )
 
         Logout ->
-            case model.loginServer of
+            case model.renderEnv.loginServer of
                 Nothing ->
                     model |> withNoCmd
 
@@ -1710,7 +1733,8 @@ globalMsg msg model =
                         | dialog = NoDialog
                         , tokens = Dict.empty
                         , server = ""
-                        , loginServer = Nothing
+                        , renderEnv =
+                            { renderEnv | loginServer = Nothing }
                         , account = Nothing
                         , token = Nothing
                         , request = Nothing
@@ -1758,7 +1782,8 @@ globalMsg msg model =
                             { mdl
                                 | msg = Nothing
                                 , token = Just authorization.token
-                                , loginServer = Just server
+                                , renderEnv =
+                                    { renderEnv | loginServer = Just server }
                                 , account = Just account
                                 , request =
                                     -- Fake the request
@@ -1797,7 +1822,8 @@ globalMsg msg model =
                             { model
                                 | msg = Nothing
                                 , server = loginServer
-                                , loginServer = Just loginServer
+                                , renderEnv =
+                                    { renderEnv | loginServer = Just loginServer }
                                 , token = Just token
                                 , account = Just account
                                 , request = Just request
@@ -2054,7 +2080,7 @@ addFeedType feedType model =
 
 {-| TODO:
 
-This needs to be sent to `server`, not `model.loginServer`.
+This needs to be sent to `server`, not `model.renderEnv.loginServer`.
 Or maybe that should be a parameter.
 
 -}
@@ -2083,7 +2109,7 @@ continueReloadUserFeed feedType accounts model =
         UserFeed { username, server, flags } ->
             let
                 userAtServer =
-                    if (server == "") || (Just server == model.loginServer) then
+                    if (server == "") || (Just server == model.renderEnv.loginServer) then
                         username
 
                     else
@@ -2307,13 +2333,20 @@ explorerUIMsg msg model =
                 |> withNoCmd
 
         ToggleStyle ->
+            let
+                renderEnv =
+                    model.renderEnv
+            in
             { model
-                | style =
-                    if model.style == LightStyle then
-                        DarkStyle
+                | renderEnv =
+                    { renderEnv
+                        | style =
+                            if renderEnv.style == LightStyle then
+                                DarkStyle
 
-                    else
-                        LightStyle
+                            else
+                                LightStyle
+                    }
             }
                 |> withNoCmd
 
@@ -3738,7 +3771,7 @@ getAccountIdRelationships showResult model =
             Cmd.none
 
         Just account ->
-            case model.loginServer of
+            case model.renderEnv.loginServer of
                 Nothing ->
                     Cmd.none
 
@@ -4123,7 +4156,7 @@ sendRequest =
 
 sendGeneralRequest : (Result Error Response -> Msg) -> Request -> Model -> ( Model, Cmd Msg )
 sendGeneralRequest tagger request model =
-    case model.loginServer of
+    case model.renderEnv.loginServer of
         Nothing ->
             model |> withNoCmd
 
@@ -4176,7 +4209,7 @@ serverSelect : Model -> Html Msg
 serverSelect model =
     let
         currentServer =
-            case model.loginServer of
+            case model.renderEnv.loginServer of
                 Nothing ->
                     ""
 
@@ -4649,7 +4682,7 @@ renderCenteredScreen : Model -> String -> List (Html msg) -> Html msg
 renderCenteredScreen model width body =
     let
         { backgroundColor, color } =
-            getStyle model.style
+            getStyle model.renderEnv.style
     in
     div
         [ style "background-color" backgroundColor
@@ -4675,8 +4708,8 @@ renderSplashScreen model =
         "40em"
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
-        , pageSelector True (model.loginServer /= Nothing) model.page
-        , if model.loginServer == Nothing then
+        , pageSelector True (model.renderEnv.loginServer /= Nothing) model.page
+        , if model.renderEnv.loginServer == Nothing then
             p []
                 [ text "Enter a 'server' name and click 'Login' or 'Set Server'."
                 ]
@@ -4703,7 +4736,7 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
             ]
         , p [ style "text-align" "center" ]
             [ checkBox (ExplorerUIMsg ToggleStyle)
-                (model.style == DarkStyle)
+                (model.renderEnv.style == DarkStyle)
                 "Dark Mode"
             , br
             , link "@imacpr0n@mastodon.social"
@@ -4723,7 +4756,7 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
             , text " "
             , imageLink
                 { imageUrl =
-                    if model.style == DarkStyle then
+                    if model.renderEnv.style == DarkStyle then
                         "images/GitHub-Mark-Light-32px.png"
 
                     else
@@ -4752,14 +4785,14 @@ renderLeftColumn : Model -> Html Msg
 renderLeftColumn model =
     let
         { color } =
-            getStyle model.style
+            getStyle model.renderEnv.style
     in
     div
         [ style "color" color
         , style "width" <| px leftColumnWidth
         , style "padding-top" "5px"
         ]
-        [ case model.loginServer of
+        [ case model.renderEnv.loginServer of
             Nothing ->
                 text ""
 
@@ -4768,14 +4801,14 @@ renderLeftColumn model =
                     [ link server <| "https://" ++ server
                     , br
                     ]
-        , pageSelector False (model.loginServer /= Nothing) model.page
+        , pageSelector False (model.renderEnv.loginServer /= Nothing) ColumnsPage
         , br
         , button (ColumnsUIMsg ReloadAllColumns) "reload"
         , br
         , button (ColumnsUIMsg ShowEditColumnsDialog) "edit"
         , br
         , checkBox (ExplorerUIMsg ToggleStyle)
-            (model.style == DarkStyle)
+            (model.renderEnv.style == DarkStyle)
             "dark"
         ]
 
@@ -4784,10 +4817,10 @@ renderFeed : Model -> Feed -> Html Msg
 renderFeed model { feedType, elements } =
     let
         { color } =
-            getStyle model.style
+            getStyle model.renderEnv.style
 
         ( _, h ) =
-            model.windowSize
+            model.renderEnv.windowSize
     in
     div
         [ style "width" <| px columnWidth
@@ -4853,7 +4886,7 @@ renderMultiNotification : Model -> Account -> List Account -> Notification -> Ht
 renderMultiNotification model account others notification =
     let
         { color } =
-            getStyle model.style
+            getStyle model.renderEnv.style
 
         othersCount =
             List.length others
@@ -4865,7 +4898,7 @@ renderMultiNotification model account others notification =
             notificationDescriptionWithDisplayName display_name notification
 
         timeString =
-            formatIso8601 model.here notification.created_at
+            formatIso8601 model.renderEnv.here notification.created_at
     in
     div
         [ style "border" <| "1px solid" ++ color
@@ -4982,12 +5015,12 @@ renderNotification model notification =
             notificationDescription notification
 
         { color } =
-            getStyle model.style
+            getStyle model.renderEnv.style
     in
     div [ style "border" <| "1px solid" ++ color ]
         [ div []
             [ renderAccount color
-                model.here
+                model.renderEnv.here
                 notification.account
                 description
                 notification.created_at
@@ -5001,7 +5034,7 @@ renderNotificationBody : Model -> Notification -> Html Msg
 renderNotificationBody model notification =
     let
         { color } =
-            getStyle model.style
+            getStyle model.renderEnv.style
     in
     case notification.status of
         Nothing ->
@@ -5018,7 +5051,7 @@ renderNotificationBody model notification =
                             [ text status.content ]
 
                 timeString =
-                    formatIso8601 model.here status.created_at
+                    formatIso8601 model.renderEnv.here status.created_at
 
                 postLink =
                     case status.url of
@@ -5105,7 +5138,7 @@ renderStatus model statusIn =
                     ( reblog, reblog.account, Just statusIn.account )
 
         { color } =
-            getStyle model.style
+            getStyle model.renderEnv.style
 
         body =
             case Parser.run status.content of
@@ -5131,7 +5164,7 @@ renderStatus model statusIn =
                             , text " reblogged:"
                             ]
                 , renderAccount color
-                    model.here
+                    model.renderEnv.here
                     account
                     (b account.display_name)
                     status.created_at
@@ -5204,7 +5237,7 @@ renderColumns model =
             model.feedSet
 
         ( _, h ) =
-            model.windowSize
+            model.renderEnv.windowSize
 
         tableWidth =
             leftColumnWidth + List.length feeds * columnWidth
@@ -5235,7 +5268,7 @@ renderColumns model =
 
 primaryServerLine : Model -> Html Msg
 primaryServerLine model =
-    case model.loginServer of
+    case model.renderEnv.loginServer of
         Nothing ->
             text ""
 
@@ -5261,13 +5294,13 @@ renderExplorer : Model -> Html Msg
 renderExplorer model =
     let
         { backgroundColor, color } =
-            getStyle model.style
+            getStyle model.renderEnv.style
     in
     renderCenteredScreen model
         "40em"
         [ div []
             [ h2 [] [ text "Mastodon API Explorer" ]
-            , pageSelector True (model.loginServer /= Nothing) model.page
+            , pageSelector True (model.renderEnv.loginServer /= Nothing) model.page
             , primaryServerLine model
             , p []
                 [ selectedRequestHtml LoginSelected
@@ -5507,7 +5540,7 @@ renderExplorer model =
                 ]
                 [ input
                     [ type_ "checkbox"
-                    , checked <| model.style == DarkStyle
+                    , checked <| model.renderEnv.style == DarkStyle
                     ]
                     []
                 , b "Dark Mode"
@@ -5591,7 +5624,7 @@ renderJsonTree whichJson model value =
 
         config =
             { colors =
-                if model.style == DarkStyle then
+                if model.renderEnv.style == DarkStyle then
                     jsonTreeColors.dark
 
                 else
@@ -6986,7 +7019,7 @@ editColumnDialogRows model =
                         , value model.userNameInput
                         , placeholder <|
                             "username@"
-                                ++ Maybe.withDefault "server" model.loginServer
+                                ++ Maybe.withDefault "server" model.renderEnv.loginServer
                         ]
                         []
                     ]
@@ -7440,13 +7473,12 @@ encodeWrap prettify value =
 
 
 type alias SavedModel =
-    { loginServer : Maybe String
+    { renderEnv : RenderEnv
     , page : Page
     , token : Maybe String
     , server : String
     , feedSetDefinition : FeedSetDefinition
     , prettify : Bool
-    , style : Style
     , selectedRequest : SelectedRequest
     , username : String
     , accountId : String
@@ -7490,13 +7522,12 @@ type alias SavedModel =
 
 modelToSavedModel : Model -> SavedModel
 modelToSavedModel model =
-    { loginServer = model.loginServer
+    { renderEnv = model.renderEnv
     , page = model.page
     , token = model.token
     , server = model.server
     , feedSetDefinition = model.feedSetDefinition
     , prettify = model.prettify
-    , style = model.style
     , selectedRequest = model.selectedRequest
     , username = model.username
     , accountId = model.accountId
@@ -7540,14 +7571,24 @@ modelToSavedModel model =
 
 savedModelToModel : SavedModel -> Model -> Model
 savedModelToModel savedModel model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        savedRenderEnv =
+            savedModel.renderEnv
+    in
     { model
-        | loginServer = savedModel.loginServer
+        | renderEnv =
+            { renderEnv
+                | loginServer = savedRenderEnv.loginServer
+                , style = savedRenderEnv.style
+            }
         , page = savedModel.page
         , token = savedModel.token
         , server = savedModel.server
         , feedSetDefinition = savedModel.feedSetDefinition
         , prettify = savedModel.prettify
-        , style = savedModel.style
         , selectedRequest = savedModel.selectedRequest
         , username = savedModel.username
         , accountId = savedModel.accountId
@@ -7682,16 +7723,63 @@ pageDecoder =
             )
 
 
+encodeStyle : Style -> Value
+encodeStyle style =
+    case style of
+        DarkStyle ->
+            JE.string "DarkStyle"
+
+        LightStyle ->
+            JE.string "LightStyle"
+
+
+styleDecoder : Decoder Style
+styleDecoder =
+    JD.string
+        |> JD.andThen
+            (\s ->
+                case s of
+                    "DarkStyle" ->
+                        JD.succeed DarkStyle
+
+                    "LightStyle" ->
+                        JD.succeed LightStyle
+
+                    _ ->
+                        JD.fail <| "Unknown Style: " ++ s
+            )
+
+
+encodeRenderEnv : RenderEnv -> Value
+encodeRenderEnv env =
+    JE.object
+        [ ( "loginServer", ED.encodeMaybe JE.string env.loginServer )
+        , ( "style", encodeStyle env.style )
+        ]
+
+
+renderEnvDecoder : Decoder RenderEnv
+renderEnvDecoder =
+    JD.succeed
+        (\loginServer style ->
+            { emptyRenderEnv
+                | loginServer = loginServer
+                , style = style
+            }
+        )
+        |> required "loginServer" (JD.nullable JD.string)
+        |> required "style" styleDecoder
+
+
 encodeSavedModel : SavedModel -> Value
 encodeSavedModel savedModel =
     JE.object
-        [ ( "loginServer", ED.encodeMaybe JE.string savedModel.loginServer )
+        [ ( "renderEnv", encodeRenderEnv savedModel.renderEnv )
         , ( "page", encodePage savedModel.page )
         , ( "token", ED.encodeMaybe JE.string savedModel.token )
         , ( "server", JE.string savedModel.server )
         , ( "feedSetDefinition", MED.encodeFeedSetDefinition savedModel.feedSetDefinition )
         , ( "prettify", JE.bool savedModel.prettify )
-        , ( "darkstyle", JE.bool <| savedModel.style == DarkStyle )
         , ( "selectedRequest", encodeSelectedRequest savedModel.selectedRequest )
         , ( "username", JE.string savedModel.username )
         , ( "accountId", JE.string savedModel.accountId )
@@ -7740,7 +7828,7 @@ encodeSavedModel savedModel =
 savedModelDecoder : Decoder SavedModel
 savedModelDecoder =
     JD.succeed SavedModel
-        |> optional "loginServer" (JD.nullable JD.string) Nothing
+        |> required "renderEnv" renderEnvDecoder
         |> required "page" pageDecoder
         |> optional "token" (JD.nullable JD.string) Nothing
         |> required "server" JD.string
@@ -7748,19 +7836,6 @@ savedModelDecoder =
             MED.feedSetDefinitionDecoder
             Types.defaultFeedSetDefinition
         |> optional "prettify" JD.bool True
-        |> optional "darkstyle"
-            (JD.bool
-                |> JD.andThen
-                    (\x ->
-                        JD.succeed <|
-                            if x then
-                                DarkStyle
-
-                            else
-                                LightStyle
-                    )
-            )
-            LightStyle
         |> optional "selectedRequest" selectedRequestDecoder LoginSelected
         |> optional "username" JD.string ""
         |> optional "accountId" JD.string ""
