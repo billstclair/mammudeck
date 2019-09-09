@@ -986,7 +986,6 @@ storageHandler response state model =
             then
                 Cmd.batch
                     [ get pk.model
-                    , getFeedSetDefinition
                     , listKeysLabeled pk.token (pk.token ++ ".")
                     ]
 
@@ -1084,7 +1083,10 @@ handleGetModel maybeValue model =
                 Just r ->
                     r
     }
-        |> withCmd cmd
+        |> withCmds
+            [ cmd
+            , getFeedSetDefinition
+            ]
 
 
 handleGetModelInternal : Maybe Value -> Model -> ( Model, Cmd Msg )
@@ -1152,8 +1154,12 @@ handleGetFeedSetDefinition maybeValue model =
         , feedSet = feedSet
     }
         |> withCmd
-            (Task.perform identity <|
-                Task.succeed (ColumnsUIMsg ReloadAllColumns)
+            (if model.page == ColumnsPage then
+                Task.perform identity <|
+                    Task.succeed (ColumnsUIMsg ReloadAllColumns)
+
+             else
+                Cmd.none
             )
 
 
@@ -1513,8 +1519,19 @@ globalMsg msg model =
                 |> withNoCmd
 
         SetPage pageString ->
-            { model | page = stringToPage pageString }
-                |> withNoCmd
+            let
+                page =
+                    stringToPage pageString
+            in
+            { model | page = page }
+                |> withCmd
+                    (if page == ColumnsPage && feedsNeedLoading model then
+                        Task.perform identity <|
+                            Task.succeed (ColumnsUIMsg ReloadAllColumns)
+
+                     else
+                        Cmd.none
+                    )
 
         SetResponseState state ->
             { model | responseState = state }
@@ -1940,6 +1957,39 @@ globalMsg msg model =
 
                         _ ->
                             model |> withNoCmd
+
+
+feedsNeedLoading : Model -> Bool
+feedsNeedLoading model =
+    model.account
+        /= Nothing
+        && feedSetIsEmpty model.feedSet
+
+
+feedSetIsEmpty : FeedSet -> Bool
+feedSetIsEmpty feedSet =
+    List.map feedLength feedSet.feeds
+        |> List.filter ((/=) 0)
+        |> (==) []
+
+
+feedLength : Feed -> Int
+feedLength feed =
+    case feed.elements of
+        StatusElements list ->
+            List.length list
+
+        NotificationElements list ->
+            List.length list
+
+        AccountElements list ->
+            List.length list
+
+        ConversationsElements list ->
+            List.length list
+
+        ResultsElements list ->
+            List.length list
 
 
 {-| Process UI messages from the columns page.
