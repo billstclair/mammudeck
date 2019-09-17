@@ -81,6 +81,7 @@ import Html.Attributes
         , value
         )
 import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
+import Html.Lazy as Lazy
 import Html.Parser as Parser exposing (Node)
 import Html.Parser.Util as Util
 import Http
@@ -4831,18 +4832,18 @@ leftColumnWidth =
     120
 
 
-renderLeftColumn : Model -> Html Msg
-renderLeftColumn model =
+renderLeftColumn : RenderEnv -> Html Msg
+renderLeftColumn renderEnv =
     let
         { color } =
-            getStyle model.renderEnv.style
+            getStyle renderEnv.style
     in
     div
         [ style "color" color
         , style "width" <| px leftColumnWidth
         , style "padding-top" "5px"
         ]
-        [ case model.renderEnv.loginServer of
+        [ case renderEnv.loginServer of
             Nothing ->
                 text ""
 
@@ -4851,26 +4852,26 @@ renderLeftColumn model =
                     [ link server <| "https://" ++ server
                     , br
                     ]
-        , pageSelector False (model.renderEnv.loginServer /= Nothing) ColumnsPage
+        , pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage
         , br
         , button (ColumnsUIMsg ReloadAllColumns) "reload"
         , br
         , button (ColumnsUIMsg ShowEditColumnsDialog) "edit"
         , br
         , checkBox (ExplorerUIMsg ToggleStyle)
-            (model.renderEnv.style == DarkStyle)
+            (renderEnv.style == DarkStyle)
             "dark"
         ]
 
 
-renderFeed : Model -> Feed -> Html Msg
-renderFeed model { feedType, elements } =
+renderFeed : RenderEnv -> Feed -> Html Msg
+renderFeed renderEnv { feedType, elements } =
     let
         { color } =
-            getStyle model.renderEnv.style
+            getStyle renderEnv.style
 
         ( _, h ) =
-            model.renderEnv.windowSize
+            renderEnv.windowSize
     in
     div
         [ style "width" <| px columnWidth
@@ -4891,7 +4892,7 @@ renderFeed model { feedType, elements } =
           <|
             case elements of
                 StatusElements statuses ->
-                    List.map (renderStatus model) statuses
+                    List.map (renderStatus renderEnv) statuses
 
                 NotificationElements notifications ->
                     let
@@ -4903,15 +4904,15 @@ renderFeed model { feedType, elements } =
                             , Debug.log "  ganged" <| List.length gangedNotifications
                             )
                     in
-                    List.map (renderGangedNotification model) gangedNotifications
+                    List.map (renderGangedNotification renderEnv) gangedNotifications
 
                 _ ->
                     [ text "" ]
         ]
 
 
-renderGangedNotification : Model -> GangedNotification -> Html Msg
-renderGangedNotification model gangedNotification =
+renderGangedNotification : RenderEnv -> GangedNotification -> Html Msg
+renderGangedNotification renderEnv gangedNotification =
     -- TODO
     let
         notification =
@@ -4920,23 +4921,23 @@ renderGangedNotification model gangedNotification =
     case gangedNotification.accounts of
         account :: others ->
             if others == [] then
-                renderNotification model notification
+                renderNotification renderEnv notification
 
             else
-                renderMultiNotification model
+                renderMultiNotification renderEnv
                     account
                     others
                     notification
 
         _ ->
-            renderNotification model notification
+            renderNotification renderEnv notification
 
 
-renderMultiNotification : Model -> Account -> List Account -> Notification -> Html Msg
-renderMultiNotification model account others notification =
+renderMultiNotification : RenderEnv -> Account -> List Account -> Notification -> Html Msg
+renderMultiNotification renderEnv account others notification =
     let
         { color } =
-            getStyle model.renderEnv.style
+            getStyle renderEnv.style
 
         othersCount =
             List.length others
@@ -4948,7 +4949,7 @@ renderMultiNotification model account others notification =
             notificationDescriptionWithDisplayName display_name notification
 
         timeString =
-            formatIso8601 model.renderEnv.here notification.created_at
+            formatIso8601 renderEnv.here notification.created_at
     in
     div
         [ style "border" <| "1px solid" ++ color
@@ -4971,7 +4972,7 @@ renderMultiNotification model account others notification =
             (account :: others)
             |> List.intersperse (text " ")
             |> span []
-        , renderNotificationBody model notification
+        , renderNotificationBody renderEnv notification
         ]
 
 
@@ -5058,33 +5059,33 @@ notificationDescriptionWithDisplayName display_name notification =
             span [] [ b display_name, text "'s ", postName, text " is closed" ]
 
 
-renderNotification : Model -> Notification -> Html Msg
-renderNotification model notification =
+renderNotification : RenderEnv -> Notification -> Html Msg
+renderNotification renderEnv notification =
     let
         description =
             notificationDescription notification
 
         { color } =
-            getStyle model.renderEnv.style
+            getStyle renderEnv.style
     in
     div [ style "border" <| "1px solid" ++ color ]
         [ div []
             [ renderAccount color
-                model.renderEnv.here
+                renderEnv.here
                 notification.account
                 description
                 notification.created_at
                 Nothing
-            , renderNotificationBody model notification
+            , renderNotificationBody renderEnv notification
             ]
         ]
 
 
-renderNotificationBody : Model -> Notification -> Html Msg
-renderNotificationBody model notification =
+renderNotificationBody : RenderEnv -> Notification -> Html Msg
+renderNotificationBody renderEnv notification =
     let
         { color } =
-            getStyle model.renderEnv.style
+            getStyle renderEnv.style
     in
     case notification.status of
         Nothing ->
@@ -5101,7 +5102,7 @@ renderNotificationBody model notification =
                             [ text status.content ]
 
                 timeString =
-                    formatIso8601 model.renderEnv.here status.created_at
+                    formatIso8601 renderEnv.here status.created_at
 
                 postLink =
                     case status.url of
@@ -5121,7 +5122,7 @@ renderNotificationBody model notification =
                     postLink
                         :: body
                 , div [] <|
-                    List.map (renderAttachment model) status.media_attachments
+                    List.map (renderAttachment renderEnv) status.media_attachments
                 ]
 
 
@@ -5176,8 +5177,8 @@ renderAccount color zone account description datetime url =
         ]
 
 
-renderStatus : Model -> Status -> Html Msg
-renderStatus model statusIn =
+renderStatus : RenderEnv -> Status -> Html Msg
+renderStatus renderEnv statusIn =
     let
         ( status, account, reblogAccount ) =
             case statusIn.reblog of
@@ -5188,7 +5189,7 @@ renderStatus model statusIn =
                     ( reblog, reblog.account, Just statusIn.account )
 
         { color } =
-            getStyle model.renderEnv.style
+            getStyle renderEnv.style
 
         body =
             case Parser.run status.content of
@@ -5214,7 +5215,7 @@ renderStatus model statusIn =
                             , text " reblogged:"
                             ]
                 , renderAccount color
-                    model.renderEnv.here
+                    renderEnv.here
                     account
                     (b account.display_name)
                     status.created_at
@@ -5227,7 +5228,7 @@ renderStatus model statusIn =
                 ]
                 body
             , div [] <|
-                List.map (renderAttachment model) status.media_attachments
+                List.map (renderAttachment renderEnv) status.media_attachments
             ]
         ]
 
@@ -5255,8 +5256,8 @@ formatIso8601 zone iso8601 =
                 posix
 
 
-renderAttachment : Model -> Attachment -> Html Msg
-renderAttachment model attachment =
+renderAttachment : RenderEnv -> Attachment -> Html Msg
+renderAttachment renderEnv attachment =
     case attachment.type_ of
         ImageAttachment ->
             img
@@ -5283,11 +5284,14 @@ pxBang int =
 renderColumns : Model -> Html Msg
 renderColumns model =
     let
+        renderEnv =
+            model.renderEnv
+
         { feeds } =
             model.feedSet
 
         ( _, h ) =
-            model.renderEnv.windowSize
+            renderEnv.windowSize
 
         tableWidth =
             leftColumnWidth + List.length feeds * columnWidth
@@ -5303,12 +5307,12 @@ renderColumns model =
               <|
                 List.concat
                     [ [ td [ style "vertical-align" "top" ]
-                            [ renderLeftColumn model ]
+                            [ Lazy.lazy renderLeftColumn renderEnv ]
                       ]
                     , List.map
                         (\feed ->
                             td [ style "vertical-align" "top" ]
-                                [ renderFeed model feed ]
+                                [ Lazy.lazy2 renderFeed renderEnv feed ]
                         )
                         feeds
                     ]
