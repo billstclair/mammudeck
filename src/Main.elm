@@ -424,6 +424,7 @@ type ColumnsUIMsg
     | DismissDialog
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
+    | MoveFeedColumn FeedType Int
     | UserNameInput String
 
 
@@ -2030,6 +2031,9 @@ columnsUIMsg msg model =
         DeleteFeedColumn feedType ->
             deleteFeedType feedType model
 
+        MoveFeedColumn feedType direction ->
+            moveFeedType feedType direction model
+
         UserNameInput userNameInput ->
             { model | userNameInput = userNameInput }
                 |> withNoCmd
@@ -2062,6 +2066,86 @@ fillinFeedType feedType model =
             feedType
 
 
+moveFeedType : FeedType -> Int -> Model -> ( Model, Cmd Msg )
+moveFeedType feedType direction model =
+    let
+        feedSetDefinition =
+            model.feedSetDefinition
+
+        feedTypes =
+            feedSetDefinition.feedTypes
+
+        feedSet =
+            model.feedSet
+    in
+    case LE.findIndex ((==) feedType) feedTypes of
+        Nothing ->
+            model |> withNoCmd
+
+        Just index ->
+            let
+                newFeedSetDefinition =
+                    { feedSetDefinition
+                        | feedTypes =
+                            moveElementAt index direction feedTypes
+                    }
+
+                newFeedSet =
+                    { feedSet
+                        | feeds =
+                            moveElementAt index direction feedSet.feeds
+                    }
+            in
+            { model
+                | feedSetDefinition = newFeedSetDefinition
+                , feedSet = newFeedSet
+            }
+                |> withCmd (putFeedSetDefinition newFeedSetDefinition)
+
+
+moveElementAt : Int -> Int -> List a -> List a
+moveElementAt index direction list =
+    let
+        length =
+            List.length list
+    in
+    if index == 0 && direction < 0 then
+        List.concat
+            [ List.drop 1 list
+            , List.take 1 list
+            ]
+
+    else if index >= length - 1 && direction >= 0 then
+        List.concat
+            [ List.drop (length - 1) list
+            , List.take (length - 1) list
+            ]
+
+    else if direction < 0 then
+        let
+            tail =
+                List.drop (index - 1) list
+        in
+        List.concat
+            [ List.take (index - 1) list
+            , List.take 1 <| List.drop 1 tail
+            , List.take 1 tail
+            , List.drop 2 tail
+            ]
+
+    else
+        let
+            tail =
+                List.drop index list
+        in
+        List.concat
+            [ List.take index list
+            , List.take 1 <| List.drop 1 tail
+            , List.take 1 tail
+            , List.drop 2 tail
+            ]
+
+
 deleteFeedType : FeedType -> Model -> ( Model, Cmd Msg )
 deleteFeedType feedType model =
     let
@@ -2071,14 +2155,14 @@ deleteFeedType feedType model =
         feedTypes =
             feedSetDefinition.feedTypes
 
+        feedSet =
+            model.feedSet
+
         newFeedSetDefinition =
             { feedSetDefinition
                 | feedTypes =
                     List.filter ((/=) feedType) feedTypes
             }
-
-        feedSet =
-            model.feedSet
 
         newFeedSet =
             { feedSet
@@ -7086,6 +7170,8 @@ editColumnDialogRows model =
             tr []
                 [ td [] [ feedTitle feedType ]
                 , td [] [ button (ColumnsUIMsg <| DeleteFeedColumn feedType) "-" ]
+                , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType -1) "^" ]
+                , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType 1) "v" ]
                 ]
       in
       table [] <|
