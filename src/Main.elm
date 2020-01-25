@@ -4887,13 +4887,13 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
                 (model.renderEnv.style == DarkStyle)
                 "Dark Mode"
             , br
-            , link "@imacpr0n@mastodon.social"
-                "https://mastodon.social/@imacpr0n"
+            , link "@billstclair@impeccable.social"
+                "https://impeccable.social/billstclair"
             , br
-            , link "@billstclair@kiwifarms.cc"
-                "https://kiwifarms.cc/billstclair"
+            , link "@billstclair@gab.com"
+                "https://gab.com/billstclair"
             , br
-            , text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
+            , text <| "Copyright " ++ special.copyright ++ " 2019-2020, Bill St. Clair"
             , br
             , imageLink
                 { imageUrl = "images/elm-logo-125x125.png"
