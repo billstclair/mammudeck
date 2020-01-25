@@ -20,9 +20,9 @@
 ----------------------------------------------------------------------
 
 
-module Main exposing (main)
+port module Main exposing (main)
 
-import Browser exposing (Document, UrlRequest)
+import Browser exposing (Document, UrlRequest(..))
 import Browser.Dom as Dom exposing (Viewport)
 import Browser.Events as Events
 import Browser.Navigation as Navigation exposing (Key)
@@ -154,6 +154,14 @@ import Url exposing (Url)
 import Url.Builder as Builder
 import Url.Parser as Parser exposing ((<?>))
 import Url.Parser.Query as QP
+
+
+{-| This is used by links created by Util.toVirtualDom calls below.
+
+It forces them to open in a new tab/window.
+
+-}
+port openWindow : JE.Value -> Cmd msg
 
 
 type Started
@@ -1471,10 +1479,15 @@ updateInternal msg model =
         Noop ->
             model |> withNoCmd
 
-        OnUrlRequest _ ->
-            model |> withNoCmd
+        OnUrlRequest urlRequest ->
+            case urlRequest of
+                Internal _ ->
+                    model |> withNoCmd
 
-        OnUrlChange _ ->
+                External url ->
+                    model |> withCmd (openWindow <| JE.string url)
+
+        OnUrlChange url ->
             model |> withNoCmd
 
         GlobalMsg m ->
@@ -5537,7 +5550,7 @@ renderExplorer model =
                                 [ br
                                 , a
                                     [ href model.selectedKeyValue
-                                    , target "_blank"
+                                    , blankTarget
                                     ]
                                     [ text "open URL in new tab" ]
                                 ]

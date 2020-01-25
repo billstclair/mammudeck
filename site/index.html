@@ -40,6 +40,12 @@
       // It's an application, so it doesn't need a div.
       var app = Elm['Main'].init({ flags: true });
       PortFunnel.subscribe(app);
+      var openWindow = app.ports.openWindow;
+      if (openWindow) {
+        openWindow.subscribe(function(url) {
+          window.open(url, '_blank');
+        });
+      }
     </script>
   </body>
 </html>
