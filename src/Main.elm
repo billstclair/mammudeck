@@ -7182,9 +7182,9 @@ editColumnDialogRows model =
         feedRow feedType =
             tr []
                 [ td [] [ feedTitle feedType ]
-                , td [] [ button (ColumnsUIMsg <| DeleteFeedColumn feedType) "-" ]
-                , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType -1) "^" ]
-                , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType 1) "v" ]
+                , td [] [ button (ColumnsUIMsg <| DeleteFeedColumn feedType) "Delete" ]
+                , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType -1) "<-" ]
+                , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType 1) "->" ]
                 ]
       in
       table [] <|
