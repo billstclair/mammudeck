@@ -12,7 +12,7 @@
 -- Startup URLs
 -- See `parseInitialPage`.
 --
--- https://mamudeck.com/...
+-- https://mammudeck.com/...
 --
 --   ?page=[splash|columns|api]
 --   &api=[key in selectedRequestFromUrlDict]
@@ -162,6 +162,22 @@ It forces them to open in a new tab/window.
 
 -}
 port openWindow : JE.Value -> Cmd msg
+
+
+{-| Scroll monitor requests.
+
+JSON: {id: <string>, enable: <bool>}
+
+-}
+port scrollRequest : JE.Value -> Cmd msg
+
+
+{-| Scroll monitor notifications.
+
+JSON: {id: <string>, scrollX: <int>, scrollY: <int>}
+
+-}
+port scrollNotify : (Value -> msg) -> Sub msg
 
 
 type Started
@@ -396,6 +412,7 @@ type Msg
     | ColumnsSendMsg ColumnsSendMsg
     | ExplorerUIMsg ExplorerUIMsg
     | ExplorerSendMsg ExplorerSendMsg
+    | ScrollNotify JE.Value
 
 
 type GlobalMsg
@@ -428,6 +445,7 @@ type GlobalMsg
 type ColumnsUIMsg
     = ColumnsUINoop
     | ReloadAllColumns
+    | DoScrollRequests (Cmd Msg)
     | ShowEditColumnsDialog
     | DismissDialog
     | AddFeedColumn FeedType
@@ -668,6 +686,7 @@ subscriptions model =
     Sub.batch
         [ PortFunnels.subscriptions (GlobalMsg << Process) model
         , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
+        , scrollNotify ScrollNotify
         , if model.dialog /= NoDialog then
             Events.onKeyDown keyDecoder
 
@@ -1505,6 +1524,49 @@ updateInternal msg model =
         ExplorerSendMsg m ->
             explorerSendMsg m model
 
+        ScrollNotify value ->
+            processScroll value model
+
+
+type alias ScrollNotification =
+    { id : String
+    , scrollLeft : Int
+    , scrollTop : Int
+    }
+
+
+scrollNotificationDecoder : Decoder ScrollNotification
+scrollNotificationDecoder =
+    JD.succeed ScrollNotification
+        |> required "id" JD.string
+        |> required "scrollLeft" JD.int
+        |> required "scrollTop" JD.int
+
+
+emptyScrollNotification : ScrollNotification
+emptyScrollNotification =
+    { id = ""
+    , scrollLeft = 0
+    , scrollTop = 0
+    }
+
+
+processScroll : JE.Value -> Model -> ( Model, Cmd Msg )
+processScroll value model =
+    case JD.decodeValue scrollNotificationDecoder value of
+        Err _ ->
+            model |> withNoCmd
+
+        Ok notification ->
+            -- Need to load more if we're close enough to the end.
+            -- TODO
+            let
+                n =
+                    Debug.log "processScroll"
+                        notification
+            in
+            model |> withNoCmd
+
 
 {-| Process global messages.
 -}
@@ -2007,6 +2069,15 @@ feedLength feed =
             List.length list
 
 
+makeScrollRequest : FeedType -> Cmd Msg
+makeScrollRequest feedType =
+    JE.object
+        [ ( "id", JE.string <| Types.feedID feedType )
+        , ( "enable", JE.bool True )
+        ]
+        |> scrollRequest
+
+
 {-| Process UI messages from the columns page.
 
 These change the Model, but don't send anything over the wire to any instances.
@@ -2029,6 +2100,9 @@ columnsUIMsg msg model =
                     ( mdl2, Cmd.batch [ cmd, cmds ] )
             in
             List.foldr getFeed ( model, Cmd.none ) model.feedSet.feeds
+
+        DoScrollRequests cmd ->
+            model |> withCmd cmd
 
         ShowEditColumnsDialog ->
             { model | dialog = EditColumnsDialog }
@@ -2426,7 +2500,11 @@ columnsSendMsg msg model =
                                 | feedSet =
                                     { feedSet | feeds = feeds }
                             }
-                                |> withCmds [ cmd, cmd2 ]
+                                |> withCmds
+                                    [ cmd
+                                    , cmd2
+                                    , makeScrollRequest feedType
+                                    ]
 
 
 {-| Process UI messages from the API Explorer page.
@@ -4985,6 +5063,7 @@ renderFeed renderEnv { feedType, elements } =
             [ style "height" "calc(100% - 1.4em)"
             , style "overflow-y" "auto"
             , style "overflow-x" "hidden"
+            , id <| Types.feedID feedType
             ]
           <|
             case elements of

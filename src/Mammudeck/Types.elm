@@ -34,6 +34,7 @@ module Mammudeck.Types exposing
     , defaultUserFeedType
     , emptyFeedSet
     , emptyFeedSetDefinition
+    , feedID
     , feedSetDefinitionToFeedSet
     , feedSetToDefinition
     , feedTypeToElements
@@ -138,6 +139,37 @@ type FeedType
         , resolve : Bool
         , following : Bool
         }
+
+
+feedID : FeedType -> String
+feedID feedType =
+    case feedType of
+        HomeFeed ->
+            "home"
+
+        UserFeed { username, server } ->
+            "user: " ++ username ++ "/" ++ server
+
+        PublicFeed _ ->
+            "public"
+
+        HashtagFeed hash ->
+            "hashtag: " ++ hash
+
+        ListFeed list ->
+            "list: " ++ list
+
+        GroupFeed group ->
+            "group: " ++ group
+
+        NotificationFeed _ ->
+            "notifications"
+
+        ConversationsFeed ->
+            "conversations"
+
+        SearchFeed { q } ->
+            "search: " ++ q
 
 
 type FeedElements
