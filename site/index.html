@@ -61,36 +61,33 @@
           var id = request.id;
           var enable = request.enable;
           if (id) {
+            var o = listeners[id];
+            if (o) {
+              var node = o.node;
+              var listener = o.listener;
+              node.removeEventListener('scroll', listener);
+              delete listeners[id];
+            }
             if (enable) {
-              if (!listeners[id]) {
-                var node = document.getElementById(id);
-                if (node) {
-                  var o = {node: node}
-                  var listener = function() {
-                    if (!o.ticking) {
-                      o.ticking = true;
-                      window.requestAnimationFrame(function() {
-                        var notification = {id: id,
-                                            scrollLeft: node.scrollLeft,
-                                            scrollTop: node.scrollTop
-                                            }
-                        scrollNotify.send(notification);
-                        o.ticking = false;
-                      });
-                    }
+              var node = document.getElementById(id);
+              if (node) {
+                var o = {node: node}
+                var listener = function() {
+                  if (!o.ticking) {
+                    o.ticking = true;
+                    window.requestAnimationFrame(function() {
+                      var notification = {id: id,
+                                          scrollLeft: node.scrollLeft,
+                                          scrollTop: node.scrollTop
+                                         }
+                      scrollNotify.send(notification);
+                      o.ticking = false;
+                    });
                   }
-                  o.listener = listener;
-                  listeners[id] = o;
-                  node.addEventListener('scroll', listener);
                 }
-              }
-            } else {
-              var o = listeners[id];
-              if (o) {
-                var node = o.node;
-                var listener = o.listener;
-                node.removeEventListener('scroll', listener);
-                delete listeners[id];
+                o.listener = listener;
+                listeners[id] = o;
+                node.addEventListener('scroll', listener);
               }
             }
           }

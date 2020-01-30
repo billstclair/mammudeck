@@ -445,6 +445,7 @@ type GlobalMsg
 type ColumnsUIMsg
     = ColumnsUINoop
     | ReloadAllColumns
+    | ScrollRequests
     | DoScrollRequests (Cmd Msg)
     | ShowEditColumnsDialog
     | DismissDialog
@@ -1602,9 +1603,17 @@ globalMsg msg model =
             in
             { model | page = page }
                 |> withCmd
-                    (if page == ColumnsPage && feedsNeedLoading model then
-                        Task.perform identity <|
-                            Task.succeed (ColumnsUIMsg ReloadAllColumns)
+                    (if page == ColumnsPage then
+                        Cmd.batch
+                            [ Task.perform ColumnsUIMsg <|
+                                Task.succeed ScrollRequests
+                            , if feedsNeedLoading model then
+                                Task.perform ColumnsUIMsg <|
+                                    Task.succeed ReloadAllColumns
+
+                              else
+                                Cmd.none
+                            ]
 
                      else
                         Cmd.none
@@ -2069,11 +2078,11 @@ feedLength feed =
             List.length list
 
 
-makeScrollRequest : FeedType -> Cmd Msg
-makeScrollRequest feedType =
+makeScrollRequest : FeedType -> Bool -> Cmd Msg
+makeScrollRequest feedType enable =
     JE.object
         [ ( "id", JE.string <| Types.feedID feedType )
-        , ( "enable", JE.bool True )
+        , ( "enable", JE.bool enable )
         ]
         |> scrollRequest
 
@@ -2100,6 +2109,23 @@ columnsUIMsg msg model =
                     ( mdl2, Cmd.batch [ cmd, cmds ] )
             in
             List.foldr getFeed ( model, Cmd.none ) model.feedSet.feeds
+
+        ScrollRequests ->
+            let
+                getScrollRequest : FeedType -> Cmd Msg -> Cmd Msg
+                getScrollRequest feedType cmds =
+                    Cmd.batch [ cmds, makeScrollRequest feedType True ]
+
+                cmd =
+                    List.foldr getScrollRequest
+                        Cmd.none
+                        model.feedSetDefinition.feedTypes
+            in
+            ( model
+              -- Delay for one update round-trip so view is called.
+            , Task.perform ColumnsUIMsg <|
+                Task.succeed (DoScrollRequests cmd)
+            )
 
         DoScrollRequests cmd ->
             model |> withCmd cmd
@@ -2261,7 +2287,10 @@ deleteFeedType feedType model =
         | feedSetDefinition = newFeedSetDefinition
         , feedSet = newFeedSet
     }
-        |> withCmd (putFeedSetDefinition newFeedSetDefinition)
+        |> withCmds
+            [ putFeedSetDefinition newFeedSetDefinition
+            , makeScrollRequest feedType False
+            ]
 
 
 addFeedType : FeedType -> Model -> ( Model, Cmd Msg )
@@ -2503,7 +2532,7 @@ columnsSendMsg msg model =
                                 |> withCmds
                                     [ cmd
                                     , cmd2
-                                    , makeScrollRequest feedType
+                                    , makeScrollRequest feedType True
                                     ]
 
 
