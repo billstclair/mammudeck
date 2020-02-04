@@ -1563,8 +1563,8 @@ processScroll value model =
             -- TODO
             let
                 n =
-                    Debug.log "processScroll"
-                        notification
+                    --Debug.log "processScroll"
+                    notification
             in
             model |> withNoCmd
 
@@ -2078,6 +2078,11 @@ feedLength feed =
             List.length list
 
 
+{-| Send a request to the JS listening on the scrollRequest port.
+
+One of these is kept active for each column displayed.
+
+-}
 makeScrollRequest : FeedType -> Bool -> Cmd Msg
 makeScrollRequest feedType enable =
     JE.object
@@ -5563,43 +5568,43 @@ renderExplorer model =
             , primaryServerLine model
             , p []
                 [ selectedRequestHtml LoginSelected
-                    "https://docs.joinmastodon.org/api/authentication/"
+                    "https://docs.joinmastodon.org/methods/apps/oauth/"
                     model
                     loginSelectedUI
                 , selectedRequestHtml InstanceSelected
-                    "https://docs.joinmastodon.org/api/rest/instances/"
+                    "https://docs.joinmastodon.org/methods/instance/"
                     model
                     instanceSelectedUI
                 , selectedRequestHtml AccountsSelected
-                    "https://docs.joinmastodon.org/api/rest/accounts/"
+                    "https://docs.joinmastodon.org/methods/accounts/"
                     model
                     accountsSelectedUI
                 , selectedRequestHtml BlocksSelected
-                    "https://docs.joinmastodon.org/api/rest/blocks/"
+                    "https://docs.joinmastodon.org/methods/accounts/blocks/"
                     model
                     blocksSelectedUI
                 , selectedRequestHtml CustomEmojisSelected
-                    "https://docs.joinmastodon.org/api/rest/custom-emojis/"
+                    "https://docs.joinmastodon.org/methods/instance/custom_emojis/"
                     model
                     customEmojisSelectedUI
                 , selectedRequestHtml EndorsementsSelected
-                    "https://docs.joinmastodon.org/api/rest/endorsements/"
+                    "https://docs.joinmastodon.org/methods/accounts/endorsements/"
                     model
                     endorsementsSelectedUI
                 , selectedRequestHtml FavouritesSelected
-                    "https://docs.joinmastodon.org/api/rest/favourites/"
+                    "https://docs.joinmastodon.org/methods/accounts/favourites/"
                     model
                     favouritesSelectedUI
                 , selectedRequestHtml FiltersSelected
-                    "https://docs.joinmastodon.org/api/rest/filters/"
+                    "https://docs.joinmastodon.org/methods/accounts/filters/"
                     model
                     filtersSelectedUI
                 , selectedRequestHtml FollowRequestsSelected
-                    "https://docs.joinmastodon.org/api/rest/follow-requests/"
+                    "https://docs.joinmastodon.org/methods/accounts/follow_requests/"
                     model
                     followRequestsSelectedUI
                 , selectedRequestHtml FollowSuggestionsSelected
-                    "https://docs.joinmastodon.org/api/rest/follow-suggestions/"
+                    "https://docs.joinmastodon.org/methods/accounts/suggestions/"
                     model
                     followSuggestionsSelectedUI
                 , selectedRequestHtml GroupsSelected
@@ -5607,39 +5612,39 @@ renderExplorer model =
                     model
                     groupsSelectedUI
                 , selectedRequestHtml ListsSelected
-                    "https://docs.joinmastodon.org/api/rest/lists/"
+                    "https://docs.joinmastodon.org/methods/timelines/lists/"
                     model
                     listsSelectedUI
                 , selectedRequestHtml MutesSelected
-                    "https://docs.joinmastodon.org/api/rest/mutes/"
+                    "https://docs.joinmastodon.org/methods/accounts/mutes/"
                     model
                     mutesSelectedUI
                 , selectedRequestHtml NotificationsSelected
-                    "https://docs.joinmastodon.org/api/rest/notifications/"
+                    "https://docs.joinmastodon.org/methods/notifications/"
                     model
                     notificationsSelectedUI
                 , selectedRequestHtml ReportsSelected
-                    "https://docs.joinmastodon.org/api/rest/reports/"
+                    "https://docs.joinmastodon.org/methods/accounts/reports/"
                     model
                     reportsSelectedUI
                 , selectedRequestHtml ScheduledStatusesSelected
-                    "https://docs.joinmastodon.org/api/rest/scheduled-statuses/"
+                    "https://docs.joinmastodon.org/methods/statuses/scheduled_statuses/"
                     model
                     scheduledStatusesSelectedUI
                 , selectedRequestHtml SearchSelected
-                    "https://docs.joinmastodon.org/api/rest/search/"
+                    "https://docs.joinmastodon.org/methods/search/"
                     model
                     searchSelectedUI
                 , selectedRequestHtml StatusesSelected
-                    "https://docs.joinmastodon.org/api/rest/statuses/"
+                    "https://docs.joinmastodon.org/methods/statuses/"
                     model
                     statusesSelectedUI
                 , selectedRequestHtml TimelinesSelected
-                    "https://docs.joinmastodon.org/api/rest/timelines/"
+                    "https://docs.joinmastodon.org/methods/timelines/"
                     model
                     timelinesSelectedUI
                 , selectedRequestHtml TrendsSelected
-                    ""
+                    "https://docs.joinmastodon.org/methods/instance/trends/"
                     model
                     trendsSelectedUI
                 ]
@@ -6580,7 +6585,7 @@ statusesSelectedUI model =
                 , text "-- new media --"
                 , span []
                     [ text " ("
-                    , link "docs" "https://docs.joinmastodon.org/api/rest/media/"
+                    , link "docs" "https://docs.joinmastodon.org/methods/statuses/media/"
                     , text ")"
                     ]
                 , br
