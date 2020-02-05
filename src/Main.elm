@@ -5812,16 +5812,19 @@ renderExplorer model =
             , p []
                 [ text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
                 , br
-                , link "@imacpr0n@mastodon.social"
-                    "https://mastodon.social/@imacpr0n"
+                , link "@billstclair@impeccable.social"
+                    "https://impeccable.social/billstclair"
+                , br
+                , link "@billstclair@gab.com"
+                    "https://gab.com/billstclair"
                 , br
                 , text "API Docs: "
                 , link "docs.joinmastodon.org"
-                    "https://docs.joinmastodon.org/api/guidelines"
+                    "https://docs.joinmastodon.org/client/guidelines"
                 , br
                 , text "Source code: "
                 , link "GitHub"
-                    "https://github.com/billstclair/elm-mastodon"
+                    "https://github.com/billstclair/mammudeck"
                 ]
             ]
         ]
