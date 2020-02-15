@@ -104,6 +104,8 @@ import Mammudeck.Types as Types
         , GangedNotification
         , PublicFeedFlags
         , Renderer
+        , ScrollNotification
+        , ScrollState(..)
         , UserFeedFlags
         )
 import Markdown
@@ -145,6 +147,7 @@ import PortFunnel.LocalStorage as LocalStorage
 import PortFunnel.WebSocket as WebSocket
 import PortFunnels exposing (FunnelDict, Handler(..), State)
 import Regex
+import Set exposing (Set)
 import String.Extra as SE
 import Task
 import Time exposing (Month, Posix, Zone)
@@ -335,6 +338,8 @@ type alias Model =
     , initialPage : InitialPage
     , dialog : Dialog
     , feedSet : FeedSet
+    , loadingFeeds : Set String --loading older posts, that is
+    , scrollState : Dict String ScrollState
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -417,6 +422,7 @@ type Msg
 
 type GlobalMsg
     = WindowResize Int Int
+    | GotViewportOf String (Result Dom.Error Viewport)
     | Here Zone
     | Now Posix
     | SetPage String
@@ -909,6 +915,8 @@ init value url key =
     , initialPage = initialPage
     , dialog = NoDialog
     , feedSet = Types.emptyFeedSet
+    , loadingFeeds = Set.empty
+    , scrollState = Dict.empty
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -1529,13 +1537,6 @@ updateInternal msg model =
             processScroll value model
 
 
-type alias ScrollNotification =
-    { id : String
-    , scrollLeft : Int
-    , scrollTop : Int
-    }
-
-
 scrollNotificationDecoder : Decoder ScrollNotification
 scrollNotificationDecoder =
     JD.succeed ScrollNotification
@@ -1559,14 +1560,29 @@ processScroll value model =
             model |> withNoCmd
 
         Ok notification ->
-            -- Need to load more if we're close enough to the end.
-            -- TODO
             let
-                n =
-                    --Debug.log "processScroll"
-                    notification
+                id =
+                    notification.id
+
+                ( scrollState, cmd ) =
+                    case Dict.get id model.scrollState of
+                        Just AwaitingGetViewportScroll ->
+                            ( NotifyReceivedScroll, Cmd.none )
+
+                        Just NotifyReceivedScroll ->
+                            ( NotifyReceivedScroll, Cmd.none )
+
+                        _ ->
+                            ( AwaitingGetViewportScroll
+                            , Task.attempt (GlobalMsg << GotViewportOf id) <|
+                                Dom.getViewportOf id
+                            )
             in
-            model |> withNoCmd
+            { model
+                | scrollState =
+                    Dict.insert id scrollState model.scrollState
+            }
+                |> withCmd cmd
 
 
 {-| Process global messages.
@@ -1584,6 +1600,57 @@ globalMsg msg model =
                     { renderEnv | windowSize = Debug.log "windowSize" ( w, h ) }
             }
                 |> withNoCmd
+
+        GotViewportOf id result ->
+            let
+                scrollState =
+                    Dict.remove id model.scrollState
+            in
+            if Set.member id model.loadingFeeds then
+                { model | scrollState = scrollState }
+                    |> withNoCmd
+
+            else
+                case result of
+                    Err _ ->
+                        { model | scrollState = scrollState }
+                            |> withNoCmd
+
+                    Ok viewport ->
+                        let
+                            vp =
+                                viewport.viewport
+
+                            overhang =
+                                viewport.scene.height - (vp.y + vp.height)
+
+                            h =
+                                Tuple.second model.renderEnv.windowSize
+                                    |> toFloat
+                        in
+                        if h / 4 > overhang then
+                            { model | scrollState = scrollState }
+                                |> withCmd (loadMoreCmd id model)
+
+                        else
+                            case Dict.get id model.scrollState of
+                                Just NotifyReceivedScroll ->
+                                    { model
+                                        | scrollState =
+                                            Dict.insert id
+                                                AwaitingGetViewportScroll
+                                                model.scrollState
+                                    }
+                                        |> withCmd
+                                            (Task.attempt
+                                                (GlobalMsg << GotViewportOf id)
+                                             <|
+                                                Dom.getViewportOf id
+                                            )
+
+                                _ ->
+                                    { model | scrollState = scrollState }
+                                        |> withNoCmd
 
         Here zone ->
             { model
@@ -2043,6 +2110,15 @@ globalMsg msg model =
 
                         _ ->
                             model |> withNoCmd
+
+
+loadMoreCmd : String -> Model -> Cmd Msg
+loadMoreCmd id model =
+    let
+        i =
+            Debug.log "loadMoreCmd" id
+    in
+    Cmd.none
 
 
 feedsNeedLoading : Model -> Bool

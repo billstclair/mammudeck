@@ -23,6 +23,8 @@ module Mammudeck.Types exposing
     , PublicFeedFlags
     , PublicFeedParams
     , Renderer
+    , ScrollNotification
+    , ScrollState(..)
     , UserFeedFlags
     , UserFeedParams
     , allButMentionNotificationExclusions
@@ -285,3 +287,16 @@ type alias GangedNotification =
     , notification : Notification
     , accounts : List Account
     }
+
+
+type alias ScrollNotification =
+    { id : String
+    , scrollLeft : Int
+    , scrollTop : Int
+    }
+
+
+type ScrollState
+    = NoScroll
+    | AwaitingGetViewportScroll
+    | NotifyReceivedScroll
