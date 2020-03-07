@@ -37,6 +37,7 @@ module Mammudeck.Types exposing
     , emptyFeedSet
     , emptyFeedSetDefinition
     , feedID
+    , feedIdToType
     , feedSetDefinitionToFeedSet
     , feedSetToDefinition
     , feedTypeToElements
@@ -143,6 +144,8 @@ type FeedType
         }
 
 
+{-| Need to represent xxxParams, and parse them in feedIdToType
+-}
 feedID : FeedType -> String
 feedID feedType =
     case feedType of
@@ -150,7 +153,15 @@ feedID feedType =
             "home"
 
         UserFeed { username, server } ->
-            "user: " ++ username ++ "/" ++ server
+            let
+                nameSlashServer =
+                    if server == "" then
+                        username
+
+                    else
+                        username ++ "/" ++ server
+            in
+            "user: " ++ nameSlashServer
 
         PublicFeed _ ->
             "public"
@@ -172,6 +183,49 @@ feedID feedType =
 
         SearchFeed { q } ->
             "search: " ++ q
+
+
+feedIdToType : String -> Maybe FeedType
+feedIdToType id =
+    if "home" == id then
+        Just HomeFeed
+
+    else if "user: " == String.left 6 id then
+        case String.split "/" <| String.right 6 id of
+            [ username ] ->
+                Just <| UserFeed { username = username, server = "", flags = Nothing }
+
+            [ username, server ] ->
+                Just <| UserFeed { username = username, server = server, flags = Nothing }
+
+            _ ->
+                Nothing
+
+    else if "public" == id then
+        Just <| PublicFeed { flags = Nothing }
+
+    else if "hashtag: " == String.left 9 id then
+        Just <| HashtagFeed (String.right 9 id)
+
+    else if "list: " == String.left 6 id then
+        Just <| ListFeed (String.right 6 id)
+
+    else if "notifications" == id then
+        Just <| NotificationFeed { accountId = Nothing, exclusions = [] }
+
+    else if "conversations" == id then
+        Just ConversationsFeed
+
+    else if "search: " == String.left 8 id then
+        Just <|
+            SearchFeed
+                { q = String.right 8 id
+                , following = False
+                , resolve = False
+                }
+
+    else
+        Nothing
 
 
 type FeedElements

@@ -461,9 +461,15 @@ type ColumnsUIMsg
     | UserNameInput String
 
 
+type ReceiveFeedType
+    = ReceiveWholeFeed
+    | ReceiveMoreFeed
+    | ReceiveNewFeed
+
+
 type ColumnsSendMsg
     = ColumnsSendNoop
-    | ReceiveFeed FeedType (Result Error Response)
+    | ReceiveFeed ReceiveFeedType FeedType (Result Error Response)
 
 
 type ExplorerUIMsg
@@ -2114,11 +2120,22 @@ globalMsg msg model =
 
 loadMoreCmd : String -> Model -> Cmd Msg
 loadMoreCmd id model =
-    let
-        i =
-            Debug.log "loadMoreCmd" id
-    in
-    Cmd.none
+    case Types.feedIdToType id of
+        Nothing ->
+            Cmd.none
+
+        Just feedType ->
+            case LE.find (\feed -> feedType == feed.feedType) model.feedSet.feeds of
+                Nothing ->
+                    Cmd.none
+
+                Just feed ->
+                    let
+                        i =
+                            Debug.log "loadMoreCmd" id
+                    in
+                    -- TODO
+                    Cmd.none
 
 
 feedsNeedLoading : Model -> Bool
@@ -2186,8 +2203,14 @@ columnsUIMsg msg model =
                     let
                         ( mdl2, cmd ) =
                             reloadFeed feed mdl
+
+                        scrollCmd =
+                            -- Disable scroll processing while fetching
+                            -- Is there a race condition here?
+                            -- If so we'll need Model.noScrollFeedTypes
+                            makeScrollRequest feed.feedType False
                     in
-                    ( mdl2, Cmd.batch [ cmd, cmds ] )
+                    ( mdl2, Cmd.batch [ cmd, cmds, scrollCmd ] )
             in
             List.foldr getFeed ( model, Cmd.none ) model.feedSet.feeds
 
@@ -2474,7 +2497,10 @@ continueReloadUserFeed feedType accounts model =
                                     , paging = Nothing
                                     }
                     in
-                    sendGeneralRequest (ColumnsSendMsg << ReceiveFeed feedType)
+                    sendGeneralRequest
+                        (ColumnsSendMsg
+                            << ReceiveFeed ReceiveWholeFeed feedType
+                        )
                         req
                         model
 
@@ -2530,7 +2556,10 @@ reloadFeed { feedType } model =
             model |> withNoCmd
 
         Just req ->
-            sendGeneralRequest (ColumnsSendMsg << ReceiveFeed feedType)
+            sendGeneralRequest
+                (ColumnsSendMsg
+                    << ReceiveFeed ReceiveWholeFeed feedType
+                )
                 req
                 model
 
@@ -2546,7 +2575,7 @@ columnsSendMsg msg model =
         ColumnsSendNoop ->
             model |> withNoCmd
 
-        ReceiveFeed feedType result ->
+        ReceiveFeed receiveType feedType result ->
             let
                 ( mdl, cmd ) =
                     receiveResponse result model
@@ -2600,7 +2629,10 @@ columnsSendMsg msg model =
                                                             feedType == feed.feedType
                                                         )
                                                         (\feed ->
-                                                            { feed | elements = elem }
+                                                            updateReceivedFeed
+                                                                receiveType
+                                                                elem
+                                                                feed
                                                         )
                                                         feedSet.feeds
                                                     , ( mdl, Cmd.none )
@@ -2615,6 +2647,66 @@ columnsSendMsg msg model =
                                     , cmd2
                                     , makeScrollRequest feedType True
                                     ]
+
+
+updateReceivedFeed : ReceiveFeedType -> FeedElements -> Feed -> Feed
+updateReceivedFeed receiveType elements feed =
+    { feed
+        | elements =
+            case receiveType of
+                ReceiveWholeFeed ->
+                    elements
+
+                ReceiveMoreFeed ->
+                    appendFeedElements feed.elements elements feed.elements
+
+                ReceiveNewFeed ->
+                    appendFeedElements elements feed.elements feed.elements
+    }
+
+
+appendFeedElements : FeedElements -> FeedElements -> FeedElements -> FeedElements
+appendFeedElements fe1 fe2 default =
+    case fe1 of
+        StatusElements els1 ->
+            case fe2 of
+                StatusElements els2 ->
+                    StatusElements <| List.append els1 els2
+
+                _ ->
+                    default
+
+        NotificationElements els1 ->
+            case fe2 of
+                NotificationElements els2 ->
+                    NotificationElements <| List.append els1 els2
+
+                _ ->
+                    default
+
+        AccountElements els1 ->
+            case fe2 of
+                AccountElements els2 ->
+                    AccountElements <| List.append els1 els2
+
+                _ ->
+                    default
+
+        ConversationsElements els1 ->
+            case fe2 of
+                ConversationsElements els2 ->
+                    ConversationsElements <| List.append els1 els2
+
+                _ ->
+                    default
+
+        ResultsElements els1 ->
+            case fe2 of
+                ResultsElements els2 ->
+                    ResultsElements <| List.append els1 els2
+
+                _ ->
+                    default
 
 
 {-| Process UI messages from the API Explorer page.
@@ -5238,7 +5330,7 @@ renderMultiNotification renderEnv account others notification =
             formatIso8601 renderEnv.here notification.created_at
     in
     div
-        [ style "border" <| "1px solid" ++ color
+        [ style "border" <| "1px solid " ++ color
         , style "color" color
         , style "padding" "0 3px"
         ]
@@ -5354,7 +5446,7 @@ renderNotification renderEnv notification =
         { color } =
             getStyle renderEnv.style
     in
-    div [ style "border" <| "1px solid" ++ color ]
+    div [ style "border" <| "1px solid " ++ color ]
         [ div []
             [ renderAccount color
                 renderEnv.here
