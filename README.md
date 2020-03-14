@@ -1,6 +1,6 @@
 [Mammudeck](https://mammudeck.com/) is a Tweetdeck-like interface to the [Mastodon](https://mastodon.social/) social media platform. It is written in [Elm](https://elm-lang.org/), and uses the [billstclair/elm-mastodon](https://package.elm-lang.org/packages/billstclair/elm-mastodon/latest) package to handle the wire protocol.
 
-This is a work in progress. I started development on it in earnest on August 18, 2019, and expect to have something useful by early September, and mostly feature-complete by the end of October.
+This is a work in progress.
 
 For development:
 

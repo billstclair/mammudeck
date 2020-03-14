@@ -8,7 +8,8 @@ import List
 import Mammudeck.EncodeDecode as MED
 import Mammudeck.Types as Types
     exposing
-        ( Feed
+        ( AccountId
+        , Feed
         , FeedElements(..)
         , FeedSet
         , FeedSetDefinition
@@ -36,6 +37,7 @@ all =
     Test.concat <|
         List.concat
             [ testMap fsdTest fsdData
+            , testMap acctsTest acctsData
             ]
 
 
@@ -155,6 +157,31 @@ fsdData =
     ]
 
 
+acctsTest : List AccountId -> String -> Test
+acctsTest accountIds name =
+    test ("accountIds \"" ++ name ++ "\"")
+        (\_ ->
+            let
+                value =
+                    MED.encodeAccountIds accountIds
+
+                result =
+                    case JD.decodeValue MED.accountIdsDecoder value of
+                        Err e ->
+                            Err e
+
+                        Ok en ->
+                            Ok en
+            in
+            expectResult (Ok accountIds) result
+        )
+
+
+acctsData : List (List AccountId)
+acctsData =
+    [ acctIds ]
+
+
 pff1 : PublicFeedFlags
 pff1 =
     { local = True
@@ -185,3 +212,28 @@ uff2 =
     , replies = True
     , reblogs = True
     }
+
+
+acctId1 : AccountId
+acctId1 =
+    { id = "1"
+    , username = "one"
+    , display_name = "Account one"
+    , avatar = "https://example.com/account-images/1.jpg"
+    , url = "https://example.com/one"
+    }
+
+
+acctId2 : AccountId
+acctId2 =
+    { id = "2"
+    , username = "two"
+    , display_name = "Account two"
+    , avatar = "https://example.com/account-images/2.jpg"
+    , url = "https://example.com/two"
+    }
+
+
+acctIds : List AccountId
+acctIds =
+    [ acctId1, acctId2 ]
