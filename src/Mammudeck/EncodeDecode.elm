@@ -11,7 +11,9 @@
 
 
 module Mammudeck.EncodeDecode exposing
-    ( encodeFeedSetDefinition
+    ( accountIdsDecoder
+    , encodeAccountIds
+    , encodeFeedSetDefinition
     , feedSetDefinitionDecoder
     )
 
@@ -20,7 +22,8 @@ import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, require
 import Json.Encode as JE exposing (Value)
 import Mammudeck.Types as Types
     exposing
-        ( FeedSetDefinition
+        ( AccountId
+        , FeedSetDefinition
         , FeedType(..)
         , PublicFeedFlags
         , UserFeedFlags
@@ -214,3 +217,34 @@ feedSetDefinitionDecoder =
     JD.succeed FeedSetDefinition
         |> required "name" JD.string
         |> required "feedTypes" (JD.list feedTypeDecoder)
+
+
+encodeAccountId : AccountId -> Value
+encodeAccountId { id, username, display_name, avatar, url } =
+    JE.object
+        [ ( "id", JE.string id )
+        , ( "username", JE.string username )
+        , ( "display_name", JE.string display_name )
+        , ( "avatar", JE.string avatar )
+        , ( "url", JE.string url )
+        ]
+
+
+accountIdDecoder : Decoder AccountId
+accountIdDecoder =
+    JD.succeed AccountId
+        |> required "id" JD.string
+        |> required "username" JD.string
+        |> required "display_name" JD.string
+        |> required "avatar" JD.string
+        |> required "url" JD.string
+
+
+encodeAccountIds : List AccountId -> Value
+encodeAccountIds accountIds =
+    JE.list encodeAccountId accountIds
+
+
+accountIdsDecoder : Decoder (List AccountId)
+accountIdsDecoder =
+    JD.list accountIdDecoder

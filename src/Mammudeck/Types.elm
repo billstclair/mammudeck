@@ -11,7 +11,8 @@
 
 
 module Mammudeck.Types exposing
-    ( Feed
+    ( AccountId
+    , Feed
     , FeedElements(..)
     , FeedSet
     , FeedSetDefinition
@@ -27,6 +28,7 @@ module Mammudeck.Types exposing
     , ScrollState(..)
     , UserFeedFlags
     , UserFeedParams
+    , accountToAccountId
     , allButMentionNotificationExclusions
     , defaultFeedSet
     , defaultFeedSetDefinition
@@ -52,6 +54,7 @@ import Mastodon.Entity
         , NotificationType(..)
         , Results
         , Status
+        , UrlString
         )
 import Mastodon.Request exposing (Error, Response)
 import Task
@@ -354,3 +357,24 @@ type ScrollState
     = NoScroll
     | AwaitingGetViewportScroll
     | NotifyReceivedScroll
+
+
+{-| A subset of Mastodon.Entity.Account
+-}
+type alias AccountId =
+    { id : String
+    , username : String
+    , display_name : String
+    , avatar : UrlString
+    , url : UrlString
+    }
+
+
+accountToAccountId : Account -> AccountId
+accountToAccountId account =
+    { id = account.id
+    , username = account.username
+    , display_name = account.display_name
+    , avatar = account.avatar
+    , url = account.url
+    }

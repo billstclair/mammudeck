@@ -94,7 +94,8 @@ import List.Extra as LE
 import Mammudeck.EncodeDecode as MED
 import Mammudeck.Types as Types
     exposing
-        ( Feed
+        ( AccountId
+        , Feed
         , FeedElements(..)
         , FeedSet
         , FeedSetDefinition
@@ -340,6 +341,7 @@ type alias Model =
     , feedSet : FeedSet
     , loadingFeeds : Set String --loading older posts, that is
     , scrollState : Dict String ScrollState
+    , accountIdDict : Dict String (List AccountId)
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -403,7 +405,7 @@ type alias Model =
 
 
 type Page
-    = SplashScreenPage
+    = HomePage
     | ColumnsPage
     | ExplorerPage
 
@@ -781,7 +783,7 @@ parseInitialPage urlin =
                             Just p ->
                                 case p of
                                     "splash" ->
-                                        Just SplashScreenPage
+                                        Just HomePage
 
                                     "columns" ->
                                         Just ColumnsPage
@@ -873,7 +875,7 @@ init value url key =
             Debug.log "initialPage" <| parseInitialPage url
     in
     { renderEnv = emptyRenderEnv
-    , page = SplashScreenPage
+    , page = HomePage
     , token = Nothing
     , server = ""
     , feedSetDefinition = Types.emptyFeedSetDefinition
@@ -923,6 +925,7 @@ init value url key =
     , feedSet = Types.emptyFeedSet
     , loadingFeeds = Set.empty
     , scrollState = Dict.empty
+    , accountIdDict = Dict.empty
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -1230,6 +1233,11 @@ handleGetToken key value model =
                 |> withNoCmd
 
 
+pkAccountIdsLength : Int
+pkAccountIdsLength =
+    String.length pk.accountIds
+
+
 handleGetResponse : Maybe String -> String -> Maybe Value -> Model -> ( Model, Cmd Msg )
 handleGetResponse maybeLabel key maybeValue model =
     case maybeLabel of
@@ -1239,6 +1247,9 @@ handleGetResponse maybeLabel key maybeValue model =
 
             else if key == pk.feedSetDefinition then
                 handleGetFeedSetDefinition maybeValue model
+
+            else if pk.accountIds == String.left pkAccountIdsLength key then
+                handleGetAccountIds key maybeValue model
 
             else
                 model |> withNoCmd
@@ -1254,6 +1265,29 @@ handleGetResponse maybeLabel key maybeValue model =
 
                     else
                         model |> withNoCmd
+
+
+handleGetAccountIds : String -> Maybe Value -> Model -> ( Model, Cmd Msg )
+handleGetAccountIds key maybeValue model =
+    case maybeValue of
+        Nothing ->
+            model |> withNoCmd
+
+        Just value ->
+            case JD.decodeValue MED.accountIdsDecoder value of
+                Err _ ->
+                    model |> withNoCmd
+
+                Ok accountIds ->
+                    let
+                        server =
+                            String.right (pkAccountIdsLength + 1) key
+                    in
+                    { model
+                        | accountIdDict =
+                            Dict.insert server accountIds model.accountIdDict
+                    }
+                        |> withNoCmd
 
 
 socketHandler : WebSocket.Response -> State -> Model -> ( Model, Cmd Msg )
@@ -5062,8 +5096,8 @@ view model =
     , body =
         [ renderDialog model
         , case model.page of
-            SplashScreenPage ->
-                renderSplashScreen model
+            HomePage ->
+                renderHome model
 
             ColumnsPage ->
                 renderColumns model
@@ -5093,10 +5127,10 @@ pageSelector showLabel showColumns page =
               else
                 text ""
             , option
-                [ value "SplashScreenPage"
-                , selected <| page == SplashScreenPage
+                [ value "HomePage"
+                , selected <| page == HomePage
                 ]
-                [ text "Splash Screen" ]
+                [ text "Home" ]
             , option
                 [ value "ExplorerPage"
                 , selected <| page == ExplorerPage
@@ -5130,8 +5164,8 @@ renderCenteredScreen model width body =
         ]
 
 
-renderSplashScreen : Model -> Html Msg
-renderSplashScreen model =
+renderHome : Model -> Html Msg
+renderHome model =
     renderCenteredScreen model
         "40em"
         [ h2 [ style "text-align" "center" ]
@@ -8128,8 +8162,8 @@ encodePage : Page -> Value
 encodePage page =
     JE.string <|
         case page of
-            SplashScreenPage ->
-                "SplashScreenPage"
+            HomePage ->
+                "HomePage"
 
             ColumnsPage ->
                 "ColumnsPage"
@@ -8148,7 +8182,7 @@ stringToPage string =
             ExplorerPage
 
         _ ->
-            SplashScreenPage
+            HomePage
 
 
 pageDecoder : Decoder Page
@@ -8372,6 +8406,16 @@ putFeedSetDefinition feedSetDefinition =
     put pk.feedSetDefinition (Just <| MED.encodeFeedSetDefinition feedSetDefinition)
 
 
+getAccountIds : UrlString -> Cmd Msg
+getAccountIds server =
+    get <| pk.accountIds ++ server
+
+
+putAccountIds : UrlString -> List AccountId -> Cmd Msg
+putAccountIds server accountIds =
+    put (pk.accountIds ++ server) (Just <| MED.encodeAccountIds accountIds)
+
+
 clear : Cmd Msg
 clear =
     localStorageSend (LocalStorage.clear "")
@@ -8422,6 +8466,7 @@ pk =
     { model = "model"
     , token = "token"
     , feedSetDefinition = "feedSetDefinition"
+    , accountIds = "accountIds"
     }
 
 
