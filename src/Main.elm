@@ -1074,8 +1074,16 @@ getVerifyCredentials model =
         Just server ->
             case model.token of
                 Nothing ->
-                    sendRequest (InstanceRequest Request.GetInstance) model
-                        |> Tuple.second
+                    Cmd.batch
+                        [ sendRequest (InstanceRequest Request.GetInstance) model
+                            |> Tuple.second
+                        , case Dict.get server model.accountIdDict of
+                            Nothing ->
+                                getAccountIds server
+
+                            _ ->
+                                Cmd.none
+                        ]
 
                 Just token ->
                     Request.serverRequest (\_ -> GlobalMsg << ReceiveGetVerifyCredentials)
@@ -1269,25 +1277,34 @@ handleGetResponse maybeLabel key maybeValue model =
 
 handleGetAccountIds : String -> Maybe Value -> Model -> ( Model, Cmd Msg )
 handleGetAccountIds key maybeValue model =
+    let
+        server =
+            String.dropLeft (pkAccountIdsLength + 1) key
+
+        maybeMerge : Dict String (List AccountId) -> Model -> ( Model, Cmd Msg )
+        maybeMerge dict mdl =
+            case Dict.get server dict of
+                Just [ acctId ] ->
+                    mergeAccountId acctId server mdl
+
+                _ ->
+                    mdl |> withNoCmd
+    in
     case maybeValue of
         Nothing ->
-            model |> withNoCmd
+            maybeMerge model.accountIdDict model
 
         Just value ->
             case JD.decodeValue MED.accountIdsDecoder value of
                 Err _ ->
-                    model |> withNoCmd
+                    maybeMerge model.accountIdDict model
 
                 Ok accountIds ->
-                    let
-                        server =
-                            String.right (pkAccountIdsLength + 1) key
-                    in
-                    { model
-                        | accountIdDict =
-                            Dict.insert server accountIds model.accountIdDict
-                    }
-                        |> withNoCmd
+                    maybeMerge model.accountIdDict
+                        { model
+                            | accountIdDict =
+                                Dict.insert server accountIds model.accountIdDict
+                        }
 
 
 socketHandler : WebSocket.Response -> State -> Model -> ( Model, Cmd Msg )
@@ -1880,16 +1897,30 @@ globalMsg msg model =
 
             else
                 let
+                    server =
+                        model.server
+
                     mdl =
                         { model
                             | renderEnv =
-                                { renderEnv | loginServer = Just model.server }
+                                { renderEnv | loginServer = Just server }
                             , token = Nothing
                             , account = Nothing
                         }
                             |> updatePatchCredentialsInputs
+
+                    ( mdl2, cmd ) =
+                        sendRequest (InstanceRequest Request.GetInstance) mdl
+
+                    acctIdsCmd =
+                        case Dict.get server model.accountIdDict of
+                            Nothing ->
+                                getAccountIds server
+
+                            _ ->
+                                Cmd.none
                 in
-                sendRequest (InstanceRequest Request.GetInstance) mdl
+                mdl2 |> withCmds [ acctIdsCmd, cmd ]
 
         Login ->
             let
@@ -2005,9 +2036,19 @@ globalMsg msg model =
                                 , entity = Just <| AccountEntity account
                             }
                                 |> updatePatchCredentialsInputs
+
+                        accountId =
+                            Types.accountToAccountId account
+
+                        ( mdl3, cmd2 ) =
+                            mergeAccountId accountId server mdl2
                     in
-                    mdl2
-                        |> withCmds [ cmd, getAccountIdRelationships False mdl ]
+                    mdl3
+                        |> withCmds
+                            [ cmd
+                            , cmd2
+                            , getAccountIdRelationships False mdl2
+                            ]
 
         ReceiveFetchAccount result ->
             case result of
@@ -2041,9 +2082,16 @@ globalMsg msg model =
                                 , entity = Just <| AccountEntity account
                             }
                                 |> updatePatchCredentialsInputs
+
+                        ( mdl2, cmd ) =
+                            let
+                                accountId =
+                                    Types.accountToAccountId account
+                            in
+                            mergeAccountId accountId loginServer mdl
                     in
                     mdl
-                        |> withCmd (getAccountIdRelationships False mdl)
+                        |> withCmds [ cmd, getAccountIdRelationships False mdl ]
 
         ReceiveInstance result ->
             case result of
@@ -2087,9 +2135,23 @@ globalMsg msg model =
                                         , account = Just account
                                     }
                                         |> updatePatchCredentialsInputs
+
+                                accountId =
+                                    Types.accountToAccountId account
+
+                                ( mdl2, mergeIdCmd ) =
+                                    case model.renderEnv.loginServer of
+                                        Nothing ->
+                                            ( mdl, Cmd.none )
+
+                                        Just server ->
+                                            mergeAccountId accountId server mdl
                             in
-                            mdl
-                                |> withCmd (getAccountIdRelationships False mdl)
+                            mdl2
+                                |> withCmds
+                                    [ getAccountIdRelationships False mdl
+                                    , mergeIdCmd
+                                    ]
 
                         _ ->
                             model |> withNoCmd
@@ -2150,6 +2212,55 @@ globalMsg msg model =
 
                         _ ->
                             model |> withNoCmd
+
+
+{-| Merge account into server's accountIdDict entry.
+
+Write if it changed. Read if it started empty.
+
+-}
+mergeAccountId : AccountId -> String -> Model -> ( Model, Cmd Msg )
+mergeAccountId accountId server model =
+    let
+        id =
+            accountId.id
+    in
+    case Dict.get server model.accountIdDict of
+        Nothing ->
+            { model
+                | accountIdDict =
+                    Dict.insert server [ accountId ] model.accountIdDict
+            }
+                |> withCmd (getAccountIds server)
+
+        Just accountIds ->
+            let
+                putNew acctIds =
+                    { model
+                        | accountIdDict =
+                            Dict.insert server acctIds model.accountIdDict
+                    }
+                        |> withCmd (putAccountIds server acctIds)
+            in
+            case LE.find (.id >> (==) id) accountIds of
+                Nothing ->
+                    putNew <| accountId :: accountIds
+
+                Just acctId ->
+                    if acctId == accountId then
+                        let
+                            putIdsCmd =
+                                case accountIds of
+                                    [ _ ] ->
+                                        putAccountIds server accountIds
+
+                                    _ ->
+                                        Cmd.none
+                        in
+                        model |> withCmd putIdsCmd
+
+                    else
+                        putNew <| accountId :: LE.remove acctId accountIds
 
 
 loadMoreCmd : String -> Model -> Cmd Msg
@@ -8406,14 +8517,14 @@ putFeedSetDefinition feedSetDefinition =
     put pk.feedSetDefinition (Just <| MED.encodeFeedSetDefinition feedSetDefinition)
 
 
-getAccountIds : UrlString -> Cmd Msg
+getAccountIds : String -> Cmd Msg
 getAccountIds server =
-    get <| pk.accountIds ++ server
+    get <| pk.accountIds ++ "." ++ server
 
 
-putAccountIds : UrlString -> List AccountId -> Cmd Msg
+putAccountIds : String -> List AccountId -> Cmd Msg
 putAccountIds server accountIds =
-    put (pk.accountIds ++ server) (Just <| MED.encodeAccountIds accountIds)
+    put (pk.accountIds ++ "." ++ server) (Just <| MED.encodeAccountIds accountIds)
 
 
 clear : Cmd Msg
