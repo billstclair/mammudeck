@@ -294,6 +294,7 @@ type alias Model =
 
     -- Columns page state
     , feedSetDefinition : FeedSetDefinition
+    , supportsAccountByUsername : Dict String Bool
 
     -- API Explorer page state
     , prettify : Bool
@@ -472,6 +473,7 @@ type ReceiveFeedType
 
 type ColumnsSendMsg
     = ColumnsSendNoop
+    | ReceiveAccountByUsername FeedType (Result Error Response)
     | ReceiveFeed ReceiveFeedType FeedType (Result Error Response)
 
 
@@ -664,7 +666,7 @@ type ExplorerSendMsg
     | SendGetListTimeline
     | SendGetGroupTimeline
       -- All of the `SendXXX` messages receive their results via `ReceiveResponse`.
-    | ReceiveResponse (Result Error Response)
+    | ReceiveResponse Request (Result Error Response)
 
 
 main =
@@ -880,6 +882,7 @@ init value url key =
     , token = Nothing
     , server = ""
     , feedSetDefinition = Types.emptyFeedSetDefinition
+    , supportsAccountByUsername = Dict.empty
     , prettify = True
     , selectedRequest = LoginSelected
     , username = ""
@@ -1084,14 +1087,18 @@ getVerifyCredentials model =
                                 |> Tuple.second
 
                         Just token ->
-                            Request.serverRequest (\_ -> GlobalMsg << ReceiveGetVerifyCredentials)
-                                []
-                                { server = server
-                                , token = Just token
-                                }
-                                ()
-                            <|
-                                AccountsRequest Request.GetVerifyCredentials
+                            Cmd.batch
+                                [ checkAccountByUsername server mdl
+                                , Request.serverRequest
+                                    (\_ -> GlobalMsg << ReceiveGetVerifyCredentials)
+                                    []
+                                    { server = server
+                                    , token = Just token
+                                    }
+                                    ()
+                                  <|
+                                    AccountsRequest Request.GetVerifyCredentials
+                                ]
             in
             mdl |> withCmds [ cmd, cmd2 ]
 
@@ -1922,7 +1929,11 @@ globalMsg msg model =
                             _ ->
                                 Cmd.none
                 in
-                mdl2 |> withCmds [ acctIdsCmd, cmd ]
+                mdl2
+                    |> withCmds
+                        [ acctIdsCmd
+                        , cmd
+                        ]
 
         Login ->
             let
@@ -2049,6 +2060,7 @@ globalMsg msg model =
                         |> withCmds
                             [ cmd
                             , cmd2
+                            , checkAccountByUsername server mdl2
                             , getAccountIdRelationships False mdl2
                             ]
 
@@ -2092,8 +2104,12 @@ globalMsg msg model =
                             in
                             mergeAccountId accountId loginServer mdl
                     in
-                    mdl
-                        |> withCmds [ cmd, getAccountIdRelationships False mdl ]
+                    mdl2
+                        |> withCmds
+                            [ cmd
+                            , checkAccountByUsername loginServer mdl2
+                            , getAccountIdRelationships False mdl2
+                            ]
 
         ReceiveInstance result ->
             case result of
@@ -2214,6 +2230,16 @@ globalMsg msg model =
 
                         _ ->
                             model |> withNoCmd
+
+
+checkAccountByUsername : String -> Model -> Cmd Msg
+checkAccountByUsername server model =
+    case Dict.get server model.supportsAccountByUsername of
+        Nothing ->
+            Task.perform ExplorerSendMsg <| Task.succeed SendGetAccountByUsername
+
+        Just _ ->
+            Cmd.none
 
 
 {-| Merge account into server's accountIdDict entry.
@@ -2613,16 +2639,33 @@ startReloadUserFeed params model =
                 Just acctIds ->
                     let
                         nameAtServer =
-                            Debug.log "nameAtServer" <|
-                                if server == "" || server == loginServer then
-                                    username
+                            if server == "" || server == loginServer then
+                                username
 
-                                else
-                                    username ++ "@" ++ server
+                            else
+                                username ++ "@" ++ server
                     in
-                    case Debug.log "  find accountId" <| LE.find (.username >> (==) nameAtServer) acctIds of
+                    case LE.find (.username >> (==) nameAtServer) acctIds of
                         Nothing ->
-                            accountsRequest ()
+                            let
+                                supportsAccountByUsername =
+                                    case
+                                        Dict.get loginServer
+                                            model.supportsAccountByUsername
+                                    of
+                                        Just supports ->
+                                            supports
+
+                                        Nothing ->
+                                            False
+                            in
+                            if supportsAccountByUsername then
+                                AccountsRequest <|
+                                    Request.GetAccountByUsername
+                                        { username = username }
+
+                            else
+                                accountsRequest ()
 
                         Just acctId ->
                             getStatusesRequest acctId.id params
@@ -2754,8 +2797,14 @@ reloadFeed { feedType } model =
 
         Just req ->
             sendGeneralRequest
-                (ColumnsSendMsg
-                    << ReceiveFeed ReceiveWholeFeed feedType
+                (case req of
+                    AccountsRequest (Request.GetAccountByUsername _) ->
+                        ColumnsSendMsg
+                            << ReceiveAccountByUsername feedType
+
+                    _ ->
+                        ColumnsSendMsg
+                            << ReceiveFeed ReceiveWholeFeed feedType
                 )
                 req
                 model
@@ -2772,10 +2821,33 @@ columnsSendMsg msg model =
         ColumnsSendNoop ->
             model |> withNoCmd
 
+        ReceiveAccountByUsername feedType result ->
+            case result of
+                Err _ ->
+                    model |> withNoCmd
+
+                Ok response ->
+                    case response.request of
+                        AccountsRequest (Request.GetAccountByUsername _) ->
+                            case response.entity of
+                                AccountEntity account ->
+                                    continueReloadUserFeed feedType [ account ] model
+
+                                _ ->
+                                    model |> withNoCmd
+
+                        _ ->
+                            model |> withNoCmd
+
         ReceiveFeed receiveType feedType result ->
             let
+                -- Dummy request
+                request =
+                    TimelinesRequest <|
+                        Request.GetHomeTimeline { paging = Nothing }
+
                 ( mdl, cmd ) =
-                    receiveResponse result model
+                    receiveResponse request result model
             in
             case mdl.msg of
                 Just _ ->
@@ -3468,8 +3540,8 @@ These send requests over the wire to instances.
 explorerSendMsg : ExplorerSendMsg -> Model -> ( Model, Cmd Msg )
 explorerSendMsg msg model =
     case msg of
-        ReceiveResponse result ->
-            receiveResponse result model
+        ReceiveResponse request result ->
+            receiveResponse request result model
 
         SendNothing ->
             model |> withNoCmd
@@ -4458,8 +4530,8 @@ getAccountId model =
                 ""
 
 
-receiveResponse : Result Error Response -> Model -> ( Model, Cmd Msg )
-receiveResponse result model =
+receiveResponse : Request -> Result Error Response -> Model -> ( Model, Cmd Msg )
+receiveResponse request result model =
     case result of
         Err err ->
             let
@@ -4494,6 +4566,23 @@ receiveResponse result model =
                                     "BadBody: " ++ decodeErrorToString jderr
                             in
                             ( m, ( res, Nothing, Just meta ) )
+
+                supportsAccountByUsername =
+                    let
+                        dict =
+                            model.supportsAccountByUsername
+                    in
+                    case model.renderEnv.loginServer of
+                        Nothing ->
+                            dict
+
+                        Just server ->
+                            case request of
+                                AccountsRequest (Request.GetAccountByUsername _) ->
+                                    Dict.insert server False dict
+
+                                _ ->
+                                    dict
             in
             { model
                 | msg = Just msg
@@ -4502,6 +4591,7 @@ receiveResponse result model =
                 , metadata = metadata
                 , selectedKeyPath = ""
                 , selectedKeyValue = ""
+                , supportsAccountByUsername = supportsAccountByUsername
             }
                 |> updateJsonTrees
                 |> withNoCmd
@@ -4555,12 +4645,26 @@ applyResponseSideEffects response model =
                     model
 
         AccountsRequest (Request.GetAccountByUsername _) ->
+            let
+                mdl =
+                    case model.renderEnv.loginServer of
+                        Nothing ->
+                            model
+
+                        Just server ->
+                            { model
+                                | supportsAccountByUsername =
+                                    Dict.insert server
+                                        True
+                                        model.supportsAccountByUsername
+                            }
+            in
             case response.entity of
                 AccountEntity { id } ->
-                    { model | accountId = id }
+                    { mdl | accountId = id }
 
                 _ ->
-                    model
+                    mdl
 
         AccountsRequest (Request.PostFollow _) ->
             { model | isAccountFollowed = True }
@@ -4775,8 +4879,8 @@ smartPaging entities getid paging model =
 
 
 sendRequest : Request -> Model -> ( Model, Cmd Msg )
-sendRequest =
-    sendGeneralRequest (ExplorerSendMsg << ReceiveResponse)
+sendRequest request =
+    sendGeneralRequest (ExplorerSendMsg << ReceiveResponse request) request
 
 
 sendGeneralRequest : (Result Error Response -> Msg) -> Request -> Model -> ( Model, Cmd Msg )
@@ -8112,6 +8216,7 @@ type alias SavedModel =
     , token : Maybe String
     , server : String
     , feedSetDefinition : FeedSetDefinition
+    , supportsAccountByUsername : Dict String Bool
     , prettify : Bool
     , selectedRequest : SelectedRequest
     , username : String
@@ -8161,6 +8266,7 @@ modelToSavedModel model =
     , token = model.token
     , server = model.server
     , feedSetDefinition = model.feedSetDefinition
+    , supportsAccountByUsername = model.supportsAccountByUsername
     , prettify = model.prettify
     , selectedRequest = model.selectedRequest
     , username = model.username
@@ -8222,6 +8328,7 @@ savedModelToModel savedModel model =
         , token = savedModel.token
         , server = savedModel.server
         , feedSetDefinition = savedModel.feedSetDefinition
+        , supportsAccountByUsername = savedModel.supportsAccountByUsername
         , prettify = savedModel.prettify
         , selectedRequest = savedModel.selectedRequest
         , username = savedModel.username
@@ -8412,10 +8519,12 @@ encodeSavedModel savedModel =
         , ( "page", encodePage savedModel.page )
         , ( "token", ED.encodeMaybe JE.string savedModel.token )
         , ( "server", JE.string savedModel.server )
-        , ( "feedSetDefinition", MED.encodeFeedSetDefinition savedModel.feedSetDefinition )
-        , ( "prettify", JE.bool savedModel.prettify )
-        , ( "selectedRequest", encodeSelectedRequest savedModel.selectedRequest )
-        , ( "username", JE.string savedModel.username )
+        , ( "feedSetDefinition"
+          , MED.encodeFeedSetDefinition savedModel.feedSetDefinition
+          )
+        , ( "supportsAccountByUsername"
+          , JE.dict identity JE.bool savedModel.supportsAccountByUsername
+          )
         , ( "accountId", JE.string savedModel.accountId )
         , ( "accountIds", JE.string savedModel.accountIds )
         , ( "showMetadata", JE.bool savedModel.showMetadata )
@@ -8469,6 +8578,7 @@ savedModelDecoder =
         |> optional "feedSetDefinition"
             MED.feedSetDefinitionDecoder
             Types.defaultFeedSetDefinition
+        |> optional "supportsAccountByUsername" (JD.dict JD.bool) Dict.empty
         |> optional "prettify" JD.bool True
         |> optional "selectedRequest" selectedRequestDecoder LoginSelected
         |> optional "username" JD.string ""
