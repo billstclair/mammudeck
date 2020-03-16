@@ -2,7 +2,7 @@
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
--- Copyright (c) 2019 Bill St. Clair <billstclair@gmail.com>
+-- Copyright (c) 2019-2020 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
 -- See LICENSE
@@ -108,6 +108,7 @@ import Mammudeck.Types as Types
         , ScrollNotification
         , ScrollState(..)
         , UserFeedFlags
+        , UserFeedParams
         )
 import Markdown
 import Mastodon.EncodeDecode as ED
@@ -1065,35 +1066,34 @@ getInstance model =
         (InstanceRequest Request.GetInstance)
 
 
-getVerifyCredentials : Model -> Cmd Msg
+getVerifyCredentials : Model -> ( Model, Cmd Msg )
 getVerifyCredentials model =
     case model.renderEnv.loginServer of
         Nothing ->
-            Cmd.none
+            model |> withNoCmd
 
         Just server ->
-            case model.token of
-                Nothing ->
-                    Cmd.batch
-                        [ sendRequest (InstanceRequest Request.GetInstance) model
-                            |> Tuple.second
-                        , case Dict.get server model.accountIdDict of
-                            Nothing ->
-                                getAccountIds server
+            let
+                ( mdl, cmd ) =
+                    mergeAccountId Types.emptyAccountId server model
 
-                            _ ->
-                                Cmd.none
-                        ]
+                cmd2 =
+                    case model.token of
+                        Nothing ->
+                            sendRequest (InstanceRequest Request.GetInstance) model
+                                |> Tuple.second
 
-                Just token ->
-                    Request.serverRequest (\_ -> GlobalMsg << ReceiveGetVerifyCredentials)
-                        []
-                        { server = server
-                        , token = Just token
-                        }
-                        ()
-                    <|
-                        AccountsRequest Request.GetVerifyCredentials
+                        Just token ->
+                            Request.serverRequest (\_ -> GlobalMsg << ReceiveGetVerifyCredentials)
+                                []
+                                { server = server
+                                , token = Just token
+                                }
+                                ()
+                            <|
+                                AccountsRequest Request.GetVerifyCredentials
+            in
+            mdl |> withCmds [ cmd, cmd2 ]
 
 
 handleListKeysResponse : Maybe String -> String -> List String -> Model -> ( Model, Cmd Msg )
@@ -1170,19 +1170,21 @@ handleGetModelInternal maybeValue model =
                     let
                         mdl =
                             savedModelToModel savedModel model
-                    in
-                    { mdl
-                        | started = Started
-                        , msg = Nothing
-                    }
-                        |> withCmd
-                            (if mdl.renderEnv.loginServer == Nothing then
-                                Task.perform (GlobalMsg << SetServer) <|
-                                    Task.succeed mdl.server
 
-                             else
-                                getVerifyCredentials mdl
-                            )
+                        mdl2 =
+                            { mdl
+                                | started = Started
+                                , msg = Nothing
+                            }
+                    in
+                    if mdl2.renderEnv.loginServer == Nothing then
+                        ( mdl2
+                        , Task.perform (GlobalMsg << SetServer) <|
+                            Task.succeed mdl2.server
+                        )
+
+                    else
+                        getVerifyCredentials mdl
 
 
 handleGetFeedSetDefinition : Maybe Value -> Model -> ( Model, Cmd Msg )
@@ -1210,8 +1212,8 @@ handleGetFeedSetDefinition maybeValue model =
     }
         |> withCmd
             (if model.page == ColumnsPage then
-                Task.perform identity <|
-                    Task.succeed (ColumnsUIMsg ReloadAllColumns)
+                Task.perform ColumnsUIMsg <|
+                    Task.succeed ReloadAllColumns
 
              else
                 Cmd.none
@@ -2584,21 +2586,46 @@ This needs to be sent to `server`, not `model.renderEnv.loginServer`.
 Or maybe that should be a parameter.
 
 -}
-startReloadUserFeed : Types.UserFeedParams -> Request
-startReloadUserFeed params =
+startReloadUserFeed : UserFeedParams -> Model -> Request
+startReloadUserFeed params model =
     let
         { username, server } =
             params
+
+        accountsRequest () =
+            AccountsRequest <|
+                Request.GetSearchAccounts
+                    { q = username
+                    , limit = Nothing
+                    , resolve = False
+                    , following = False
+                    }
     in
-    -- TODO
-    -- Add a table from username@server to Account.
-    AccountsRequest <|
-        Request.GetSearchAccounts
-            { q = username
-            , limit = Nothing
-            , resolve = False
-            , following = False
-            }
+    case model.renderEnv.loginServer of
+        Nothing ->
+            accountsRequest ()
+
+        Just loginServer ->
+            case Dict.get loginServer model.accountIdDict of
+                Nothing ->
+                    accountsRequest ()
+
+                Just acctIds ->
+                    let
+                        nameAtServer =
+                            Debug.log "nameAtServer" <|
+                                if server == "" || server == loginServer then
+                                    username
+
+                                else
+                                    username ++ "@" ++ server
+                    in
+                    case Debug.log "  find accountId" <| LE.find (.username >> (==) nameAtServer) acctIds of
+                        Nothing ->
+                            accountsRequest ()
+
+                        Just acctId ->
+                            getStatusesRequest acctId.id params
 
 
 {-| This processes the result of the `GetSearchAccounts` request above.
@@ -2606,8 +2633,11 @@ startReloadUserFeed params =
 continueReloadUserFeed : FeedType -> List Account -> Model -> ( Model, Cmd Msg )
 continueReloadUserFeed feedType accounts model =
     case feedType of
-        UserFeed { username, server, flags } ->
+        UserFeed params ->
             let
+                { username, server, flags } =
+                    params
+
                 userAtServer =
                     if (server == "") || (Just server == model.renderEnv.loginServer) then
                         username
@@ -2619,38 +2649,60 @@ continueReloadUserFeed feedType accounts model =
                 Nothing ->
                     model |> withNoCmd
 
-                Just { id } ->
+                Just account ->
                     let
-                        ( ( only_media, pinned ), ( exclude_replies, exclude_reblogs ) ) =
-                            case flags of
-                                Nothing ->
-                                    ( ( False, False ), ( False, False ) )
-
-                                Just flgs ->
-                                    ( ( flgs.only_media, flgs.pinned )
-                                    , ( not flgs.replies, not flgs.reblogs )
-                                    )
+                        { id } =
+                            account
 
                         req =
-                            AccountsRequest <|
-                                Request.GetStatuses
-                                    { id = id
-                                    , only_media = only_media
-                                    , pinned = pinned
-                                    , exclude_replies = exclude_replies
-                                    , exclude_reblogs = exclude_reblogs
-                                    , paging = Nothing
-                                    }
+                            getStatusesRequest id params
+
+                        ( mdl, cmd ) =
+                            case model.renderEnv.loginServer of
+                                Just loginServer ->
+                                    mergeAccountId (Types.accountToAccountId account)
+                                        loginServer
+                                        model
+
+                                _ ->
+                                    model |> withNoCmd
+
+                        ( mdl2, cmd2 ) =
+                            sendGeneralRequest
+                                (ColumnsSendMsg
+                                    << ReceiveFeed ReceiveWholeFeed (UserFeed params)
+                                )
+                                req
+                                mdl
                     in
-                    sendGeneralRequest
-                        (ColumnsSendMsg
-                            << ReceiveFeed ReceiveWholeFeed feedType
-                        )
-                        req
-                        model
+                    mdl2 |> withCmds [ cmd, cmd2 ]
 
         _ ->
             model |> withNoCmd
+
+
+getStatusesRequest : String -> UserFeedParams -> Request
+getStatusesRequest id params =
+    let
+        ( ( only_media, pinned ), ( exclude_replies, exclude_reblogs ) ) =
+            case params.flags of
+                Nothing ->
+                    ( ( False, False ), ( False, False ) )
+
+                Just flgs ->
+                    ( ( flgs.only_media, flgs.pinned )
+                    , ( not flgs.replies, not flgs.reblogs )
+                    )
+    in
+    AccountsRequest <|
+        Request.GetStatuses
+            { id = id
+            , only_media = only_media
+            , pinned = pinned
+            , exclude_replies = exclude_replies
+            , exclude_reblogs = exclude_reblogs
+            , paging = Nothing
+            }
 
 
 reloadFeed : Feed -> Model -> ( Model, Cmd Msg )
@@ -2664,7 +2716,7 @@ reloadFeed { feedType } model =
                             Request.GetHomeTimeline { paging = Nothing }
 
                 UserFeed params ->
-                    Just <| startReloadUserFeed params
+                    Just <| startReloadUserFeed params model
 
                 PublicFeed { flags } ->
                     Just <|

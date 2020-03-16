@@ -36,6 +36,7 @@ module Mammudeck.Types exposing
     , defaultPublicFeedFlags
     , defaultUserFeedFlags
     , defaultUserFeedType
+    , emptyAccountId
     , emptyFeedSet
     , emptyFeedSetDefinition
     , feedID
@@ -367,6 +368,16 @@ type alias AccountId =
     , display_name : String
     , avatar : UrlString
     , url : UrlString
+    }
+
+
+emptyAccountId : AccountId
+emptyAccountId =
+    { id = ""
+    , username = ""
+    , display_name = ""
+    , avatar = ""
+    , url = ""
     }
 
 
