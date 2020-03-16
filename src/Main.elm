@@ -1184,7 +1184,7 @@ handleGetModelInternal maybeValue model =
                         )
 
                     else
-                        getVerifyCredentials mdl
+                        getVerifyCredentials mdl2
 
 
 handleGetFeedSetDefinition : Maybe Value -> Model -> ( Model, Cmd Msg )
