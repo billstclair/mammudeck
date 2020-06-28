@@ -1219,7 +1219,7 @@ handleGetFeedSetDefinition maybeValue model =
             Types.feedSetDefinitionToFeedSet feedSetDefinition
     in
     { model
-        | feedSetDefinition = feedSetDefinition
+        | feedSetDefinition = Debug.log "handleGetFeedSetDefinition" feedSetDefinition
         , feedSet = feedSet
     }
         |> withCmd
@@ -1260,14 +1260,19 @@ pkAccountIdsLength =
     String.length pk.accountIds
 
 
+pkFeedSetDefinitionLength : Int
+pkFeedSetDefinitionLength =
+    String.length pk.feedSetDefinition
+
+
 handleGetResponse : Maybe String -> String -> Maybe Value -> Model -> ( Model, Cmd Msg )
 handleGetResponse maybeLabel key maybeValue model =
     case maybeLabel of
         Nothing ->
-            if key == pk.model then
+            if Debug.log "handleGetResponse, key" key == pk.model then
                 handleGetModel maybeValue model
 
-            else if key == pk.feedSetDefinition then
+            else if pk.feedSetDefinition == String.left pkFeedSetDefinitionLength key then
                 handleGetFeedSetDefinition maybeValue model
 
             else if pk.accountIds == String.left pkAccountIdsLength key then
@@ -2040,6 +2045,7 @@ globalMsg msg model =
                         mdl2 =
                             { mdl
                                 | msg = Nothing
+                                , page = switchHomeToColumns model.page
                                 , token = Just authorization.token
                                 , renderEnv =
                                     { renderEnv | loginServer = Just server }
@@ -2067,6 +2073,7 @@ globalMsg msg model =
                             , cmd2
                             , checkAccountByUsername server mdl2
                             , getAccountIdRelationships False mdl2
+                            , getFeedSetDefinition server
                             ]
 
         ReceiveFetchAccount result ->
@@ -2091,6 +2098,7 @@ globalMsg msg model =
                         mdl =
                             { model
                                 | msg = Nothing
+                                , page = switchHomeToColumns model.page
                                 , server = loginServer
                                 , renderEnv =
                                     { renderEnv | loginServer = Just loginServer }
@@ -2114,6 +2122,7 @@ globalMsg msg model =
                             [ cmd
                             , checkAccountByUsername loginServer mdl2
                             , getAccountIdRelationships False mdl2
+                            , getFeedSetDefinition loginServer
                             ]
 
         ReceiveInstance result ->
@@ -2237,6 +2246,15 @@ globalMsg msg model =
                             model |> withNoCmd
 
 
+switchHomeToColumns : Page -> Page
+switchHomeToColumns page =
+    if page == HomePage then
+        ColumnsPage
+
+    else
+        page
+
+
 checkAccountByUsername : String -> Model -> Cmd Msg
 checkAccountByUsername server model =
     case Dict.get server model.supportsAccountByUsername of
@@ -2318,8 +2336,7 @@ loadMoreCmd id model =
 
 feedsNeedLoading : Model -> Bool
 feedsNeedLoading model =
-    model.account
-        /= Nothing
+    (model.account /= Nothing)
         && feedSetIsEmpty model.feedSet
 
 
@@ -4572,25 +4589,30 @@ receiveResponse request result model =
                             in
                             ( m, ( res, Nothing, Just meta ) )
 
-                supportsAccountByUsername =
+                ( supportsAccountByUsername, ignoreMsg ) =
                     let
                         dict =
                             model.supportsAccountByUsername
                     in
                     case model.renderEnv.loginServer of
                         Nothing ->
-                            dict
+                            ( dict, False )
 
                         Just server ->
                             case request of
                                 AccountsRequest (Request.GetAccountByUsername _) ->
-                                    Dict.insert server False dict
+                                    ( Dict.insert server False dict, True )
 
                                 _ ->
-                                    dict
+                                    ( dict, False )
             in
             { model
-                | msg = Just msg
+                | msg =
+                    if ignoreMsg then
+                        Nothing
+
+                    else
+                        Just msg
                 , response = response
                 , entity = entity
                 , metadata = metadata
@@ -5532,7 +5554,7 @@ renderLeftColumn renderEnv =
 
             Just server ->
                 span []
-                    [ link server <| "https://" ++ server
+                    [ link "server" <| "https://" ++ server
                     , br
                     ]
         , pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage
@@ -5803,8 +5825,10 @@ renderNotificationBody renderEnv notification =
                     , style "color" color
                     ]
                   <|
-                    postLink
-                        :: body
+                    List.concat
+                        [ [ p [ style "font-size" "80%" ] [ postLink ] ]
+                        , body
+                        ]
                 , div [] <|
                     List.map (renderAttachment renderEnv) status.media_attachments
                 ]
@@ -5919,12 +5943,16 @@ renderStatus renderEnv statusIn =
 
 hrpct : Int -> Html msg
 hrpct pct =
-    Html.hr [ style "width" <| String.fromInt pct ++ "%" ] []
+    Html.hr
+        [ style "width" <| String.fromInt pct ++ "%"
+        , style "margin" "auto"
+        ]
+        []
 
 
 hr : Html msg
 hr =
-    hrpct 90
+    hrpct 95
 
 
 formatIso8601 : Zone -> String -> String
@@ -5982,7 +6010,14 @@ renderColumns model =
     in
     renderCenteredScreen model
         ""
-        [ table
+        [ case model.msg of
+            Nothing ->
+                text ""
+
+            Just msg ->
+                p [ style "color" "red" ]
+                    [ text msg ]
+        , table
             [--style "width" <| px tableWidth
             ]
             [ tr
@@ -5995,6 +6030,10 @@ renderColumns model =
                       ]
                     , List.map
                         (\feed ->
+                            let
+                                ignore =
+                                    Debug.log "Rendering" <| feedDescription feed
+                            in
                             td [ style "vertical-align" "top" ]
                                 [ Lazy.lazy2 renderFeed renderEnv feed ]
                         )
@@ -6002,6 +6041,25 @@ renderColumns model =
                     ]
             ]
         ]
+
+
+feedDescription : Feed -> ( String, Int )
+feedDescription feed =
+    case feed.elements of
+        StatusElements list ->
+            ( "Status", List.length list )
+
+        NotificationElements list ->
+            ( "Notification", List.length list )
+
+        AccountElements list ->
+            ( "Account", List.length list )
+
+        ConversationsElements list ->
+            ( "Conversations", List.length list )
+
+        ResultsElements list ->
+            ( "Results", List.length list )
 
 
 primaryServerLine : Model -> Html Msg
@@ -6284,7 +6342,7 @@ renderExplorer model =
                 , b "Dark Mode"
                 ]
             , p []
-                [ text <| "Copyright " ++ special.copyright ++ " 2019, Bill St. Clair"
+                [ text <| "Copyright " ++ special.copyright ++ " 2019-2020, Bill St. Clair"
                 , br
                 , link "@billstclair@impeccable.social"
                     "https://impeccable.social/billstclair"
