@@ -5548,24 +5548,26 @@ renderLeftColumn renderEnv =
         , style "width" <| px leftColumnWidth
         , style "padding-top" "5px"
         ]
-        [ case renderEnv.loginServer of
-            Nothing ->
-                text ""
+        [ p []
+            [ case renderEnv.loginServer of
+                Nothing ->
+                    text ""
 
-            Just server ->
-                span []
-                    [ link "server" <| "https://" ++ server
-                    , br
-                    ]
-        , pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage
-        , br
-        , button (ColumnsUIMsg ReloadAllColumns) "reload"
-        , br
-        , button (ColumnsUIMsg ShowEditColumnsDialog) "edit"
-        , br
-        , checkBox (ExplorerUIMsg ToggleStyle)
-            (renderEnv.style == DarkStyle)
-            "dark"
+                Just server ->
+                    span []
+                        [ link "server" <| "https://" ++ server
+                        , br
+                        ]
+            ]
+        , p [] [ pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage ]
+        , p [ style "margin-bottom" "0.25em" ]
+            [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
+        , p [] [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
+        , p []
+            [ checkBox (ExplorerUIMsg ToggleStyle)
+                (renderEnv.style == DarkStyle)
+                "dark"
+            ]
         ]
 
 
