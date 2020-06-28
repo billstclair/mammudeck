@@ -11,7 +11,7 @@
             "NoRedInk/elm-json-decode-pipeline": "1.0.0",
             "billstclair/elm-dialog": "1.0.1",
             "billstclair/elm-localstorage": "7.2.0",
-            "billstclair/elm-mastodon": "4.0.2",
+            "billstclair/elm-mastodon": "5.0.0",
             "billstclair/elm-port-funnel": "1.2.0",
             "billstclair/elm-websocket-client": "4.1.0",
             "elm/browser": "1.0.1",
