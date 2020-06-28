@@ -1147,7 +1147,12 @@ handleGetModel maybeValue model =
     }
         |> withCmds
             [ cmd
-            , getFeedSetDefinition
+            , case mdl.renderEnv.loginServer of
+                Just server ->
+                    getFeedSetDefinition server
+
+                _ ->
+                    Cmd.none
             ]
 
 
@@ -2490,7 +2495,7 @@ moveFeedType feedType direction model =
                 | feedSetDefinition = newFeedSetDefinition
                 , feedSet = newFeedSet
             }
-                |> withCmd (putFeedSetDefinition newFeedSetDefinition)
+                |> withCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
 
 
 moveElementAt : Int -> Int -> List a -> List a
@@ -2565,7 +2570,7 @@ deleteFeedType feedType model =
         , feedSet = newFeedSet
     }
         |> withCmds
-            [ putFeedSetDefinition newFeedSetDefinition
+            [ maybePutFeedSetDefinition model newFeedSetDefinition
             , makeScrollRequest feedType False
             ]
 
@@ -2603,7 +2608,7 @@ addFeedType feedType model =
         , feedSet = newFeedSet
     }
         |> reloadFeed newFeed
-        |> addCmd (putFeedSetDefinition newFeedSetDefinition)
+        |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
 
 
 {-| TODO:
@@ -8669,14 +8674,25 @@ putToken server token =
                 Just <| JE.string tok
 
 
-getFeedSetDefinition : Cmd Msg
-getFeedSetDefinition =
-    get pk.feedSetDefinition
+getFeedSetDefinition : String -> Cmd Msg
+getFeedSetDefinition server =
+    get <| pk.feedSetDefinition ++ "." ++ server
 
 
-putFeedSetDefinition : FeedSetDefinition -> Cmd Msg
-putFeedSetDefinition feedSetDefinition =
-    put pk.feedSetDefinition (Just <| MED.encodeFeedSetDefinition feedSetDefinition)
+maybePutFeedSetDefinition : Model -> FeedSetDefinition -> Cmd Msg
+maybePutFeedSetDefinition model feedSetDefinition =
+    case model.renderEnv.loginServer of
+        Just server ->
+            putFeedSetDefinition server feedSetDefinition
+
+        _ ->
+            Cmd.none
+
+
+putFeedSetDefinition : String -> FeedSetDefinition -> Cmd Msg
+putFeedSetDefinition server feedSetDefinition =
+    put (pk.feedSetDefinition ++ "." ++ server)
+        (Just <| MED.encodeFeedSetDefinition feedSetDefinition)
 
 
 getAccountIds : String -> Cmd Msg
