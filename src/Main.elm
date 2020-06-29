@@ -1706,7 +1706,7 @@ globalMsg msg model =
                         in
                         if h / 4 > overhang then
                             { model | scrollState = scrollState }
-                                |> withCmd (loadMoreCmd id model)
+                                |> loadMoreCmd id
 
                         else
                             case Dict.get id model.scrollState of
@@ -2314,24 +2314,68 @@ mergeAccountId accountId server model =
                         putNew <| accountId :: LE.remove acctId accountIds
 
 
-loadMoreCmd : String -> Model -> Cmd Msg
+findFeed : FeedType -> FeedSet -> Maybe Feed
+findFeed feedType feedSet =
+    LE.find (\feed -> feedType == feed.feedType) feedSet.feeds
+
+
+loadMoreCmd : String -> Model -> ( Model, Cmd Msg )
 loadMoreCmd id model =
     case Types.feedIdToType id of
         Nothing ->
-            Cmd.none
+            model |> withNoCmd
 
         Just feedType ->
-            case LE.find (\feed -> feedType == feed.feedType) model.feedSet.feeds of
+            case findFeed feedType model.feedSet of
                 Nothing ->
-                    Cmd.none
+                    model |> withNoCmd
 
                 Just feed ->
                     let
                         i =
                             Debug.log "loadMoreCmd" id
                     in
-                    -- TODO
-                    Cmd.none
+                    extendFeed feed model
+
+
+extendFeed : Feed -> Model -> ( Model, Cmd Msg )
+extendFeed feed model =
+    let
+        id =
+            Debug.log "extendFeedCmd id" <|
+                case feed.elements of
+                    StatusElements statuses ->
+                        case LE.last statuses of
+                            Nothing ->
+                                ""
+
+                            Just status ->
+                                status.id
+
+                    NotificationElements notifications ->
+                        case LE.last notifications of
+                            Nothing ->
+                                ""
+
+                            Just notification ->
+                                notification.id
+
+                    ConversationsElements conversations ->
+                        case LE.last conversations of
+                            Nothing ->
+                                ""
+
+                            Just conversation ->
+                                conversation.id
+
+                    _ ->
+                        ""
+    in
+    if id == "" then
+        model |> withNoCmd
+
+    else
+        reloadFeedPaging (Just { emptyPaging | max_id = Just id }) feed model
 
 
 feedsNeedLoading : Model -> Bool
@@ -2771,14 +2815,19 @@ getStatusesRequest id params =
 
 
 reloadFeed : Feed -> Model -> ( Model, Cmd Msg )
-reloadFeed { feedType } model =
+reloadFeed feed model =
+    reloadFeedPaging Nothing feed model
+
+
+reloadFeedPaging : Maybe Paging -> Feed -> Model -> ( Model, Cmd Msg )
+reloadFeedPaging paging { feedType } model =
     let
         request =
             case feedType of
                 HomeFeed ->
                     Just <|
                         TimelinesRequest <|
-                            Request.GetHomeTimeline { paging = Nothing }
+                            Request.GetHomeTimeline { paging = paging }
 
                 UserFeed params ->
                     Just <| startReloadUserFeed params model
@@ -2792,20 +2841,20 @@ reloadFeed { feedType } model =
                                     Nothing ->
                                         { local = True
                                         , only_media = False
-                                        , paging = Nothing
+                                        , paging = paging
                                         }
 
                                     Just { local, only_media } ->
                                         { local = local
                                         , only_media = only_media
-                                        , paging = Nothing
+                                        , paging = paging
                                         }
 
                 NotificationFeed { accountId, exclusions } ->
                     Just <|
                         NotificationsRequest <|
                             Request.GetNotifications
-                                { paging = Nothing
+                                { paging = paging
                                 , exclude_types = exclusions
                                 , account_id = accountId
                                 }
@@ -5621,7 +5670,6 @@ renderFeed renderEnv { feedType, elements } =
 
 renderGangedNotification : RenderEnv -> GangedNotification -> Html Msg
 renderGangedNotification renderEnv gangedNotification =
-    -- TODO
     let
         notification =
             gangedNotification.notification
@@ -6034,7 +6082,7 @@ renderColumns model =
                         (\feed ->
                             let
                                 ignore =
-                                    Debug.log "Rendering" <| feedDescription feed
+                                    feedDescription feed
                             in
                             td [ style "vertical-align" "top" ]
                                 [ Lazy.lazy2 renderFeed renderEnv feed ]
