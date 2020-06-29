@@ -2342,7 +2342,7 @@ extendFeed : Feed -> Model -> ( Model, Cmd Msg )
 extendFeed feed model =
     let
         id =
-            Debug.log "extendFeedCmd id" <|
+            Debug.log "extendFeed id" <|
                 case feed.elements of
                     StatusElements statuses ->
                         case LE.last statuses of
@@ -2820,8 +2820,11 @@ reloadFeed feed model =
 
 
 reloadFeedPaging : Maybe Paging -> Feed -> Model -> ( Model, Cmd Msg )
-reloadFeedPaging paging { feedType } model =
+reloadFeedPaging paging feed model =
     let
+        feedType =
+            feed.feedType
+
         request =
             case feedType of
                 HomeFeed ->
@@ -2836,7 +2839,6 @@ reloadFeedPaging paging { feedType } model =
                     Just <|
                         TimelinesRequest <|
                             Request.GetPublicTimeline <|
-                                -- Need to handle paging
                                 case flags of
                                     Nothing ->
                                         { local = True
@@ -2867,18 +2869,64 @@ reloadFeedPaging paging { feedType } model =
             model |> withNoCmd
 
         Just req ->
-            sendGeneralRequest
-                (case req of
-                    AccountsRequest (Request.GetAccountByUsername _) ->
-                        ColumnsSendMsg
-                            << ReceiveAccountByUsername feedType
+            let
+                id =
+                    Types.feedID feed.feedType
 
-                    _ ->
-                        ColumnsSendMsg
-                            << ReceiveFeed ReceiveWholeFeed feedType
-                )
-                req
-                model
+                mdl =
+                    { model
+                        | loadingFeeds =
+                            Set.insert id model.loadingFeeds
+                    }
+
+                ( sendReq, maybeReceiveType ) =
+                    case req of
+                        AccountsRequest (Request.GetAccountByUsername _) ->
+                            ( ColumnsSendMsg
+                                << ReceiveAccountByUsername feedType
+                            , Nothing
+                            )
+
+                        _ ->
+                            let
+                                receiveFeedType =
+                                    case paging of
+                                        Nothing ->
+                                            ReceiveWholeFeed
+
+                                        Just p ->
+                                            if p.max_id == Nothing then
+                                                if p.since_id == Nothing then
+                                                    ReceiveWholeFeed
+
+                                                else
+                                                    ReceiveNewFeed
+
+                                            else
+                                                ReceiveMoreFeed
+                            in
+                            ( ColumnsSendMsg
+                                << ReceiveFeed receiveFeedType feedType
+                            , Just receiveFeedType
+                            )
+
+                ( mdl2, cmd ) =
+                    sendGeneralRequest sendReq req mdl
+
+                cmd2 =
+                    -- It would be nice to delay scrolling until the
+                    -- response comes in, but that creates race
+                    -- conditions with the scroll detection code, and
+                    -- putting it here does not.
+                    case maybeReceiveType of
+                        Just ReceiveWholeFeed ->
+                            Dom.setViewportOf id 0 0
+                                |> Task.attempt (\_ -> Noop)
+
+                        _ ->
+                            Cmd.none
+            in
+            mdl2 |> withCmds [ cmd, cmd2 ]
 
 
 {-| Process Requests sent from the columns page.
@@ -2917,8 +2965,14 @@ columnsSendMsg msg model =
                     TimelinesRequest <|
                         Request.GetHomeTimeline { paging = Nothing }
 
+                model2 =
+                    { model
+                        | loadingFeeds =
+                            Set.remove (Types.feedID feedType) model.loadingFeeds
+                    }
+
                 ( mdl, cmd ) =
-                    receiveResponse request result model
+                    receiveResponse request result model2
             in
             case mdl.msg of
                 Just _ ->
@@ -3001,6 +3055,9 @@ updateReceivedFeed receiveType elements feed =
                     appendFeedElements feed.elements elements feed.elements
 
                 ReceiveNewFeed ->
+                    --TODO
+                    -- Needs to put new elements in another place
+                    -- Only appended when user clicks a button
                     appendFeedElements elements feed.elements feed.elements
     }
 
