@@ -2333,7 +2333,7 @@ loadMoreCmd id model =
                 Just feed ->
                     let
                         i =
-                            Debug.log "loadMoreCmd" id
+                            Debug.log "extendFeed" id
                     in
                     extendFeed feed model
 

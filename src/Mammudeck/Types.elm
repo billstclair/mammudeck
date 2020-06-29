@@ -195,7 +195,7 @@ feedIdToType id =
         Just HomeFeed
 
     else if "user: " == String.left 6 id then
-        case String.split "/" <| String.right 6 id of
+        case String.split "/" <| String.dropLeft 6 id of
             [ username ] ->
                 Just <| UserFeed { username = username, server = "", flags = Nothing }
 
@@ -212,7 +212,7 @@ feedIdToType id =
         Just <| HashtagFeed (String.right 9 id)
 
     else if "list: " == String.left 6 id then
-        Just <| ListFeed (String.right 6 id)
+        Just <| ListFeed (String.dropLeft 6 id)
 
     else if "notifications" == id then
         Just <| NotificationFeed { accountId = Nothing, exclusions = [] }
@@ -223,7 +223,7 @@ feedIdToType id =
     else if "search: " == String.left 8 id then
         Just <|
             SearchFeed
-                { q = String.right 8 id
+                { q = String.dropLeft 8 id
                 , following = False
                 , resolve = False
                 }
