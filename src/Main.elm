@@ -1,4 +1,4 @@
-----------------------------------------------------------------------
+---------------------------------------------------------------------
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
@@ -274,6 +274,7 @@ type alias RenderEnv =
     -- not persistent
     , windowSize : ( Int, Int )
     , here : Zone
+    , isFeedLoading : Bool
     }
 
 
@@ -283,6 +284,7 @@ emptyRenderEnv =
     , style = LightStyle
     , windowSize = ( 1024, 768 )
     , here = Time.utc
+    , isFeedLoading = False
     }
 
 
@@ -2879,9 +2881,6 @@ reloadFeedPaging paging feed model =
                             Set.insert id model.loadingFeeds
                     }
 
-                maybeReceiveType =
-                    pagingToReceiveType paging
-
                 sendReq =
                     case req of
                         AccountsRequest (Request.GetAccountByUsername _) ->
@@ -2900,7 +2899,7 @@ reloadFeedPaging paging feed model =
                     -- response comes in, but that creates race
                     -- conditions with the scroll detection code, and
                     -- putting it here does not.
-                    case maybeReceiveType of
+                    case pagingToReceiveType paging of
                         ReceiveWholeFeed ->
                             Dom.setViewportOf id 0 0
                                 |> Task.attempt (\_ -> Noop)
@@ -5694,6 +5693,13 @@ renderFeed renderEnv { feedType, elements } =
 
         ( _, h ) =
             renderEnv.windowSize
+
+        loadingPrefix =
+            if renderEnv.isFeedLoading then
+                feedLoadingEmoji ++ " "
+
+            else
+                ""
     in
     div
         [ style "width" <| px columnWidth
@@ -5705,7 +5711,10 @@ renderFeed renderEnv { feedType, elements } =
             , style "text-align" "center"
             , style "color" color
             ]
-            [ feedTitle feedType ]
+            [ span [ style "font-size" "70%" ]
+                [ text loadingPrefix ]
+            , feedTitle feedType
+            ]
         , div
             [ style "height" "calc(100% - 1.4em)"
             , style "overflow-y" "auto"
@@ -6149,9 +6158,22 @@ renderColumns model =
                             let
                                 ignore =
                                     feedDescription feed
+
+                                id =
+                                    Types.feedID feed.feedType
+
+                                isLoading =
+                                    Set.member id model.loadingFeeds
+
+                                env =
+                                    if isLoading then
+                                        { renderEnv | isFeedLoading = True }
+
+                                    else
+                                        renderEnv
                             in
                             td [ style "vertical-align" "top" ]
-                                [ Lazy.lazy2 renderFeed renderEnv feed ]
+                                [ Lazy.lazy2 renderFeed env feed ]
                         )
                         feeds
                     ]
@@ -8947,7 +8969,16 @@ stringFromCode code =
 special =
     { nbsp = stringFromCode 160 -- \u00A0
     , copyright = stringFromCode 169 -- \u00A9
+    , biohazard = stringFromCode 9763 -- \u2623
+    , black_star = stringFromCode 10036 -- \u2734
+    , hourglass = stringFromCode 8987 -- \u231B
+    , hourglass_flowing = stringFromCode 9203 -- \u23F3
     }
+
+
+feedLoadingEmoji : String
+feedLoadingEmoji =
+    special.hourglass_flowing
 
 
 
