@@ -351,6 +351,10 @@ type alias ScrollNotification =
     { id : String
     , scrollLeft : Int
     , scrollTop : Int
+    , scrollWidth : Int
+    , scrollHeight : Int
+    , clientWidth : Int
+    , clientHeight : Int
     }
 
 

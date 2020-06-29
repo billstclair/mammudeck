@@ -1621,6 +1621,10 @@ scrollNotificationDecoder =
         |> required "id" JD.string
         |> required "scrollLeft" JD.int
         |> required "scrollTop" JD.int
+        |> required "scrollWidth" JD.int
+        |> required "scrollHeight" JD.int
+        |> required "clientWidth" JD.int
+        |> required "clientHeight" JD.int
 
 
 emptyScrollNotification : ScrollNotification
@@ -1628,6 +1632,10 @@ emptyScrollNotification =
     { id = ""
     , scrollLeft = 0
     , scrollTop = 0
+    , scrollWidth = 0
+    , scrollHeight = 0
+    , clientWidth = 0
+    , clientHeight = 0
     }
 
 
@@ -1641,6 +1649,15 @@ processScroll value model =
             let
                 id =
                     notification.id
+
+                top =
+                    Debug.log "processScroll, top" notification.scrollTop
+
+                height =
+                    Debug.log "  height" notification.scrollHeight
+
+                clientHeight =
+                    Debug.log "  clientHeight" notification.clientHeight
 
                 ( scrollState, cmd ) =
                     case Dict.get id model.scrollState of
@@ -1681,18 +1698,19 @@ globalMsg msg model =
 
         GotViewportOf id result ->
             let
-                scrollState =
-                    Dict.remove id model.scrollState
+                mdl =
+                    { model
+                        | scrollState =
+                            Dict.remove id model.scrollState
+                    }
             in
             if Set.member id model.loadingFeeds then
-                { model | scrollState = scrollState }
-                    |> withNoCmd
+                mdl |> withNoCmd
 
             else
                 case result of
                     Err _ ->
-                        { model | scrollState = scrollState }
-                            |> withNoCmd
+                        mdl |> withNoCmd
 
                     Ok viewport ->
                         let
@@ -1700,20 +1718,21 @@ globalMsg msg model =
                                 viewport.viewport
 
                             overhang =
-                                viewport.scene.height - (vp.y + vp.height)
+                                Debug.log "GotViewportOf, overhang" <|
+                                    viewport.scene.height
+                                        - (vp.y + vp.height)
 
                             h =
-                                Tuple.second model.renderEnv.windowSize
+                                Tuple.second mdl.renderEnv.windowSize
                                     |> toFloat
                         in
                         if h / 4 > overhang then
-                            { model | scrollState = scrollState }
-                                |> loadMoreCmd id
+                            mdl |> loadMoreCmd id
 
                         else
                             case Dict.get id model.scrollState of
                                 Just NotifyReceivedScroll ->
-                                    { model
+                                    { mdl
                                         | scrollState =
                                             Dict.insert id
                                                 AwaitingGetViewportScroll
@@ -1727,8 +1746,7 @@ globalMsg msg model =
                                             )
 
                                 _ ->
-                                    { model | scrollState = scrollState }
-                                        |> withNoCmd
+                                    mdl |> withNoCmd
 
         Here zone ->
             { model
