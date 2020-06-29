@@ -473,8 +473,8 @@ type ReceiveFeedType
 
 type ColumnsSendMsg
     = ColumnsSendNoop
-    | ReceiveAccountByUsername FeedType (Result Error Response)
-    | ReceiveFeed ReceiveFeedType FeedType (Result Error Response)
+    | ReceiveAccountByUsername (Maybe Paging) FeedType (Result Error Response)
+    | ReceiveFeed (Maybe Paging) FeedType (Result Error Response)
 
 
 type ExplorerUIMsg
@@ -2678,8 +2678,8 @@ This needs to be sent to `server`, not `model.renderEnv.loginServer`.
 Or maybe that should be a parameter.
 
 -}
-startReloadUserFeed : UserFeedParams -> Model -> Request
-startReloadUserFeed params model =
+startReloadUserFeed : Maybe Paging -> UserFeedParams -> Model -> Request
+startReloadUserFeed paging params model =
     let
         { username, server } =
             params
@@ -2734,13 +2734,13 @@ startReloadUserFeed params model =
                                 accountsRequest ()
 
                         Just acctId ->
-                            getStatusesRequest acctId.id params
+                            getStatusesRequest paging acctId.id params
 
 
 {-| This processes the result of the `GetSearchAccounts` request above.
 -}
-continueReloadUserFeed : FeedType -> List Account -> Model -> ( Model, Cmd Msg )
-continueReloadUserFeed feedType accounts model =
+continueReloadUserFeed : Maybe Paging -> FeedType -> List Account -> Model -> ( Model, Cmd Msg )
+continueReloadUserFeed paging feedType accounts model =
     case feedType of
         UserFeed params ->
             let
@@ -2764,7 +2764,7 @@ continueReloadUserFeed feedType accounts model =
                             account
 
                         req =
-                            getStatusesRequest id params
+                            getStatusesRequest paging id params
 
                         ( mdl, cmd ) =
                             case model.renderEnv.loginServer of
@@ -2779,7 +2779,7 @@ continueReloadUserFeed feedType accounts model =
                         ( mdl2, cmd2 ) =
                             sendGeneralRequest
                                 (ColumnsSendMsg
-                                    << ReceiveFeed ReceiveWholeFeed (UserFeed params)
+                                    << ReceiveFeed paging (UserFeed params)
                                 )
                                 req
                                 mdl
@@ -2790,8 +2790,8 @@ continueReloadUserFeed feedType accounts model =
             model |> withNoCmd
 
 
-getStatusesRequest : String -> UserFeedParams -> Request
-getStatusesRequest id params =
+getStatusesRequest : Maybe Paging -> String -> UserFeedParams -> Request
+getStatusesRequest paging id params =
     let
         ( ( only_media, pinned ), ( exclude_replies, exclude_reblogs ) ) =
             case params.flags of
@@ -2810,7 +2810,7 @@ getStatusesRequest id params =
             , pinned = pinned
             , exclude_replies = exclude_replies
             , exclude_reblogs = exclude_reblogs
-            , paging = Nothing
+            , paging = paging
             }
 
 
@@ -2833,7 +2833,7 @@ reloadFeedPaging paging feed model =
                             Request.GetHomeTimeline { paging = paging }
 
                 UserFeed params ->
-                    Just <| startReloadUserFeed params model
+                    Just <| startReloadUserFeed paging params model
 
                 PublicFeed { flags } ->
                     Just <|
@@ -2879,36 +2879,18 @@ reloadFeedPaging paging feed model =
                             Set.insert id model.loadingFeeds
                     }
 
-                ( sendReq, maybeReceiveType ) =
+                maybeReceiveType =
+                    pagingToReceiveType paging
+
+                sendReq =
                     case req of
                         AccountsRequest (Request.GetAccountByUsername _) ->
-                            ( ColumnsSendMsg
-                                << ReceiveAccountByUsername feedType
-                            , Nothing
-                            )
+                            ColumnsSendMsg
+                                << ReceiveAccountByUsername paging feedType
 
                         _ ->
-                            let
-                                receiveFeedType =
-                                    case paging of
-                                        Nothing ->
-                                            ReceiveWholeFeed
-
-                                        Just p ->
-                                            if p.max_id == Nothing then
-                                                if p.since_id == Nothing then
-                                                    ReceiveWholeFeed
-
-                                                else
-                                                    ReceiveNewFeed
-
-                                            else
-                                                ReceiveMoreFeed
-                            in
-                            ( ColumnsSendMsg
-                                << ReceiveFeed receiveFeedType feedType
-                            , Just receiveFeedType
-                            )
+                            ColumnsSendMsg
+                                << ReceiveFeed paging feedType
 
                 ( mdl2, cmd ) =
                     sendGeneralRequest sendReq req mdl
@@ -2919,7 +2901,7 @@ reloadFeedPaging paging feed model =
                     -- conditions with the scroll detection code, and
                     -- putting it here does not.
                     case maybeReceiveType of
-                        Just ReceiveWholeFeed ->
+                        ReceiveWholeFeed ->
                             Dom.setViewportOf id 0 0
                                 |> Task.attempt (\_ -> Noop)
 
@@ -2927,6 +2909,24 @@ reloadFeedPaging paging feed model =
                             Cmd.none
             in
             mdl2 |> withCmds [ cmd, cmd2 ]
+
+
+pagingToReceiveType : Maybe Paging -> ReceiveFeedType
+pagingToReceiveType paging =
+    case paging of
+        Nothing ->
+            ReceiveWholeFeed
+
+        Just p ->
+            if p.max_id == Nothing then
+                if p.since_id == Nothing then
+                    ReceiveWholeFeed
+
+                else
+                    ReceiveNewFeed
+
+            else
+                ReceiveMoreFeed
 
 
 {-| Process Requests sent from the columns page.
@@ -2940,7 +2940,7 @@ columnsSendMsg msg model =
         ColumnsSendNoop ->
             model |> withNoCmd
 
-        ReceiveAccountByUsername feedType result ->
+        ReceiveAccountByUsername paging feedType result ->
             case result of
                 Err _ ->
                     model |> withNoCmd
@@ -2950,7 +2950,11 @@ columnsSendMsg msg model =
                         AccountsRequest (Request.GetAccountByUsername _) ->
                             case response.entity of
                                 AccountEntity account ->
-                                    continueReloadUserFeed feedType [ account ] model
+                                    continueReloadUserFeed
+                                        paging
+                                        feedType
+                                        [ account ]
+                                        model
 
                                 _ ->
                                     model |> withNoCmd
@@ -2958,7 +2962,7 @@ columnsSendMsg msg model =
                         _ ->
                             model |> withNoCmd
 
-        ReceiveFeed receiveType feedType result ->
+        ReceiveFeed paging feedType result ->
             let
                 -- Dummy request
                 request =
@@ -3012,12 +3016,17 @@ columnsSendMsg msg model =
                                                 AccountElements accounts ->
                                                     ( feedSet.feeds
                                                     , continueReloadUserFeed
+                                                        paging
                                                         feedType
                                                         accounts
                                                         mdl
                                                     )
 
                                                 _ ->
+                                                    let
+                                                        receiveType =
+                                                            pagingToReceiveType paging
+                                                    in
                                                     ( LE.updateIf
                                                         (\feed ->
                                                             feedType == feed.feedType
