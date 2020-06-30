@@ -348,12 +348,12 @@ type alias GangedNotification =
 
 type alias ScrollNotification =
     { id : String
-    , scrollLeft : Int
-    , scrollTop : Int
-    , scrollWidth : Int
-    , scrollHeight : Int
-    , clientWidth : Int
-    , clientHeight : Int
+    , scrollLeft : Float
+    , scrollTop : Float
+    , scrollWidth : Float
+    , scrollHeight : Float
+    , clientWidth : Float
+    , clientHeight : Float
     }
 
 

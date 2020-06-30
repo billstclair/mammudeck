@@ -343,8 +343,8 @@ type alias Model =
     , dialog : Dialog
     , feedSet : FeedSet
     , loadingFeeds : Set String --loading older posts, that is
-    , feedScrollHeights : Dict String Int
-    , loadingScrollHeights : Dict String Int
+    , feedScrollHeights : Dict String Float
+    , loadingScrollHeights : Dict String Float
     , accountIdDict : Dict String (List AccountId)
 
     -- API Explorer state
@@ -1619,12 +1619,12 @@ scrollNotificationDecoder : Decoder ScrollNotification
 scrollNotificationDecoder =
     JD.succeed ScrollNotification
         |> required "id" JD.string
-        |> required "scrollLeft" JD.int
-        |> required "scrollTop" JD.int
-        |> required "scrollWidth" JD.int
-        |> required "scrollHeight" JD.int
-        |> required "clientWidth" JD.int
-        |> required "clientHeight" JD.int
+        |> required "scrollLeft" JD.float
+        |> required "scrollTop" JD.float
+        |> required "scrollWidth" JD.float
+        |> required "scrollHeight" JD.float
+        |> required "clientWidth" JD.float
+        |> required "clientHeight" JD.float
 
 
 emptyScrollNotification : ScrollNotification
@@ -1668,7 +1668,7 @@ processScroll value model =
             in
             if
                 Set.member id model.loadingFeeds
-                    || (toFloat clientHeight / 4 < toFloat overhang)
+                    || (clientHeight / 4 < overhang)
             then
                 mdl |> withNoCmd
 

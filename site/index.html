@@ -85,6 +85,7 @@
                     o.ticking = true;
                     window.requestAnimationFrame(function() {
                       scrollNotify.send(notification);
+                      //console.log('scrollNotify: ', notification);
                       o.ticking = false;
                     });
                   }
