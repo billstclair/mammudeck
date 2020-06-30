@@ -106,7 +106,6 @@ import Mammudeck.Types as Types
         , PublicFeedFlags
         , Renderer
         , ScrollNotification
-        , ScrollState(..)
         , UserFeedFlags
         , UserFeedParams
         )
@@ -344,7 +343,6 @@ type alias Model =
     , dialog : Dialog
     , feedSet : FeedSet
     , loadingFeeds : Set String --loading older posts, that is
-    , scrollState : Dict String ScrollState
     , accountIdDict : Dict String (List AccountId)
 
     -- API Explorer state
@@ -428,7 +426,6 @@ type Msg
 
 type GlobalMsg
     = WindowResize Int Int
-    | GotViewportOf String (Result Dom.Error Viewport)
     | Here Zone
     | Now Posix
     | SetPage String
@@ -930,7 +927,6 @@ init value url key =
     , dialog = NoDialog
     , feedSet = Types.emptyFeedSet
     , loadingFeeds = Set.empty
-    , scrollState = Dict.empty
     , accountIdDict = Dict.empty
     , altKeyDown = False
     , request = Nothing
@@ -1650,34 +1646,21 @@ processScroll value model =
                 id =
                     notification.id
 
-                top =
-                    Debug.log "processScroll, top" notification.scrollTop
-
-                height =
-                    Debug.log "  height" notification.scrollHeight
-
                 clientHeight =
-                    Debug.log "  clientHeight" notification.clientHeight
+                    notification.clientHeight
 
-                ( scrollState, cmd ) =
-                    case Dict.get id model.scrollState of
-                        Just AwaitingGetViewportScroll ->
-                            ( NotifyReceivedScroll, Cmd.none )
-
-                        Just NotifyReceivedScroll ->
-                            ( NotifyReceivedScroll, Cmd.none )
-
-                        _ ->
-                            ( AwaitingGetViewportScroll
-                            , Task.attempt (GlobalMsg << GotViewportOf id) <|
-                                Dom.getViewportOf id
-                            )
+                overhang =
+                    notification.scrollHeight
+                        - (notification.scrollTop + clientHeight)
             in
-            { model
-                | scrollState =
-                    Dict.insert id scrollState model.scrollState
-            }
-                |> withCmd cmd
+            if
+                Set.member id model.loadingFeeds
+                    || (toFloat clientHeight / 4 < toFloat overhang)
+            then
+                model |> withNoCmd
+
+            else
+                loadMoreCmd id model
 
 
 {-| Process global messages.
@@ -1695,58 +1678,6 @@ globalMsg msg model =
                     { renderEnv | windowSize = Debug.log "windowSize" ( w, h ) }
             }
                 |> withNoCmd
-
-        GotViewportOf id result ->
-            let
-                mdl =
-                    { model
-                        | scrollState =
-                            Dict.remove id model.scrollState
-                    }
-            in
-            if Set.member id model.loadingFeeds then
-                mdl |> withNoCmd
-
-            else
-                case result of
-                    Err _ ->
-                        mdl |> withNoCmd
-
-                    Ok viewport ->
-                        let
-                            vp =
-                                viewport.viewport
-
-                            overhang =
-                                Debug.log "GotViewportOf, overhang" <|
-                                    viewport.scene.height
-                                        - (vp.y + vp.height)
-
-                            h =
-                                Tuple.second mdl.renderEnv.windowSize
-                                    |> toFloat
-                        in
-                        if h / 4 > overhang then
-                            mdl |> loadMoreCmd id
-
-                        else
-                            case Dict.get id model.scrollState of
-                                Just NotifyReceivedScroll ->
-                                    { mdl
-                                        | scrollState =
-                                            Dict.insert id
-                                                AwaitingGetViewportScroll
-                                                model.scrollState
-                                    }
-                                        |> withCmd
-                                            (Task.attempt
-                                                (GlobalMsg << GotViewportOf id)
-                                             <|
-                                                Dom.getViewportOf id
-                                            )
-
-                                _ ->
-                                    mdl |> withNoCmd
 
         Here zone ->
             { model

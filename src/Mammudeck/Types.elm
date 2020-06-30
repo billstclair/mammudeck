@@ -25,7 +25,6 @@ module Mammudeck.Types exposing
     , PublicFeedParams
     , Renderer
     , ScrollNotification
-    , ScrollState(..)
     , UserFeedFlags
     , UserFeedParams
     , accountToAccountId
@@ -356,12 +355,6 @@ type alias ScrollNotification =
     , clientWidth : Int
     , clientHeight : Int
     }
-
-
-type ScrollState
-    = NoScroll
-    | AwaitingGetViewportScroll
-    | NotifyReceivedScroll
 
 
 {-| A subset of Mastodon.Entity.Account
