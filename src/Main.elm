@@ -6084,6 +6084,55 @@ renderStatusActions renderEnv status =
 
         favourited =
             status.favourited
+
+        repliesString =
+            if replies_count > 0 then
+                String.fromInt replies_count
+
+            else
+                ""
+
+        rebloggedTitle =
+            if reblogged then
+                "unRepeat"
+
+            else
+                "Repeat"
+
+        retweetedClass =
+            if reblogged then
+                " retweeted"
+
+            else
+                " retweeted-empty"
+
+        reblogsString =
+            if reblogs_count > 0 then
+                String.fromInt reblogs_count
+
+            else
+                ""
+
+        favoriteTitle =
+            if favourited then
+                "unFavorite"
+
+            else
+                "Favorite"
+
+        favoriteClass =
+            if favourited then
+                " icon-star"
+
+            else
+                " icon-star-empty"
+
+        favoritesString =
+            if favourites_count > 0 then
+                String.fromInt favourites_count
+
+            else
+                ""
     in
     div
         [ class "status-el status-actions media-body"
@@ -6099,62 +6148,21 @@ renderStatusActions renderEnv status =
             -- Mammudeck will do that with a pop-up, so it won't apply.
             , class "button-icon icon-reply"
             ]
-          <|
-            if replies_count > 0 then
-                String.fromInt replies_count
-
-            else
-                ""
+            repliesString
         , statusButton
-            [ title <|
-                if reblogged then
-                    "unRepeat"
-
-                else
-                    "Repeat"
-            , let
-                retweetedClass =
-                    if reblogged then
-                        " retweeted"
-
-                    else
-                        " retweeted-empty"
-              in
-              class <|
+            [ title rebloggedTitle
+            , class <|
                 "button-icon retweet-button icon-retweet rt-active"
                     ++ retweetedClass
             ]
-          <|
-            if reblogs_count > 0 then
-                String.fromInt reblogs_count
-
-            else
-                ""
+            reblogsString
         , statusButton
-            [ title <|
-                if favourited then
-                    "unFavorite"
-
-                else
-                    "Favorite"
-            , let
-                favoriteClass =
-                    if favourited then
-                        " icon-star"
-
-                    else
-                        " icon-star-empty"
-              in
-              class <|
+            [ title favoriteTitle
+            , class <|
                 "button-icon favorite-button fav-active"
                     ++ favoriteClass
             ]
-          <|
-            if favourites_count > 0 then
-                String.fromInt favourites_count
-
-            else
-                ""
+            favoritesString
         , statusButton
             [ class "icon-ellipsis" ]
             ""
