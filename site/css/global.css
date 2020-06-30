@@ -35,3 +35,25 @@
     color:#0095ff;
     color:var(--cBlue,#0095ff);cursor:pointer
 }
+
+.status-actions {
+    width:100%;
+    display:flex;
+    margin-top:.75em
+}
+
+.status-actions {
+    width:100%;
+    display:flex;
+    margin-top:.75em
+}
+
+.status-actions div,.status-actions favorite-button {
+    max-width:4em;
+    flex:1
+}
+
+.status-el .media-body {
+    flex:1;
+    padding:0
+}
