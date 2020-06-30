@@ -73,17 +73,17 @@
               if (node) {
                 var o = {node: node}
                 var listener = function() {
+                  var notification = {id: id,
+                                      scrollLeft: node.scrollLeft,
+                                      scrollTop: node.scrollTop,
+                                      scrollWidth : node.scrollWidth,
+                                      scrollHeight : node.scrollHeight,
+                                      clientWidth : node.clientWidth,
+                                      clientHeight : node.clientHeight
+                                     }
                   if (!o.ticking) {
                     o.ticking = true;
                     window.requestAnimationFrame(function() {
-                      var notification = {id: id,
-                                          scrollLeft: node.scrollLeft,
-                                          scrollTop: node.scrollTop,
-                                          scrollWidth : node.scrollWidth,
-                                          scrollHeight : node.scrollHeight,
-                                          clientWidth : node.clientWidth,
-                                          clientHeight : node.clientHeight
-                                         }
                       scrollNotify.send(notification);
                       o.ticking = false;
                     });

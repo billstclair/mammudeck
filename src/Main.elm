@@ -343,6 +343,8 @@ type alias Model =
     , dialog : Dialog
     , feedSet : FeedSet
     , loadingFeeds : Set String --loading older posts, that is
+    , feedScrollHeights : Dict String Int
+    , loadingScrollHeights : Dict String Int
     , accountIdDict : Dict String (List AccountId)
 
     -- API Explorer state
@@ -927,6 +929,8 @@ init value url key =
     , dialog = NoDialog
     , feedSet = Types.emptyFeedSet
     , loadingFeeds = Set.empty
+    , feedScrollHeights = Dict.empty
+    , loadingScrollHeights = Dict.empty
     , accountIdDict = Dict.empty
     , altKeyDown = False
     , request = Nothing
@@ -1646,21 +1650,30 @@ processScroll value model =
                 id =
                     notification.id
 
+                scrollHeight =
+                    notification.scrollHeight
+
                 clientHeight =
                     notification.clientHeight
 
                 overhang =
-                    notification.scrollHeight
+                    scrollHeight
                         - (notification.scrollTop + clientHeight)
+
+                mdl =
+                    { model
+                        | feedScrollHeights =
+                            Dict.insert id scrollHeight model.feedScrollHeights
+                    }
             in
             if
                 Set.member id model.loadingFeeds
                     || (toFloat clientHeight / 4 < toFloat overhang)
             then
-                model |> withNoCmd
+                mdl |> withNoCmd
 
             else
-                loadMoreCmd id model
+                loadMoreCmd id mdl
 
 
 {-| Process global messages.
@@ -2282,51 +2295,69 @@ loadMoreCmd id model =
                     model |> withNoCmd
 
                 Just feed ->
-                    let
-                        i =
-                            Debug.log "extendFeed" id
-                    in
-                    extendFeed feed model
+                    extendFeed id feed model
 
 
-extendFeed : Feed -> Model -> ( Model, Cmd Msg )
-extendFeed feed model =
+extendFeed : String -> Feed -> Model -> ( Model, Cmd Msg )
+extendFeed feedId feed model =
     let
         id =
-            Debug.log "extendFeed id" <|
-                case feed.elements of
-                    StatusElements statuses ->
-                        case LE.last statuses of
-                            Nothing ->
-                                ""
+            case feed.elements of
+                StatusElements statuses ->
+                    case LE.last statuses of
+                        Nothing ->
+                            ""
 
-                            Just status ->
-                                status.id
+                        Just status ->
+                            status.id
 
-                    NotificationElements notifications ->
-                        case LE.last notifications of
-                            Nothing ->
-                                ""
+                NotificationElements notifications ->
+                    case LE.last notifications of
+                        Nothing ->
+                            ""
 
-                            Just notification ->
-                                notification.id
+                        Just notification ->
+                            notification.id
 
-                    ConversationsElements conversations ->
-                        case LE.last conversations of
-                            Nothing ->
-                                ""
+                ConversationsElements conversations ->
+                    case LE.last conversations of
+                        Nothing ->
+                            ""
 
-                            Just conversation ->
-                                conversation.id
+                        Just conversation ->
+                            conversation.id
 
-                    _ ->
-                        ""
+                _ ->
+                    ""
+
+        scrollHeight =
+            Debug.log "extendFeed, scrollHeight" <|
+                Dict.get feedId model.feedScrollHeights
     in
     if id == "" then
         model |> withNoCmd
 
+    else if
+        -- An attempt to prevent second loading before view
+        (scrollHeight /= Nothing)
+            && (scrollHeight == Debug.log "  loadingScrollHeight" (Dict.get feedId model.loadingScrollHeights))
+    then
+        model |> withNoCmd
+
     else
-        reloadFeedPaging (Just { emptyPaging | max_id = Just id }) feed model
+        let
+            mdl =
+                { model
+                    | loadingScrollHeights =
+                        case scrollHeight of
+                            Nothing ->
+                                Dict.remove feedId model.loadingScrollHeights
+
+                            Just sh ->
+                                Dict.insert feedId sh model.loadingScrollHeights
+                }
+        in
+        reloadFeedPaging (Just { emptyPaging | max_id = Just id }) feed mdl
 
 
 feedsNeedLoading : Model -> Bool
@@ -2388,6 +2419,9 @@ columnsUIMsg msg model =
 
         ReloadAllColumns ->
             let
+                model2 =
+                    { model | loadingScrollHeights = Dict.empty }
+
                 getFeed : Feed -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
                 getFeed feed ( mdl, cmds ) =
                     let
@@ -2402,7 +2436,7 @@ columnsUIMsg msg model =
                     in
                     ( mdl2, Cmd.batch [ cmd, cmds, scrollCmd ] )
             in
-            List.foldr getFeed ( model, Cmd.none ) model.feedSet.feeds
+            List.foldr getFeed ( model2, Cmd.none ) model2.feedSet.feeds
 
         ScrollRequests ->
             let
@@ -2822,7 +2856,8 @@ reloadFeedPaging paging feed model =
         Just req ->
             let
                 id =
-                    Types.feedID feed.feedType
+                    Debug.log "Loading feed" <|
+                        Types.feedID feed.feedType
 
                 mdl =
                     { model
