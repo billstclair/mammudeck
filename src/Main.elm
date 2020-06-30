@@ -5941,6 +5941,7 @@ renderNotificationBody renderEnv notification =
                         ]
                 , div [] <|
                     List.map (renderAttachment renderEnv) status.media_attachments
+                , renderStatusActions renderEnv status
                 ]
 
 
@@ -6047,7 +6048,116 @@ renderStatus renderEnv statusIn =
                 body
             , div [] <|
                 List.map (renderAttachment renderEnv) status.media_attachments
+            , renderStatusActions renderEnv status
             ]
+        ]
+
+
+statusButton : List (Attribute Msg) -> String -> Html Msg
+statusButton attributes theText =
+    div []
+        [ Html.i attributes []
+        , text theText
+        ]
+
+
+renderStatusActions : RenderEnv -> Status -> Html Msg
+renderStatusActions renderEnv status =
+    let
+        { color } =
+            getStyle renderEnv.style
+
+        id =
+            status.id
+
+        replies_count =
+            status.replies_count
+
+        reblogged =
+            status.reblogged
+
+        reblogs_count =
+            status.reblogs_count
+
+        favourites_count =
+            status.favourites_count
+
+        favourited =
+            status.favourited
+    in
+    div
+        [ class "status-el status-actions media-body"
+        , style "color" color
+        ]
+        [ statusButton
+            [ title "Reply"
+
+            -- It would be lovely to add button-icon-active
+            -- here, if YOU have replied, but the status
+            -- doesn't tell us that. Pleroma adds it
+            -- while you're in the process of typing a reply.
+            -- Mammudeck will do that with a pop-up, so it won't apply.
+            , class "button-icon icon-reply"
+            ]
+          <|
+            if replies_count > 0 then
+                String.fromInt replies_count
+
+            else
+                ""
+        , statusButton
+            [ title <|
+                if reblogged then
+                    "unRepeat"
+
+                else
+                    "Repeat"
+            , let
+                retweetedClass =
+                    if reblogged then
+                        " retweeted"
+
+                    else
+                        " retweeted-empty"
+              in
+              class <|
+                "button-icon retweet-button icon-retweet rt-active"
+                    ++ retweetedClass
+            ]
+          <|
+            if reblogs_count > 0 then
+                String.fromInt reblogs_count
+
+            else
+                ""
+        , statusButton
+            [ title <|
+                if favourited then
+                    "unFavorite"
+
+                else
+                    "Favorite"
+            , let
+                favoriteClass =
+                    if favourited then
+                        " icon-star"
+
+                    else
+                        " icon-star-empty"
+              in
+              class <|
+                "button-icon favorite-button fav-active"
+                    ++ favoriteClass
+            ]
+          <|
+            if favourites_count > 0 then
+                String.fromInt favourites_count
+
+            else
+                ""
+        , statusButton
+            [ class "icon-ellipsis" ]
+            ""
         ]
 
 
