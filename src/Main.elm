@@ -5658,14 +5658,15 @@ renderLeftColumn renderEnv =
                         ]
             ]
         , p [] [ pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage ]
-        , p [ style "margin-bottom" "0.25em" ]
-            [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
-        , p [] [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
         , p []
             [ checkBox (ExplorerUIMsg ToggleStyle)
                 (renderEnv.style == DarkStyle)
                 "dark"
             ]
+        , p []
+            [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
+        , p []
+            [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
         ]
 
 

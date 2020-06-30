@@ -5,3 +5,33 @@
     margin-left: 0.5em;
     margin-right: 0.5em;
 }
+
+/* These are from the Pleroma code at impeccable.com */
+.rt-active {
+    cursor:pointer;
+    animation-duration:.6s
+}
+
+.fav-active {
+    cursor:pointer;animation-duration:.6s
+}
+
+.fav-active:hover,.favorite-button.icon-star {
+    color:orange;
+    color:var(--cOrange,orange)
+}
+
+.icon-ellipsis.icon-clicked,.icon-ellipsis:hover {
+    color:#b9b9ba;
+    color:var(--text,#b9b9ba)
+}
+
+.icon-retweet.retweeted,.rt-active:hover{
+    color:#0fa00f;
+    color:var(--cGreen,#0fa00f)
+}
+
+.button-icon.icon-reply.button-icon-active,.button-icon.icon-reply:not(.button-icon-disabled):hover{
+    color:#0095ff;
+    color:var(--cBlue,#0095ff);cursor:pointer
+}
