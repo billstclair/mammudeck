@@ -4720,16 +4720,16 @@ receiveResponse request result model =
                 ( msg, ( response, entity, metadata ) ) =
                     case err of
                         BadUrl url ->
-                            ( "BadUrl: " ++ url, threeStrikes )
+                            ( Just <| "BadUrl: " ++ url, threeStrikes )
 
                         Timeout ->
-                            ( "Timeout", threeStrikes )
+                            ( Just "Timeout", threeStrikes )
 
                         NetworkError ->
-                            ( "Network Error", threeStrikes )
+                            ( Just "Network Error", threeStrikes )
 
                         BadStatus meta status ->
-                            ( "Bad status: " ++ status, ( Nothing, Nothing, Just meta ) )
+                            ( Just <| "Bad status: " ++ status, ( Nothing, Nothing, Just meta ) )
 
                         BadBody meta jderr json ->
                             let
@@ -4742,34 +4742,58 @@ receiveResponse request result model =
                                             Just v
 
                                 m =
-                                    "BadBody: " ++ decodeErrorToString jderr
+                                    Just <| "BadBody: " ++ decodeErrorToString jderr
                             in
                             ( m, ( res, Nothing, Just meta ) )
 
-                ( supportsAccountByUsername, ignoreMsg ) =
+                ( supportsAccountByUsername, msg2 ) =
                     let
                         dict =
                             model.supportsAccountByUsername
                     in
                     case model.renderEnv.loginServer of
                         Nothing ->
-                            ( dict, False )
+                            ( dict, msg )
 
                         Just server ->
                             case request of
                                 AccountsRequest (Request.GetAccountByUsername _) ->
-                                    ( Dict.insert server False dict, True )
+                                    ( Dict.insert server False dict, Nothing )
 
                                 _ ->
-                                    ( dict, False )
-            in
-            { model
-                | msg =
-                    if ignoreMsg then
-                        Nothing
+                                    ( dict, msg )
+
+                ( mdl, msg3 ) =
+                    -- This code handles (un)Reblog or (un)Favorite when
+                    -- that state is displayed differently than it is,
+                    -- becase it was changed in another client.
+                    if msg2 /= Nothing then
+                        case err of
+                            BadStatus _ _ ->
+                                let
+                                    ( postReblogOrFavorite, id ) =
+                                        splitReblogOrFavoriteRequest request
+                                in
+                                case postReblogOrFavorite of
+                                    Nothing ->
+                                        ( model, msg2 )
+
+                                    Just rof ->
+                                        ( fixReblogOrFavorite
+                                            id
+                                            rof
+                                            model
+                                        , Nothing
+                                        )
+
+                            _ ->
+                                ( model, msg2 )
 
                     else
-                        Just msg
+                        ( model, msg2 )
+            in
+            { mdl
+                | msg = msg3
                 , response = response
                 , entity = entity
                 , metadata = metadata
@@ -4793,6 +4817,92 @@ receiveResponse request result model =
             }
                 |> updateJsonTrees
                 |> withNoCmd
+
+
+type PostReblogOrFavorite
+    = PostReblog
+    | PostUnreblog
+    | PostFavorite
+    | PostUnfavorite
+
+
+splitReblogOrFavoriteRequest : Request -> ( Maybe PostReblogOrFavorite, String )
+splitReblogOrFavoriteRequest request =
+    case request of
+        StatusesRequest req ->
+            case req of
+                Request.PostReblogStatus { id } ->
+                    ( Just PostReblog, id )
+
+                Request.PostUnreblogStatus { id } ->
+                    ( Just PostUnreblog, id )
+
+                _ ->
+                    ( Nothing, "" )
+
+        FavouritesRequest req ->
+            case req of
+                Request.PostFavourite { id } ->
+                    ( Just PostFavorite, id )
+
+                Request.PostUnfavourite { id } ->
+                    ( Just PostUnfavorite, id )
+
+                _ ->
+                    ( Nothing, "" )
+
+        _ ->
+            ( Nothing, "" )
+
+
+{-| Fix reblogged or favorited in all the Statuses in the model's feedSet.
+-}
+fixReblogOrFavorite : String -> PostReblogOrFavorite -> Model -> Model
+fixReblogOrFavorite id postReblogOrFavorite model =
+    let
+        modifier status =
+            case postReblogOrFavorite of
+                PostReblog ->
+                    if status.reblogged then
+                        status
+
+                    else
+                        { status
+                            | reblogged = True
+                            , reblogs_count = status.reblogs_count + 1
+                        }
+
+                PostUnreblog ->
+                    if status.reblogged then
+                        { status
+                            | reblogged = False
+                            , reblogs_count = status.reblogs_count - 1
+                        }
+
+                    else
+                        status
+
+                PostFavorite ->
+                    if status.favourited then
+                        status
+
+                    else
+                        { status
+                            | favourited = True
+                            , favourites_count = status.favourites_count + 1
+                        }
+
+                PostUnfavorite ->
+                    if status.favourited then
+                        { status
+                            | favourited = False
+                            , favourites_count = status.favourites_count - 1
+                        }
+
+                    else
+                        status
+    in
+    modifyColumnsStatus id modifier model
 
 
 decodeErrorToString : JD.Error -> String
@@ -4984,7 +5094,7 @@ applyResponseSideEffects response model =
                             model
 
                         Just (WrappedStatus reblog) ->
-                            updateColumnsStatus (StatusEntity reblog) model
+                            modifyColumnsStatus reblog.id (\_ -> reblog) model
 
                 _ ->
                     model
@@ -5012,22 +5122,27 @@ Change the status in all the places it appears in a feed.
 -}
 updateColumnsStatus : Entity -> Model -> Model
 updateColumnsStatus entity model =
+    case entity of
+        StatusEntity status ->
+            modifyColumnsStatus status.id (\_ -> status) model
+
+        _ ->
+            model
+
+
+modifyColumnsStatus : String -> (Status -> Status) -> Model -> Model
+modifyColumnsStatus id modifier model =
     let
         feedSet =
             model.feedSet
     in
-    case entity of
-        StatusEntity status ->
-            { model
-                | feedSet =
-                    { feedSet
-                        | feeds =
-                            List.map (updateFeedStatus status) feedSet.feeds
-                    }
+    { model
+        | feedSet =
+            { feedSet
+                | feeds =
+                    List.map (modifyFeedStatus id modifier) feedSet.feeds
             }
-
-        _ ->
-            model
+    }
 
 
 {-| Replace a `Status` everywhere it appears in a `Feed`.
@@ -5035,11 +5150,11 @@ updateColumnsStatus entity model =
 If it does not appear, the result will be the input Feed, not a copy of it.
 
 -}
-updateFeedStatus : Status -> Feed -> Feed
-updateFeedStatus status feed =
+modifyFeedStatus : String -> (Status -> Status) -> Feed -> Feed
+modifyFeedStatus id modifier feed =
     let
         ( elements, changed ) =
-            updateFeedElements status feed.elements
+            modifyFeedElements id modifier feed.elements
     in
     if changed then
         { feed | elements = elements }
@@ -5048,13 +5163,13 @@ updateFeedStatus status feed =
         feed
 
 
-updateFeedElements : Status -> FeedElements -> ( FeedElements, Bool )
-updateFeedElements status elements =
+modifyFeedElements : String -> (Status -> Status) -> FeedElements -> ( FeedElements, Bool )
+modifyFeedElements id modifier elements =
     case elements of
         StatusElements statuses ->
             let
                 ( stats, changed ) =
-                    updateStatuses status statuses
+                    modifyStatuses id modifier statuses
             in
             if changed then
                 ( StatusElements stats, True )
@@ -5065,7 +5180,7 @@ updateFeedElements status elements =
         NotificationElements notifications ->
             let
                 ( nots, changed ) =
-                    updateNotifications status notifications
+                    modifyNotifications id modifier notifications
             in
             if changed then
                 ( NotificationElements nots, True )
@@ -5077,14 +5192,10 @@ updateFeedElements status elements =
             ( elements, False )
 
 
-updateStatus : Status -> Status -> ( Status, Bool )
-updateStatus status oldStatus =
-    let
-        id =
-            status.id
-    in
+modifyStatus : String -> (Status -> Status) -> Status -> ( Status, Bool )
+modifyStatus id modifier oldStatus =
     if id == oldStatus.id then
-        ( status, True )
+        ( modifier oldStatus, True )
 
     else
         let
@@ -5097,7 +5208,7 @@ updateStatus status oldStatus =
                         if id == wrapped.id then
                             ( { oldStatus
                                 | reblog =
-                                    Just <| WrappedStatus status
+                                    Just <| WrappedStatus (modifier oldStatus)
                               }
                             , True
                             )
@@ -5113,7 +5224,7 @@ updateStatus status oldStatus =
                 if id == wrapped.id then
                     ( { oldStat2
                         | quote =
-                            Just <| WrappedStatus status
+                            Just <| WrappedStatus (modifier oldStatus)
                       }
                     , True
                     )
@@ -5122,17 +5233,14 @@ updateStatus status oldStatus =
                     ( oldStat2, chngd2 )
 
 
-updateStatuses : Status -> List Status -> ( List Status, Bool )
-updateStatuses status statuses =
+modifyStatuses : String -> (Status -> Status) -> List Status -> ( List Status, Bool )
+modifyStatuses id modifier statuses =
     let
-        id =
-            status.id
-
         folder : Status -> ( List Status, Bool ) -> ( List Status, Bool )
         folder stat ( result, chngd ) =
             let
                 ( stat2, chngd2 ) =
-                    updateStatus status stat
+                    modifyStatus id modifier stat
             in
             ( stat2 :: result, chngd || chngd2 )
 
@@ -5146,8 +5254,8 @@ updateStatuses status statuses =
         ( statuses, False )
 
 
-updateNotifications : Status -> List Notification -> ( List Notification, Bool )
-updateNotifications status notifications =
+modifyNotifications : String -> (Status -> Status) -> List Notification -> ( List Notification, Bool )
+modifyNotifications id modifier notifications =
     let
         folder : Notification -> ( List Notification, Bool ) -> ( List Notification, Bool )
         folder notification ( nots, chngd ) =
@@ -5158,7 +5266,7 @@ updateNotifications status notifications =
                 Just stat ->
                     let
                         ( stat2, chngd2 ) =
-                            updateStatus status stat
+                            modifyStatus id modifier stat
                     in
                     if chngd2 then
                         ( { notification | status = Just stat2 } :: nots
