@@ -209,6 +209,7 @@ emptyPagingInput =
 
 type Dialog
     = NoDialog
+    | AlertDialog String
     | ConfirmDialog String String Msg
     | EditColumnsDialog
 
@@ -464,6 +465,10 @@ type ColumnsUIMsg
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType Int
     | UserNameInput String
+    | ReplyToStatus Status
+    | ToggleStatusRepeat Status
+    | ToggleStatusFavorite Status
+    | StatusEllipsisDialog Status
 
 
 type ReceiveFeedType
@@ -2477,6 +2482,50 @@ columnsUIMsg msg model =
 
         UserNameInput userNameInput ->
             { model | userNameInput = userNameInput }
+                |> withNoCmd
+
+        ReplyToStatus status ->
+            -- Remember to refetch the replied-to status,
+            -- and call updateColumnsStatus with it.
+            { model
+                | dialog =
+                    AlertDialog "Replies not yet supported."
+            }
+                |> withNoCmd
+
+        ToggleStatusRepeat status ->
+            let
+                mes =
+                    if status.reblogged then
+                        SendPostUnreblogStatus
+
+                    else
+                        SendPostReblogStatus
+
+                mdl =
+                    { model | statusId = status.id }
+            in
+            explorerSendMsg mes mdl
+
+        ToggleStatusFavorite status ->
+            let
+                mes =
+                    if status.favourited then
+                        SendPostUnfavourite
+
+                    else
+                        SendPostFavourite
+
+                mdl =
+                    { model | statusId = status.id }
+            in
+            explorerSendMsg mes mdl
+
+        StatusEllipsisDialog status ->
+            { model
+                | dialog =
+                    AlertDialog "Ellipsis Dialog not yet supported."
+            }
                 |> withNoCmd
 
 
@@ -4650,6 +4699,16 @@ getAccountId model =
                 ""
 
 
+{-| Here when we get a response back from sending a Request.
+
+Errors are not always errors. If the request was Post(Un)ReblogStatus
+or Post(Un)FavouriteStatus, an error may mean that you changed it in
+another browser. Pleroma FE assumes that. We should reget the status
+and updateColumnsStatus with the result.
+
+Let them report it as a bug.
+
+-}
 receiveResponse : Request -> Result Error Response -> Model -> ( Model, Cmd Msg )
 receiveResponse request result model =
     case result of
@@ -4915,8 +4974,201 @@ applyResponseSideEffects response model =
                 Request.GetGroupTimeline { paging } ->
                     statusSmartPaging response.entity paging model
 
+        StatusesRequest (Request.PostReblogStatus _) ->
+            -- The entity is the reblog, not the reblogged
+            -- We need to udpate the reblogged
+            case response.entity of
+                StatusEntity status ->
+                    case status.reblog of
+                        Nothing ->
+                            model
+
+                        Just (WrappedStatus reblog) ->
+                            updateColumnsStatus (StatusEntity reblog) model
+
+                _ ->
+                    model
+
+        StatusesRequest (Request.PostUnreblogStatus _) ->
+            updateColumnsStatus response.entity model
+
+        FavouritesRequest (Request.PostFavourite _) ->
+            updateColumnsStatus response.entity model
+
+        FavouritesRequest (Request.PostUnfavourite _) ->
+            updateColumnsStatus response.entity model
+
         _ ->
             model
+
+
+{-| Just received an update to a StatusEntity.
+
+That happens when a reply is posted (on refetch of the replied-to
+post), or the user clicks on a posts's reblog or favorite button.
+
+Change the status in all the places it appears in a feed.
+
+-}
+updateColumnsStatus : Entity -> Model -> Model
+updateColumnsStatus entity model =
+    let
+        feedSet =
+            model.feedSet
+    in
+    case entity of
+        StatusEntity status ->
+            { model
+                | feedSet =
+                    { feedSet
+                        | feeds =
+                            List.map (updateFeedStatus status) feedSet.feeds
+                    }
+            }
+
+        _ ->
+            model
+
+
+{-| Replace a `Status` everywhere it appears in a `Feed`.
+
+If it does not appear, the result will be the input Feed, not a copy of it.
+
+-}
+updateFeedStatus : Status -> Feed -> Feed
+updateFeedStatus status feed =
+    let
+        ( elements, changed ) =
+            updateFeedElements status feed.elements
+    in
+    if changed then
+        { feed | elements = elements }
+
+    else
+        feed
+
+
+updateFeedElements : Status -> FeedElements -> ( FeedElements, Bool )
+updateFeedElements status elements =
+    case elements of
+        StatusElements statuses ->
+            let
+                ( stats, changed ) =
+                    updateStatuses status statuses
+            in
+            if changed then
+                ( StatusElements stats, True )
+
+            else
+                ( elements, False )
+
+        NotificationElements notifications ->
+            let
+                ( nots, changed ) =
+                    updateNotifications status notifications
+            in
+            if changed then
+                ( NotificationElements nots, True )
+
+            else
+                ( elements, False )
+
+        _ ->
+            ( elements, False )
+
+
+updateStatus : Status -> Status -> ( Status, Bool )
+updateStatus status oldStatus =
+    let
+        id =
+            status.id
+    in
+    if id == oldStatus.id then
+        ( status, True )
+
+    else
+        let
+            ( oldStat2, chngd2 ) =
+                case oldStatus.reblog of
+                    Nothing ->
+                        ( oldStatus, False )
+
+                    Just (WrappedStatus wrapped) ->
+                        if id == wrapped.id then
+                            ( { oldStatus
+                                | reblog =
+                                    Just <| WrappedStatus status
+                              }
+                            , True
+                            )
+
+                        else
+                            ( oldStatus, False )
+        in
+        case oldStat2.quote of
+            Nothing ->
+                ( oldStat2, chngd2 )
+
+            Just (WrappedStatus wrapped) ->
+                if id == wrapped.id then
+                    ( { oldStat2
+                        | quote =
+                            Just <| WrappedStatus status
+                      }
+                    , True
+                    )
+
+                else
+                    ( oldStat2, chngd2 )
+
+
+updateStatuses : Status -> List Status -> ( List Status, Bool )
+updateStatuses status statuses =
+    let
+        id =
+            status.id
+
+        folder : Status -> ( List Status, Bool ) -> ( List Status, Bool )
+        folder stat ( result, chngd ) =
+            let
+                ( stat2, chngd2 ) =
+                    updateStatus status stat
+            in
+            ( stat2 :: result, chngd || chngd2 )
+
+        ( stats, changed ) =
+            List.foldr folder ( [], False ) statuses
+    in
+    if changed then
+        ( stats, True )
+
+    else
+        ( statuses, False )
+
+
+updateNotifications : Status -> List Notification -> ( List Notification, Bool )
+updateNotifications status notifications =
+    let
+        folder : Notification -> ( List Notification, Bool ) -> ( List Notification, Bool )
+        folder notification ( nots, chngd ) =
+            case notification.status of
+                Nothing ->
+                    ( notification :: nots, chngd )
+
+                Just stat ->
+                    let
+                        ( stat2, chngd2 ) =
+                            updateStatus status stat
+                    in
+                    if chngd2 then
+                        ( { notification | status = Just stat2 } :: nots
+                        , True
+                        )
+
+                    else
+                        ( notification :: nots, chngd )
+    in
+    List.foldr folder ( [], False ) notifications
 
 
 splitMediaIds : String -> List String
@@ -6053,9 +6305,9 @@ renderStatus renderEnv statusIn =
         ]
 
 
-statusButton : List (Attribute Msg) -> String -> Html Msg
-statusButton attributes theText =
-    div []
+statusButton : List (Attribute Msg) -> String -> Msg -> Html Msg
+statusButton attributes theText msg =
+    div [ onClick msg ]
         [ Html.i attributes []
         , text theText
         ]
@@ -6149,6 +6401,7 @@ renderStatusActions renderEnv status =
             , class "button-icon icon-reply"
             ]
             repliesString
+            (ColumnsUIMsg <| ReplyToStatus status)
         , statusButton
             [ title rebloggedTitle
             , class <|
@@ -6156,6 +6409,7 @@ renderStatusActions renderEnv status =
                     ++ retweetedClass
             ]
             reblogsString
+            (ColumnsUIMsg <| ToggleStatusRepeat status)
         , statusButton
             [ title favoriteTitle
             , class <|
@@ -6163,9 +6417,11 @@ renderStatusActions renderEnv status =
                     ++ favoriteClass
             ]
             favoritesString
+            (ColumnsUIMsg <| ToggleStatusFavorite status)
         , statusButton
             [ class "icon-ellipsis" ]
             ""
+            (ColumnsUIMsg <| StatusEllipsisDialog status)
         ]
 
 
@@ -7947,6 +8203,21 @@ renderDialog model =
 
         EditColumnsDialog ->
             editColumnsDialog model
+
+        AlertDialog content ->
+            Dialog.render
+                { styles = [ ( "width", "40%" ) ]
+                , title = "Alert"
+                , content = [ text content ]
+                , actionBar =
+                    [ Html.button
+                        [ onClick <| (GlobalMsg << SetDialog) NoDialog
+                        , id cancelButtonId
+                        ]
+                        [ b "OK" ]
+                    ]
+                }
+                (model.dialog /= NoDialog)
 
         ConfirmDialog content okButtonText msg ->
             Dialog.render
