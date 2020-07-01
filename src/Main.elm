@@ -6456,12 +6456,14 @@ renderAttachment : RenderEnv -> Attachment -> Html Msg
 renderAttachment renderEnv attachment =
     case attachment.type_ of
         ImageAttachment ->
-            img
-                [ src attachment.preview_url
-                , alt "image"
-                , style "width" "100%"
+            a [ href attachment.url ]
+                [ img
+                    [ src attachment.preview_url
+                    , alt "image"
+                    , style "width" "100%"
+                    ]
+                    []
                 ]
-                []
 
         _ ->
             text ""
