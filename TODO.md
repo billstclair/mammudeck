@@ -6,6 +6,7 @@ Bill St. Clair, 2 July 2020
 
 ## For the Post dialog
 
+* Reply should @mention the participants.
 * Images in posts (and fix sensitivity and spoiler text in the client library)
 * Show replied/quoted post in the post dialog, likely optional.
 * Reply and Quote checkboxes, so you can change if/how the post mentions another

@@ -383,6 +383,7 @@ type alias Model =
     , status : String
     , in_reply_to_id : String
     , quote_of_id : String
+    , media_sensitive : Bool
     , spoiler_text : String
     , visibility : Maybe Visibility
     , scheduled_at : String
@@ -555,6 +556,7 @@ type ExplorerUIMsg
     | SetStatus String
     | SetInReplyToId String
     | SetInQuoteOfId String
+    | ToggleMediaSensitive
     | SetSpoilerText String
     | SetVisibility (Maybe Visibility)
     | SetScheduledAt String
@@ -974,6 +976,7 @@ init value url key =
     , status = ""
     , in_reply_to_id = ""
     , quote_of_id = ""
+    , media_sensitive = False
     , spoiler_text = ""
     , visibility = Nothing
     , scheduled_at = ""
@@ -2576,6 +2579,7 @@ columnsUIMsg msg model =
                     , quote_of_id = Nothing
                     , media_ids = []
                     , poll = Nothing
+                    , sensitive = False
                     , spoiler_text = Nothing
                     , visibility = Just PublicVisibility
                     , scheduled_at = Nothing
@@ -3700,6 +3704,10 @@ explorerUIMsg msg model =
             { model | quote_of_id = quote_of_id }
                 |> withNoCmd
 
+        ToggleMediaSensitive ->
+            { model | media_sensitive = not model.media_sensitive }
+                |> withNoCmd
+
         SetSpoilerText spoiler_text ->
             { model | spoiler_text = spoiler_text }
                 |> withNoCmd
@@ -4486,7 +4494,8 @@ explorerSendMsg msg model =
                         , quote_of_id = nothingIfBlank model.quote_of_id
                         , media_ids =
                             splitMediaIds model.media_ids
-                        , poll = Debug.log "poll" <| pollDefinition model
+                        , poll = pollDefinition model
+                        , sensitive = model.media_sensitive
                         , spoiler_text = nothingIfBlank model.spoiler_text
                         , visibility = model.visibility
                         , scheduled_at = nothingIfBlank model.scheduled_at
@@ -5133,6 +5142,7 @@ applyResponseSideEffects response model =
                         , status = ""
                         , in_reply_to_id = ""
                         , quote_of_id = ""
+                        , media_sensitive = False
                         , spoiler_text = ""
                         , scheduled_at = ""
                         , idempotencyKey = ""
@@ -7811,6 +7821,10 @@ statusesSelectedUI model =
                     40
                     (ExplorerUIMsg << SetSpoilerText)
                     model.spoiler_text
+                , text " "
+                , checkBox (ExplorerUIMsg ToggleMediaSensitive)
+                    model.media_sensitive
+                    "sensitive"
                 , br
                 , b "visibility: "
                 , visibilityRadio Nothing model
@@ -8877,7 +8891,7 @@ Click "$PostPinStatus" to pin "status id".
 
 Click "$PostUnpinStatus" to unpin "status id".
 
-Click "$PostStatus" to create a new status, using "status", "in reply to id", "group id", "quote of id", "spoiler text", "visibility", "scheduled at", "language", "idempotency key", and "media ids".
+Click "$PostStatus" to create a new status, using "status", "in reply to id", "group id", "quote of id", "sensitive", "spoiler text", "visibility", "scheduled at", "language", "idempotency key", and "media ids".
 
 If you want to add media to a status, you can do that in the "-- new media --" section. Click "Choose File" to read a media file. Optionally fill in a "description" and ""focus x" and "y" (each between 0.0 and 1.0). Click "$PostMedia" to send it to the server. The "id" from the received `Attachment` entity will set the "media id" and be added to the comma-separated list of "media ids".
 
