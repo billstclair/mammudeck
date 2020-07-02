@@ -6137,9 +6137,9 @@ renderLeftColumn renderEnv =
                 "dark"
             ]
         , p []
-            [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
-        , p []
             [ button (ColumnsUIMsg <| ShowPostDialog Nothing) "post" ]
+        , p []
+            [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
         , p []
             [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
         ]
