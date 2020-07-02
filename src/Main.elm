@@ -6308,11 +6308,15 @@ gangNotifications notifications =
                                     :: res
 
                         Just gn ->
+                            let
+                                newgn =
+                                    { gn
+                                        | accounts =
+                                            List.append gn.accounts [ car.account ]
+                                    }
+                            in
                             loop cdr <|
-                                { gn
-                                    | accounts = car.account :: gn.accounts
-                                }
-                                    :: List.filter ((/=) gn) res
+                                LE.setIf ((==) gn) newgn res
     in
     loop notifications []
 
