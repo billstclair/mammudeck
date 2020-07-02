@@ -11,6 +11,8 @@ Bill St. Clair, 2 July 2020
 * Reply and Quote checkboxes, so you can change if/how the post mentions another
 * Visibility (non, public, unlisted, private, direct)
 * Post size tracking and limitation
+* Editing of posts
+    (actual edit on servers that support that, delete/repost on others)
 
 ## For the Columns view
 
