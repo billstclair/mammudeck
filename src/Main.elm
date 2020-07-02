@@ -212,6 +212,7 @@ type Dialog
     | AlertDialog String
     | ConfirmDialog String String Msg
     | EditColumnsDialog
+    | PostDialog
 
 
 type alias FocusInput =
@@ -342,6 +343,7 @@ type alias Model =
     -- Non-persistent below here
     , initialPage : InitialPage
     , dialog : Dialog
+    , postState : PostState
     , feedSet : FeedSet
     , loadingFeeds : Set String --loading older posts, that is
     , feedScrollHeights : Dict String Float
@@ -460,15 +462,17 @@ type ColumnsUIMsg
     | ScrollRequests
     | DoScrollRequests (Cmd Msg)
     | ShowEditColumnsDialog
+    | ShowPostDialog (Maybe Status)
     | DismissDialog
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType Int
     | UserNameInput String
-    | ReplyToStatus Status
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
     | StatusEllipsisDialog Status
+    | SetPostText String
+    | Post
 
 
 type ReceiveFeedType
@@ -932,6 +936,7 @@ init value url key =
     -- Non-persistent below here
     , initialPage = initialPage
     , dialog = NoDialog
+    , postState = initialPostState
     , feedSet = Types.emptyFeedSet
     , loadingFeeds = Set.empty
     , feedScrollHeights = Dict.empty
@@ -2467,6 +2472,20 @@ columnsUIMsg msg model =
             { model | dialog = EditColumnsDialog }
                 |> withNoCmd
 
+        ShowPostDialog maybeStatus ->
+            let
+                postState =
+                    model.postState
+            in
+            { model
+                | dialog = PostDialog
+                , postState = { postState | replyTo = maybeStatus }
+            }
+                |> withCmd
+                    (Task.attempt (\_ -> Noop) <|
+                        Dom.focus postDialogTextId
+                    )
+
         DismissDialog ->
             { model | dialog = NoDialog }
                 |> withNoCmd
@@ -2482,15 +2501,6 @@ columnsUIMsg msg model =
 
         UserNameInput userNameInput ->
             { model | userNameInput = userNameInput }
-                |> withNoCmd
-
-        ReplyToStatus status ->
-            -- Remember to refetch the replied-to status,
-            -- and call updateColumnsStatus with it.
-            { model
-                | dialog =
-                    AlertDialog "Replies not yet supported."
-            }
                 |> withNoCmd
 
         ToggleStatusRepeat status ->
@@ -2527,6 +2537,108 @@ columnsUIMsg msg model =
                     AlertDialog "Ellipsis Dialog not yet supported."
             }
                 |> withNoCmd
+
+        SetPostText string ->
+            let
+                postState =
+                    model.postState
+            in
+            { model
+                | postState =
+                    { postState | text = string }
+            }
+                |> withNoCmd
+
+        Post ->
+            let
+                postState =
+                    model.postState
+
+                replyTo =
+                    if postState.noReply then
+                        Nothing
+
+                    else
+                        postState.replyTo
+
+                in_reply_to_id =
+                    case replyTo of
+                        Nothing ->
+                            Nothing
+
+                        Just status ->
+                            Just status.id
+
+                post =
+                    { status = nothingIfBlank postState.text
+                    , in_reply_to_id = in_reply_to_id
+                    , group_id = Nothing
+                    , quote_of_id = Nothing
+                    , media_ids = []
+                    , poll = Nothing
+                    , spoiler_text = Nothing
+                    , visibility = Just PublicVisibility
+                    , scheduled_at = Nothing
+                    , language = Nothing
+                    , idempotencyKey = Nothing
+                    }
+            in
+            sendRequest
+                (StatusesRequest <| Request.PostStatus post)
+                { model | dialog = NoDialog }
+
+
+adjustColumnsForPost : Status -> Model -> Model
+adjustColumnsForPost status model =
+    let
+        userFeedType =
+            case model.account of
+                Nothing ->
+                    Types.defaultUserFeedType
+
+                Just { username } ->
+                    -- TODO: when I add flags to user feeds, fix this
+                    UserFeed
+                        { username = username
+                        , server = ""
+                        , flags = Nothing
+                        }
+
+        updateFeed feed =
+            if
+                List.member feed.feedType
+                    [ HomeFeed
+                    , PublicFeed { flags = Nothing } --TODO: non-null flags
+                    , userFeedType
+                    ]
+            then
+                let
+                    elements =
+                        feed.elements
+                in
+                case elements of
+                    StatusElements statuses ->
+                        { feed
+                            | elements =
+                                StatusElements <| status :: statuses
+                        }
+
+                    _ ->
+                        feed
+
+            else
+                feed
+
+        feedSet =
+            model.feedSet
+    in
+    { model
+        | feedSet =
+            { feedSet
+                | feeds = List.map updateFeed feedSet.feeds
+            }
+        , postState = initialPostState
+    }
 
 
 fillinFeedType : FeedType -> Model -> FeedType
@@ -5015,9 +5127,9 @@ applyResponseSideEffects response model =
 
         StatusesRequest (Request.PostStatus _) ->
             case response.entity of
-                StatusEntity { id } ->
+                StatusEntity status ->
                     { model
-                        | statusId = id
+                        | statusId = status.id
                         , status = ""
                         , in_reply_to_id = ""
                         , quote_of_id = ""
@@ -5026,6 +5138,7 @@ applyResponseSideEffects response model =
                         , idempotencyKey = ""
                         , pollOptions = [ "", "" ]
                     }
+                        |> adjustColumnsForPost status
 
                 _ ->
                     model
@@ -6027,6 +6140,8 @@ renderLeftColumn renderEnv =
             [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
         , p []
             [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
+        , p []
+            [ button (ColumnsUIMsg <| ShowPostDialog Nothing) "post" ]
         ]
 
 
@@ -6509,7 +6624,7 @@ renderStatusActions renderEnv status =
             , class "button-icon icon-reply"
             ]
             repliesString
-            (ColumnsUIMsg <| ReplyToStatus status)
+            (ColumnsUIMsg <| ShowPostDialog (Just status))
         , statusButton
             [ title rebloggedTitle
             , class <|
@@ -8314,6 +8429,9 @@ renderDialog model =
         EditColumnsDialog ->
             editColumnsDialog model
 
+        PostDialog ->
+            postDialog model
+
         AlertDialog content ->
             Dialog.render
                 { styles = [ ( "width", "40%" ) ]
@@ -8459,6 +8577,97 @@ editColumnDialogRows model =
       in
       table [] <|
         List.map feedRow feedTypes
+    ]
+
+
+type alias PostState =
+    { replyTo : Maybe Status
+    , noReply : Bool
+    , quote : Bool
+    , text : String
+    }
+
+
+initialPostState : PostState
+initialPostState =
+    { replyTo = Nothing
+    , noReply = False
+    , quote = False
+    , text = ""
+    }
+
+
+postDialog : Model -> Html Msg
+postDialog model =
+    let
+        postState =
+            model.postState
+    in
+    Dialog.render
+        { styles =
+            [ ( "width", "50em" )
+            , ( "font-size", "medium" )
+            ]
+        , title =
+            if postState.noReply then
+                "Post"
+
+            else
+                case postState.replyTo of
+                    Nothing ->
+                        "Post"
+
+                    Just _ ->
+                        if postState.quote then
+                            "Quote"
+
+                        else
+                            "Reply"
+        , content = postDialogContent model.renderEnv postState
+        , actionBar =
+            [ enabledButton (postState.text /= "") (ColumnsUIMsg Post) "Post"
+            , button (ColumnsUIMsg DismissDialog) "Cancel"
+            ]
+        }
+        True
+
+
+postDialogTextId : String
+postDialogTextId =
+    "postDialogText"
+
+
+postDialogContent : RenderEnv -> PostState -> List (Html Msg)
+postDialogContent renderEnv postState =
+    [ case postState.replyTo of
+        Nothing ->
+            text ""
+
+        Just replyTo ->
+            let
+                timeString =
+                    formatIso8601 renderEnv.here replyTo.created_at
+            in
+            p []
+                [ text "to "
+                , text replyTo.account.display_name
+                , br
+                , case replyTo.url of
+                    Nothing ->
+                        text timeString
+
+                    Just url ->
+                        link timeString url
+                ]
+    , textarea
+        [ id postDialogTextId
+        , rows 20
+        , style "width" "100%"
+        , style "font-size" "medium"
+        , onInput (ColumnsUIMsg << SetPostText)
+        , value postState.text
+        ]
+        []
     ]
 
 
