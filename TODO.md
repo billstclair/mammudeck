@@ -1,8 +1,10 @@
+# Mammudeck TODO
+
 Mammudeck now has like, repeat, and a bare-bones post dialog. It's usable for day-to-day Fediverse interaction. But there's a lot more to do.
 
 Bill St. Clair, 2 July 2020
 
-For the Post dialog:
+## For the Post dialog
 
 * Images in posts (and fix sensitivity and spoiler text in the client library)
 * Show replied/quoted post in the post dialog, likely optional.
@@ -10,7 +12,7 @@ For the Post dialog:
 * Visibility (non, public, unlisted, private, direct)
 * Post size tracking and limitation
 
-For the Columns view:
+## For the Columns view
 
 * Auto-update, likely without WebSockets initially
     * Indicators of how many posts have been loaded but not displayed
@@ -18,7 +20,7 @@ For the Columns view:
     * Indicators of how many invisible posts are off screen, to right and left
       Click to scroll to the next one in that direction
 
-For column status rendering:
+## For column status rendering
 
 * Show "in reply to" "user"
     Pop up replied-to post on hover over "in reply to"
@@ -26,7 +28,7 @@ For column status rendering:
 * Show quoted post inline, with hide/show
 * Image view popup (currently, clicking on image opens the full-res version in a new tab)
 
-For the Feed set "edit" dialog:
+## For the Feed set "edit" dialog
 
 * The rest of the feed types (hashtag, list, group, conversations, search)
 * Popup interactive search for users
@@ -38,9 +40,9 @@ For the Feed set "edit" dialog:
     Switcher in left column
 * Save/Restore feedsets as a JSON string.
 
-Mobile layout!
+## Mobile layout!
 
-New Settings Dialog:
+## New Settings dialog
 
 * Column width, possibly per-column (photo posters elicit more real estate)
 * Font size
