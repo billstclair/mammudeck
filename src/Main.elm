@@ -6294,7 +6294,7 @@ gangNotifications notifications =
                     case
                         LE.find
                             (\gn ->
-                                (id /= "" && id == gn.id)
+                                (id == gn.id)
                                     && (car.type_ == gn.notification.type_)
                             )
                             res
