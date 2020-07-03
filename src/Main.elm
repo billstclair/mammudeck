@@ -5598,6 +5598,7 @@ br =
 
 type alias StyleProperties =
     { backgroundColor : String
+    , inputBackground : String
     , color : String
     }
 
@@ -5614,10 +5615,12 @@ styles :
 styles =
     { dark =
         { backgroundColor = "#222"
+        , inputBackground = "#333"
         , color = "#eee"
         }
     , light =
         { backgroundColor = "white"
+        , inputBackground = "white"
         , color = "black"
         }
     }
@@ -8688,6 +8691,10 @@ postDialogTextId =
 
 postDialogContent : RenderEnv -> PostState -> List (Html Msg)
 postDialogContent renderEnv postState =
+    let
+        { inputBackground, color } =
+            getStyle renderEnv.style
+    in
     [ case postState.replyTo of
         Nothing ->
             text ""
@@ -8713,6 +8720,8 @@ postDialogContent renderEnv postState =
         , rows 20
         , style "width" "100%"
         , style "font-size" "medium"
+        , style "color" color
+        , style "background-color" inputBackground
         , onInput (ColumnsUIMsg << SetPostText)
         , value postState.text
         ]
