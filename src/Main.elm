@@ -6338,13 +6338,6 @@ renderFeed renderEnv { feedType, elements } =
 
         ( _, h ) =
             renderEnv.windowSize
-
-        loadingPrefix =
-            if renderEnv.isFeedLoading then
-                feedLoadingEmoji ++ " "
-
-            else
-                ""
     in
     div
         [ style "width" <| px columnWidth
@@ -6356,8 +6349,11 @@ renderFeed renderEnv { feedType, elements } =
             , style "text-align" "center"
             , style "color" color
             ]
-            [ span [ style "font-size" "70%" ]
-                [ text loadingPrefix ]
+            [ if renderEnv.isFeedLoading then
+                feedLoadingEmojiSpan True
+
+              else
+                text ""
             , feedTitle feedType
             ]
         , div
@@ -6367,24 +6363,31 @@ renderFeed renderEnv { feedType, elements } =
             , id <| Types.feedID feedType
             ]
           <|
-            case elements of
-                StatusElements statuses ->
-                    List.map (renderStatus renderEnv) statuses
+            List.concat
+                [ case elements of
+                    StatusElements statuses ->
+                        List.map (renderStatus renderEnv) statuses
 
-                NotificationElements notifications ->
-                    let
-                        gangedNotifications =
-                            gangNotifications notifications
+                    NotificationElements notifications ->
+                        let
+                            gangedNotifications =
+                                gangNotifications notifications
 
-                        ( _, _ ) =
-                            ( Debug.log "notifications" <| List.length notifications
-                            , Debug.log "  ganged" <| List.length gangedNotifications
-                            )
-                    in
-                    List.map (renderGangedNotification renderEnv) gangedNotifications
+                            ( _, _ ) =
+                                ( Debug.log "notifications" <| List.length notifications
+                                , Debug.log "  ganged" <| List.length gangedNotifications
+                                )
+                        in
+                        List.map (renderGangedNotification renderEnv) gangedNotifications
 
-                _ ->
-                    [ text "" ]
+                    _ ->
+                        [ text "" ]
+                , if not renderEnv.isFeedLoading then
+                    []
+
+                  else
+                    [ renderFeedLoadingEmojiFooter renderEnv ]
+                ]
         ]
 
 
@@ -6655,6 +6658,37 @@ renderAccount color zone account description datetime url =
                     Just u ->
                         link timeString u
                 ]
+            ]
+        ]
+
+
+feedLoadingEmojiSpan : Bool -> Html msg
+feedLoadingEmojiSpan addSpace =
+    span [ style "font-size" "70%" ]
+        [ text feedLoadingEmoji
+        , if addSpace then
+            text " "
+
+          else
+            text ""
+        ]
+
+
+renderFeedLoadingEmojiFooter : RenderEnv -> Html Msg
+renderFeedLoadingEmojiFooter renderEnv =
+    let
+        { color } =
+            getStyle renderEnv.style
+    in
+    div
+        [ style "border" <| "1px solid " ++ color ]
+        [ div []
+            [ div
+                [ class "content"
+                , style "color" color
+                , style "text-align" "center"
+                ]
+                [ feedLoadingEmojiSpan False ]
             ]
         ]
 
