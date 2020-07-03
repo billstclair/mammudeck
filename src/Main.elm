@@ -2483,7 +2483,9 @@ columnsUIMsg msg model =
             in
             { model
                 | dialog = PostDialog
-                , postState = { postState | replyTo = maybeStatus }
+                , postState =
+                    { postState | replyTo = maybeStatus }
+                        |> addPostStateMentions
             }
                 |> withCmd
                     (Task.attempt (\_ -> Noop) <|
@@ -8687,6 +8689,33 @@ postDialog model =
 postDialogTextId : String
 postDialogTextId =
     "postDialogText"
+
+
+statusMentionsString : Status -> String
+statusMentionsString status =
+    let
+        addMention mention res =
+            "@" ++ mention.username ++ " " ++ res
+    in
+    List.foldr addMention "" status.mentions
+
+
+addPostStateMentions : PostState -> PostState
+addPostStateMentions postState =
+    case postState.replyTo of
+        Nothing ->
+            postState
+
+        Just replyTo ->
+            let
+                postText =
+                    postState.text
+            in
+            if postText /= "" then
+                postState
+
+            else
+                { postState | text = statusMentionsString replyTo }
 
 
 postDialogContent : RenderEnv -> PostState -> List (Html Msg)
