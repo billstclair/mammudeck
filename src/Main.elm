@@ -8456,7 +8456,8 @@ renderDialog model =
             postDialog model
 
         AlertDialog content ->
-            Dialog.render
+            dialogRender
+                model.renderEnv
                 { styles = [ ( "width", "40%" ) ]
                 , title = "Alert"
                 , content = [ text content ]
@@ -8471,7 +8472,8 @@ renderDialog model =
                 (model.dialog /= NoDialog)
 
         ConfirmDialog content okButtonText msg ->
-            Dialog.render
+            dialogRender
+                model.renderEnv
                 { styles = [ ( "width", "40%" ) ]
                 , title = "Confirm"
                 , content = [ text content ]
@@ -8488,9 +8490,28 @@ renderDialog model =
                 (model.dialog /= NoDialog)
 
 
+dialogRender : RenderEnv -> Dialog.Config msg -> Dialog.Visible -> Html msg
+dialogRender renderEnv config visible =
+    let
+        { backgroundColor, color } =
+            getStyle renderEnv.style
+    in
+    Dialog.render
+        { config
+            | styles =
+                List.append
+                    [ ( "color", color )
+                    , ( "background-color", backgroundColor )
+                    ]
+                    config.styles
+        }
+        visible
+
+
 editColumnsDialog : Model -> Html Msg
 editColumnsDialog model =
-    Dialog.render
+    dialogRender
+        model.renderEnv
         { styles = [ ( "width", "40%" ) ]
         , title = "Edit Columns"
         , content = editColumnDialogRows model
@@ -8630,7 +8651,8 @@ postDialog model =
         postState =
             model.postState
     in
-    Dialog.render
+    dialogRender
+        model.renderEnv
         { styles =
             [ ( "width", "50em" )
             , ( "font-size", "medium" )
