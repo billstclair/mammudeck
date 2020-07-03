@@ -28,6 +28,7 @@ import Browser.Events as Events
 import Browser.Navigation as Navigation exposing (Key)
 import Char
 import Cmd.Extra exposing (addCmd, withCmd, withCmds, withNoCmd)
+import CustomElement.BodyColors as BodyColors
 import CustomElement.WriteClipboard as WriteClipboard
 import Dialog
 import Dict exposing (Dict)
@@ -5632,11 +5633,6 @@ getStyle style =
             styles.light
 
 
-theStyle : Style
-theStyle =
-    DarkStyle
-
-
 {-| Choose the visible section of the user interface.
 
 `MediaAttachmentsRequest` and `PollsRequest` are done as part of `StatusesSelected`.
@@ -5967,9 +5963,18 @@ button =
 
 view : Model -> Document Msg
 view model =
+    let
+        { backgroundColor, color } =
+            getStyle model.renderEnv.style
+    in
     { title = "Mammudeck"
     , body =
-        [ renderDialog model
+        [ BodyColors.bodyColors
+            [ BodyColors.color color
+            , BodyColors.backgroundColor backgroundColor
+            ]
+            []
+        , renderDialog model
         , case model.page of
             HomePage ->
                 renderHome model
@@ -8603,6 +8608,8 @@ type alias PostState =
     , noReply : Bool
     , quote : Bool
     , text : String
+    , sensitive : Bool
+    , media_ids : List String
     }
 
 
@@ -8612,6 +8619,8 @@ initialPostState =
     , noReply = False
     , quote = False
     , text = ""
+    , sensitive = False
+    , media_ids = []
     }
 
 
