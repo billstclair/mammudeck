@@ -37,6 +37,7 @@ Bill St. Clair, 2 July 2020
     Pop up user profile on hover over user
 * Show quoted post inline, with hide/show
 * Image view popup (currently, clicking on image opens the full-res version in a new tab)
+* Display Polls
 
 ## For the Feed set "edit" dialog
 

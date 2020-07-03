@@ -6357,7 +6357,7 @@ renderFeed renderEnv { feedType, elements } =
             , style "color" color
             ]
             [ if renderEnv.isFeedLoading then
-                feedLoadingEmojiSpan True
+                feedLoadingEmojiSpan True True
 
               else
                 text ""
@@ -6669,9 +6669,15 @@ renderAccount color zone account description datetime url =
         ]
 
 
-feedLoadingEmojiSpan : Bool -> Html msg
-feedLoadingEmojiSpan addSpace =
-    span [ style "font-size" "70%" ]
+feedLoadingEmojiSpan : Bool -> Bool -> Html msg
+feedLoadingEmojiSpan addSpace reduceSize =
+    span
+        (if reduceSize then
+            [ style "font-size" "70%" ]
+
+         else
+            []
+        )
         [ text feedLoadingEmoji
         , if addSpace then
             text " "
@@ -6695,7 +6701,7 @@ renderFeedLoadingEmojiFooter renderEnv =
                 , style "color" color
                 , style "text-align" "center"
                 ]
-                [ feedLoadingEmojiSpan False ]
+                [ feedLoadingEmojiSpan False False ]
             ]
         ]
 
