@@ -7,7 +7,13 @@ Bill St. Clair, 2 July 2020
 ## For the Post dialog
 
 * Reply should @mention the participants.
+    Done, except favorite and repost notifications, plus
+    reposted timeline entries should include those people as well.
+    Do this by adding the including notification's or status's 
+    mentions to the included status.
+    Or not.
 * Images in posts (and fix sensitivity and spoiler text in the client library)
+    Done modulo drag-and-drop.
 * Show replied/quoted post in the post dialog, likely optional.
 * Reply and Quote checkboxes, so you can change if/how the post mentions another
 * Visibility (non, public, unlisted, private, direct)
@@ -25,6 +31,7 @@ Bill St. Clair, 2 July 2020
 
 ## For column status rendering
 
+* Replace :<emoji>: with the URL from the "GET custom_emojis" API request.
 * Show "in reply to" "user"
     Pop up replied-to post on hover over "in reply to"
     Pop up user profile on hover over user
