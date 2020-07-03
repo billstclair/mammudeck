@@ -32,6 +32,7 @@ import CustomElement.BodyColors as BodyColors
 import CustomElement.WriteClipboard as WriteClipboard
 import Dialog
 import Dict exposing (Dict)
+import DropZone
 import File exposing (File)
 import File.Select
 import Html
@@ -350,6 +351,7 @@ type alias Model =
     , feedScrollHeights : Dict String Float
     , loadingScrollHeights : Dict String Float
     , accountIdDict : Dict String (List AccountId)
+    , dropZone : DropZone.Model
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -476,6 +478,7 @@ type ColumnsUIMsg
     | SetPostText String
     | ChoosePostAttachment
     | PostAttachmentChosen File
+    | PostDrop (DropZone.DropZoneMessage (List File))
     | PostAttachmentUrl String
     | DeletePostAttachment Int
     | TogglePostSensitive
@@ -951,6 +954,7 @@ init value url key =
     , feedScrollHeights = Dict.empty
     , loadingScrollHeights = Dict.empty
     , accountIdDict = Dict.empty
+    , dropZone = DropZone.init
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -2595,6 +2599,29 @@ columnsUIMsg msg model =
                     , Task.perform (ColumnsUIMsg << PostAttachmentUrl) <|
                         File.toUrl file
                     ]
+
+        PostDrop dzmsg ->
+            let
+                dropZone =
+                    model.dropZone
+
+                mdl =
+                    { model | dropZone = DropZone.update dzmsg dropZone }
+            in
+            case dzmsg of
+                DropZone.Drop files ->
+                    mdl
+                        |> withCmds
+                            (List.map
+                                (\file ->
+                                    Task.perform ColumnsUIMsg
+                                        (Task.succeed <| PostAttachmentChosen file)
+                                )
+                                files
+                            )
+
+                _ ->
+                    mdl |> withNoCmd
 
         PostAttachmentUrl url ->
             let
@@ -8910,9 +8937,11 @@ postDialog model =
 
                         else
                             "Reply"
-        , content = postDialogContent model.renderEnv postState
+        , content = postDialogContent model.renderEnv model.dropZone postState
         , actionBar =
-            [ enabledButton (postState.text /= "") (ColumnsUIMsg Post) "Post"
+            [ enabledButton (postState.text /= "" || postState.media_ids /= [])
+                (ColumnsUIMsg Post)
+                "Post"
             , button (ColumnsUIMsg DismissDialog) "Cancel"
             ]
         }
@@ -8970,8 +8999,8 @@ maximumPostAttachments =
     4
 
 
-postDialogContent : RenderEnv -> PostState -> List (Html Msg)
-postDialogContent renderEnv postState =
+postDialogContent : RenderEnv -> DropZone.Model -> PostState -> List (Html Msg)
+postDialogContent renderEnv dropZone postState =
     let
         { inputBackground, color } =
             getStyle renderEnv.style
@@ -9016,6 +9045,8 @@ postDialogContent renderEnv postState =
             )
             (ColumnsUIMsg ChoosePostAttachment)
             "Choose File"
+        , text " "
+        , renderDropZone dropZone
         ]
     , p []
         [ let
@@ -9044,6 +9075,75 @@ postDialogContent renderEnv postState =
                 ]
         ]
     ]
+
+
+{-| TODO: hide this on mobile.
+-}
+renderDropZone : DropZone.Model -> Html Msg
+renderDropZone dropZone =
+    Html.map (ColumnsUIMsg << PostDrop) <|
+        div
+            ([ style "display" "inline-block"
+             , style "vertical-align" "middle"
+             , style "height" "2em"
+             , style "width" "10em"
+             , style "border-radius" "10px"
+             ]
+                ++ renderZoneAttributes dropZone
+            )
+            []
+
+
+renderZoneAttributes : DropZone.Model -> List (Html.Attribute (DropZone.DropZoneMessage (List File)))
+renderZoneAttributes dropZone =
+    List.concat
+        [ if DropZone.isHovering dropZone then
+            dropZoneHover
+
+          else
+            dropZoneDefault
+        , DropZone.dropZoneEventHandlers decodeFiles
+        ]
+
+
+dropZoneDefault : List (Html.Attribute a)
+dropZoneDefault =
+    [ style "border" "1px dashed steelblue"
+    ]
+
+
+dropZoneHover : List (Html.Attribute a)
+dropZoneHover =
+    [ style "border" "1px dashed red"
+    , style "background-color" "#efefef"
+    ]
+
+
+decodeFiles : JD.Decoder (List File)
+decodeFiles =
+    JD.field "dataTransfer" (JD.field "files" (JD.list File.decoder))
+
+
+
+{- For testing
+
+   type alias DzFile =
+       { name : String, size : Int, lastModified : Int, fileType : String }
+
+
+   toFileList : DzFile -> List DzFile -> List DzFile
+   toFileList f lf =
+       f :: lf
+
+
+   decodeFileList : JD.Decoder DzFile
+   decodeFileList =
+       JD.map4 DzFile
+           (JD.field "name" JD.string)
+           (JD.field "size" JD.int)
+           (JD.field "lastModified" JD.int)
+           (JD.field "type" JD.string)
+-}
 
 
 postImage : File -> String -> Int -> Html Msg
