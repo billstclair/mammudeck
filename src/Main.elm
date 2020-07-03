@@ -474,6 +474,10 @@ type ColumnsUIMsg
     | ToggleStatusFavorite Status
     | StatusEllipsisDialog Status
     | SetPostText String
+    | ChoosePostAttachment
+    | PostAttachmentChosen File
+    | PostAttachmentUrl String
+    | DeletePostAttachment Int
     | Post
 
 
@@ -2555,6 +2559,69 @@ columnsUIMsg msg model =
             }
                 |> withNoCmd
 
+        ChoosePostAttachment ->
+            model
+                |> withCmd
+                    (File.Select.file imageMimeTypes
+                        (ColumnsUIMsg << PostAttachmentChosen)
+                    )
+
+        PostAttachmentChosen file ->
+            let
+                postState =
+                    model.postState
+
+                ( mdl, cmd ) =
+                    { model
+                        | postState =
+                            { postState
+                                | files = postState.files ++ [ file ]
+                            }
+                    }
+                        |> sendRequest
+                            (MediaAttachmentsRequest <|
+                                Request.PostMedia
+                                    { file = file
+                                    , description = Nothing
+                                    , focus = Nothing
+                                    }
+                            )
+            in
+            mdl
+                |> withCmds
+                    [ cmd
+                    , Task.perform (ColumnsUIMsg << PostAttachmentUrl) <|
+                        File.toUrl file
+                    ]
+
+        PostAttachmentUrl url ->
+            let
+                postState =
+                    model.postState
+            in
+            { model
+                | postState =
+                    { postState
+                        | fileUrls = postState.fileUrls ++ [ url ]
+                    }
+            }
+                |> withNoCmd
+
+        DeletePostAttachment index ->
+            let
+                postState =
+                    model.postState
+            in
+            { model
+                | postState =
+                    { postState
+                        | media_ids = LE.removeAt index postState.media_ids
+                        , files = LE.removeAt index postState.files
+                        , fileUrls = LE.removeAt index postState.fileUrls
+                    }
+            }
+                |> withNoCmd
+
         Post ->
             let
                 postState =
@@ -2580,7 +2647,7 @@ columnsUIMsg msg model =
                     , in_reply_to_id = in_reply_to_id
                     , group_id = Nothing
                     , quote_of_id = Nothing
-                    , media_ids = []
+                    , media_ids = postState.media_ids
                     , poll = Nothing
                     , sensitive = False
                     , spoiler_text = Nothing
@@ -4887,11 +4954,14 @@ receiveResponse request result model =
                                 _ ->
                                     ( dict, msg )
 
-                ( mdl, msg3 ) =
+                ( mdl3, msg3 ) =
                     -- This code handles (un)Reblog or (un)Favorite when
                     -- that state is displayed differently than it is,
                     -- becase it was changed in another client.
-                    if msg2 /= Nothing then
+                    if msg2 == Nothing then
+                        ( model, msg2 )
+
+                    else
                         case err of
                             BadStatus _ _ ->
                                 let
@@ -4913,11 +4983,20 @@ receiveResponse request result model =
                             _ ->
                                 ( model, msg2 )
 
+                ( mdl4, msg4 ) =
+                    if msg3 == Nothing then
+                        ( mdl3, msg3 )
+
                     else
-                        ( model, msg2 )
+                        case fixPostStateMedia request model of
+                            Nothing ->
+                                ( mdl3, msg3 )
+
+                            Just m ->
+                                ( m, Nothing )
             in
-            { mdl
-                | msg = msg3
+            { mdl4
+                | msg = msg4
                 , response = response
                 , entity = entity
                 , metadata = metadata
@@ -4941,6 +5020,48 @@ receiveResponse request result model =
             }
                 |> updateJsonTrees
                 |> withNoCmd
+
+
+fixPostStateMedia : Request -> Model -> Maybe Model
+fixPostStateMedia request model =
+    case request of
+        MediaAttachmentsRequest req ->
+            case req of
+                Request.PostMedia _ ->
+                    -- Remove the file.
+                    -- May want to support retry.
+                    let
+                        postState =
+                            model.postState
+
+                        files =
+                            postState.files
+
+                        len =
+                            List.length files
+
+                        fileUrls =
+                            postState.fileUrls
+                    in
+                    Just
+                        { model
+                            | postState =
+                                { postState
+                                    | files = List.take (len - 1) files
+                                    , fileUrls =
+                                        if List.length fileUrls == len then
+                                            List.take (len - 1) fileUrls
+
+                                        else
+                                            fileUrls
+                                }
+                        }
+
+                _ ->
+                    Nothing
+
+        _ ->
+            Nothing
 
 
 type PostReblogOrFavorite
@@ -5160,27 +5281,52 @@ applyResponseSideEffects response model =
             case response.entity of
                 AttachmentEntity { id } ->
                     let
-                        mdl =
+                        postState =
+                            model.postState
+
+                        ( mdl, isExplorer ) =
                             case mediaReq of
-                                Request.PostMedia _ ->
-                                    { model
-                                        | media_id = id
-                                        , media_ids =
-                                            splitMediaIds model.media_ids
-                                                |> (\ids ->
-                                                        List.concat [ ids, [ id ] ]
-                                                   )
-                                                |> String.join ","
-                                    }
+                                Request.PostMedia { file } ->
+                                    if Just file == LE.last postState.files then
+                                        -- From the post dialog on the
+                                        -- Columns page.
+                                        ( { model
+                                            | postState =
+                                                { postState
+                                                    | media_ids =
+                                                        postState.media_ids ++ [ id ]
+                                                }
+                                          }
+                                        , False
+                                        )
+
+                                    else
+                                        -- From the "POST media" button on the
+                                        -- API Explorer page.
+                                        ( { model
+                                            | media_id = id
+                                            , media_ids =
+                                                splitMediaIds model.media_ids
+                                                    |> (\ids ->
+                                                            List.concat [ ids, [ id ] ]
+                                                       )
+                                                    |> String.join ","
+                                          }
+                                        , True
+                                        )
 
                                 _ ->
-                                    model
+                                    ( model, False )
                     in
-                    { mdl
-                        | mediaFile = Nothing
-                        , mediaDescription = ""
-                        , mediaFocus = { x = "", y = "" }
-                    }
+                    if isExplorer then
+                        { mdl
+                            | mediaFile = Nothing
+                            , mediaDescription = ""
+                            , mediaFocus = { x = "", y = "" }
+                        }
+
+                    else
+                        mdl
 
                 _ ->
                     model
@@ -8637,6 +8783,11 @@ type alias PostState =
     , mentionsString : String
     , sensitive : Bool
     , media_ids : List String
+
+    -- The files list is one longer than media_ids, while a
+    -- "POST media" request is outstanding.
+    , files : List File
+    , fileUrls : List String
     }
 
 
@@ -8649,6 +8800,8 @@ initialPostState =
     , mentionsString = ""
     , sensitive = False
     , media_ids = []
+    , files = []
+    , fileUrls = []
     }
 
 
@@ -8734,6 +8887,11 @@ addPostStateMentions postState =
                 }
 
 
+maximumPostAttachments : Int
+maximumPostAttachments =
+    4
+
+
 postDialogContent : RenderEnv -> PostState -> List (Html Msg)
 postDialogContent renderEnv postState =
     let
@@ -8760,18 +8918,56 @@ postDialogContent renderEnv postState =
                     Just url ->
                         link timeString url
                 ]
-    , textarea
-        [ id postDialogTextId
-        , rows 20
-        , style "width" "100%"
-        , style "font-size" "medium"
-        , style "color" color
-        , style "background-color" inputBackground
-        , onInput (ColumnsUIMsg << SetPostText)
-        , value postState.text
+    , p []
+        [ textarea
+            [ id postDialogTextId
+            , rows 20
+            , style "width" "100%"
+            , style "font-size" "medium"
+            , style "color" color
+            , style "background-color" inputBackground
+            , onInput (ColumnsUIMsg << SetPostText)
+            , value postState.text
+            ]
+            []
+        ]
+    , p []
+        [ enabledButton
+            ((List.length postState.files < maximumPostAttachments)
+                && (List.length postState.files == List.length postState.media_ids)
+            )
+            (ColumnsUIMsg ChoosePostAttachment)
+            "Choose File"
+        ]
+    , p []
+        [ let
+            urls =
+                postState.fileUrls
+
+            files =
+                postState.files
+
+            images =
+                List.map3 postImage files urls (List.range 0 <| List.length urls - 1)
+          in
+          if images == [] then
+            text ""
+
+          else
+            p [] <| List.intersperse (text " ") images
+        ]
+    ]
+
+
+postImage : File -> String -> Int -> Html Msg
+postImage file url index =
+    img
+        [ src url
+        , alt <| File.name file
+        , style "height" "4em"
+        , onClick <| (ColumnsUIMsg <| DeletePostAttachment index)
         ]
         []
-    ]
 
 
 dollarButtonNameToSendName : Bool -> String -> String
