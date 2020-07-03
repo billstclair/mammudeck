@@ -8707,15 +8707,19 @@ statusMentionsString status =
 
 addPostStateMentions : PostState -> PostState
 addPostStateMentions postState =
+    let
+        postText =
+            postState.text
+    in
     case postState.replyTo of
         Nothing ->
-            postState
+            if postText == postState.mentionsString then
+                { postState | text = "" }
+
+            else
+                postState
 
         Just replyTo ->
-            let
-                postText =
-                    postState.text
-            in
             if postText /= "" && postText /= postState.mentionsString then
                 postState
 
