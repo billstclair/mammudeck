@@ -6338,6 +6338,13 @@ renderFeed renderEnv { feedType, elements } =
 
         ( _, h ) =
             renderEnv.windowSize
+
+        footer statuses =
+            if renderEnv.isFeedLoading && statuses /= [] then
+                [ renderFeedLoadingEmojiFooter renderEnv ]
+
+            else
+                []
     in
     div
         [ style "width" <| px columnWidth
@@ -6363,31 +6370,31 @@ renderFeed renderEnv { feedType, elements } =
             , id <| Types.feedID feedType
             ]
           <|
-            List.concat
-                [ case elements of
-                    StatusElements statuses ->
-                        List.map (renderStatus renderEnv) statuses
+            case elements of
+                StatusElements statuses ->
+                    List.concat
+                        [ List.map (renderStatus renderEnv) statuses
+                        , footer statuses
+                        ]
 
-                    NotificationElements notifications ->
-                        let
-                            gangedNotifications =
-                                gangNotifications notifications
+                NotificationElements notifications ->
+                    let
+                        gangedNotifications =
+                            gangNotifications notifications
 
-                            ( _, _ ) =
-                                ( Debug.log "notifications" <| List.length notifications
-                                , Debug.log "  ganged" <| List.length gangedNotifications
-                                )
-                        in
-                        List.map (renderGangedNotification renderEnv) gangedNotifications
+                        ( _, _ ) =
+                            ( Debug.log "notifications" <| List.length notifications
+                            , Debug.log "  ganged" <| List.length gangedNotifications
+                            )
+                    in
+                    List.concat
+                        [ List.map (renderGangedNotification renderEnv)
+                            gangedNotifications
+                        , footer gangedNotifications
+                        ]
 
-                    _ ->
-                        [ text "" ]
-                , if not renderEnv.isFeedLoading then
-                    []
-
-                  else
-                    [ renderFeedLoadingEmojiFooter renderEnv ]
-                ]
+                _ ->
+                    [ text "" ]
         ]
 
 
