@@ -8634,6 +8634,7 @@ type alias PostState =
     , noReply : Bool
     , quote : Bool
     , text : String
+    , mentionsString : String
     , sensitive : Bool
     , media_ids : List String
     }
@@ -8645,6 +8646,7 @@ initialPostState =
     , noReply = False
     , quote = False
     , text = ""
+    , mentionsString = ""
     , sensitive = False
     , media_ids = []
     }
@@ -8694,10 +8696,13 @@ postDialogTextId =
 statusMentionsString : Status -> String
 statusMentionsString status =
     let
-        addMention mention res =
-            "@" ++ mention.username ++ " " ++ res
+        addMention username res =
+            "@" ++ username ++ " " ++ res
     in
-    List.foldr addMention "" status.mentions
+    List.map .username status.mentions
+        |> (::) status.account.username
+        |> LE.unique
+        |> List.foldr addMention ""
 
 
 addPostStateMentions : PostState -> PostState
@@ -8711,11 +8716,18 @@ addPostStateMentions postState =
                 postText =
                     postState.text
             in
-            if postText /= "" then
+            if postText /= "" && postText /= postState.mentionsString then
                 postState
 
             else
-                { postState | text = statusMentionsString replyTo }
+                let
+                    mentionsString =
+                        statusMentionsString replyTo
+                in
+                { postState
+                    | text = mentionsString
+                    , mentionsString = mentionsString
+                }
 
 
 postDialogContent : RenderEnv -> PostState -> List (Html Msg)
