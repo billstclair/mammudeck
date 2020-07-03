@@ -478,6 +478,8 @@ type ColumnsUIMsg
     | PostAttachmentChosen File
     | PostAttachmentUrl String
     | DeletePostAttachment Int
+    | TogglePostSensitive
+    | ShowStatusImages String
     | Post
 
 
@@ -2622,6 +2624,23 @@ columnsUIMsg msg model =
             }
                 |> withNoCmd
 
+        TogglePostSensitive ->
+            let
+                postState =
+                    model.postState
+            in
+            { model
+                | postState =
+                    { postState
+                        | sensitive = not postState.sensitive
+                    }
+            }
+                |> withNoCmd
+
+        ShowStatusImages id ->
+            modifyColumnsStatus id (\s -> { s | sensitive = False }) model
+                |> withNoCmd
+
         Post ->
             let
                 postState =
@@ -2649,7 +2668,7 @@ columnsUIMsg msg model =
                     , quote_of_id = Nothing
                     , media_ids = postState.media_ids
                     , poll = Nothing
-                    , sensitive = False
+                    , sensitive = postState.sensitive
                     , spoiler_text = Nothing
                     , visibility = Just PublicVisibility
                     , scheduled_at = Nothing
@@ -6584,8 +6603,7 @@ renderNotificationBody renderEnv notification =
                         [ [ p [ style "font-size" "80%" ] [ postLink ] ]
                         , body
                         ]
-                , div [] <|
-                    List.map (renderAttachment renderEnv) status.media_attachments
+                , renderMediaAttachments renderEnv status
                 , renderStatusActions renderEnv status
                 ]
 
@@ -6691,11 +6709,24 @@ renderStatus renderEnv statusIn =
                 , style "color" color
                 ]
                 body
-            , div [] <|
-                List.map (renderAttachment renderEnv) status.media_attachments
+            , renderMediaAttachments renderEnv status
             , renderStatusActions renderEnv status
             ]
         ]
+
+
+renderMediaAttachments : RenderEnv -> Status -> Html Msg
+renderMediaAttachments renderEnv status =
+    if status.sensitive && status.media_attachments /= [] then
+        p []
+            [ button (ColumnsUIMsg <| ShowStatusImages status.id)
+                "Show sensitive images"
+            ]
+
+    else
+        p [] <|
+            List.map (renderAttachment renderEnv)
+                status.media_attachments
 
 
 statusButton : List (Attribute Msg) -> String -> Msg -> Html Msg
@@ -8954,7 +8985,16 @@ postDialogContent renderEnv postState =
             text ""
 
           else
-            p [] <| List.intersperse (text " ") images
+            p []
+                [ span [] <| List.intersperse (text " ") images
+                , br
+                , checkBox (ColumnsUIMsg TogglePostSensitive)
+                    postState.sensitive
+                    "Mark attachments as sensitive"
+                , br
+                , span [ style "font-size" "80%" ]
+                    [ text "Click on image to remove it." ]
+                ]
         ]
     ]
 
