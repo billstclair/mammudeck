@@ -9176,7 +9176,10 @@ postDialog model =
                             "Reply"
         , content = postDialogContent model.renderEnv model.dropZone postState
         , actionBar =
-            [ enabledButton (postState.text /= "" || postState.media_ids /= [])
+            [ enabledButton
+                ((postState.text /= "" || postState.media_ids /= [])
+                    && (List.length postState.files == List.length postState.media_ids)
+                )
                 (ColumnsUIMsg Post)
                 "Post"
             , button (ColumnsUIMsg DismissDialog) "Cancel"
