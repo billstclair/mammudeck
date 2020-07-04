@@ -11,9 +11,9 @@ Bill St. Clair, 2 July 2020
     reposted timeline entries should include those people as well.
     Do this by adding the including notification's or status's 
     mentions to the included status.
-    Or not.
+    Or not. Or a preference. Or buttons to choose.
 * Images in posts (and fix sensitivity and spoiler text in the client library)
-    Done modulo drag-and-drop.
+    DONE, with drag-and-drop.
 * Show replied/quoted post in the post dialog, likely optional.
 * Reply and Quote checkboxes, so you can change if/how the post mentions another
 * Visibility (non, public, unlisted, private, direct)

@@ -1,4 +1,4 @@
----------------------------------------------------------------------
+--------------------------------------------------------------------
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
@@ -273,6 +273,9 @@ filterInputDecoder =
 type alias RenderEnv =
     { loginServer : Maybe String
     , style : Style
+    , fontSize : String --percent
+    , columnWidth : Int --pixels
+    , resizeColumnsWithLeft : Bool
 
     -- not persistent
     , windowSize : ( Int, Int )
@@ -285,6 +288,9 @@ emptyRenderEnv : RenderEnv
 emptyRenderEnv =
     { loginServer = Nothing
     , style = LightStyle
+    , fontSize = "100"
+    , columnWidth = 300
+    , resizeColumnsWithLeft = True
     , windowSize = ( 1024, 768 )
     , here = Time.utc
     , isFeedLoading = False
@@ -460,8 +466,17 @@ type GlobalMsg
     | ReceiveAccountIdRelationships Bool (Result Error Response)
 
 
+type VerticalDirection
+    = Up
+    | Down
+
+
 type ColumnsUIMsg
     = ColumnsUINoop
+    | ResetFontSize
+    | FontSize VerticalDirection
+    | ToggleResizeColumnsWithLeft
+    | ColumnWidth VerticalDirection
     | ReloadAllColumns
     | ScrollRequests
     | DoScrollRequests (Cmd Msg)
@@ -2437,9 +2452,120 @@ These change the Model, but don't send anything over the wire to any instances.
 -}
 columnsUIMsg : ColumnsUIMsg -> Model -> ( Model, Cmd Msg )
 columnsUIMsg msg model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
     case msg of
         ColumnsUINoop ->
             model |> withNoCmd
+
+        ResetFontSize ->
+            { model
+                | renderEnv =
+                    { renderEnv
+                        | fontSize = "100"
+                    }
+            }
+                |> withNoCmd
+
+        FontSize direction ->
+            let
+                delta =
+                    case direction of
+                        Up ->
+                            5
+
+                        Down ->
+                            -5
+
+                fontSize =
+                    case String.toInt renderEnv.fontSize of
+                        Just i ->
+                            i
+
+                        Nothing ->
+                            100
+            in
+            { model
+                | renderEnv =
+                    { renderEnv
+                        | fontSize =
+                            (max 50 fontSize + delta)
+                                |> String.fromInt
+                    }
+            }
+                |> withNoCmd
+
+        ToggleResizeColumnsWithLeft ->
+            { model
+                | renderEnv =
+                    { renderEnv
+                        | resizeColumnsWithLeft =
+                            not renderEnv.resizeColumnsWithLeft
+                    }
+            }
+                |> withNoCmd
+
+        ColumnWidth direction ->
+            -- pixels -> column count -> + delta -> pixels
+            let
+                columnCount =
+                    List.length model.feedSet.feeds
+
+                delta =
+                    case direction of
+                        Up ->
+                            -1.0
+
+                        Down ->
+                            1.0
+
+                leftColWid =
+                    if renderEnv.resizeColumnsWithLeft then
+                        scaledLeftColumnWidth renderEnv
+                            + (2 * columnsBorderSpacing)
+
+                    else
+                        0
+
+                columnWidth =
+                    renderEnv.columnWidth |> toFloat
+
+                windowWidth =
+                    -- The 10 is the padding in the inner div in renderCenteredScreen
+                    -- subtracted 2 because that works.
+                    (renderEnv.windowSize |> Tuple.first) - 8 - leftColWid |> toFloat
+
+                colMargin =
+                    -- 4 should be 2, but works.
+                    columnsBorderSpacing + 4 |> toFloat
+
+                cols =
+                    (windowWidth / (columnWidth + colMargin))
+                        + delta
+                        |> (case direction of
+                                Up ->
+                                    \x -> floor <| x + 0.9
+
+                                Down ->
+                                    \x -> ceiling <| x - 0.9
+                           )
+                        |> max 1
+                        |> toFloat
+
+                newColumnWidth =
+                    (windowWidth / cols - colMargin)
+                        |> round
+                        |> max 100
+            in
+            { model
+                | renderEnv =
+                    { renderEnv
+                        | columnWidth = newColumnWidth
+                    }
+            }
+                |> withNoCmd
 
         ReloadAllColumns ->
             let
@@ -6144,13 +6270,19 @@ pspace =
     p [] [ text "" ]
 
 
-enabledButton : Bool -> Msg -> String -> Html Msg
-enabledButton enabled msg label =
+titledButton : String -> Bool -> Msg -> String -> Html Msg
+titledButton theTitle enabled msg label =
     Html.button
         [ onClick msg
         , disabled <| not enabled
+        , title theTitle
         ]
         [ b label ]
+
+
+enabledButton : Bool -> Msg -> String -> Html Msg
+enabledButton =
+    titledButton ""
 
 
 button : Msg -> String -> Html Msg
@@ -6308,16 +6440,33 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
         ]
 
 
-{-| Pixels
--}
-columnWidth : Int
-columnWidth =
-    300
-
-
 leftColumnWidth : Int
 leftColumnWidth =
     120
+
+
+scaledLeftColumnWidth : RenderEnv -> Int
+scaledLeftColumnWidth renderEnv =
+    let
+        pct =
+            case String.toInt renderEnv.fontSize of
+                Nothing ->
+                    100.0
+
+                Just i ->
+                    i |> toFloat
+    in
+    (leftColumnWidth |> toFloat) * pct / 100 |> round
+
+
+fspct : RenderEnv -> String
+fspct renderEnv =
+    renderEnv.fontSize ++ "%"
+
+
+fsStyle : RenderEnv -> Attribute msg
+fsStyle renderEnv =
+    style "font-size" <| fspct renderEnv
 
 
 renderLeftColumn : RenderEnv -> Html Msg
@@ -6328,7 +6477,7 @@ renderLeftColumn renderEnv =
     in
     div
         [ style "color" color
-        , style "width" <| px leftColumnWidth
+        , style "width" <| px (scaledLeftColumnWidth renderEnv)
         , style "padding-top" "5px"
         ]
         [ p []
@@ -6349,12 +6498,59 @@ renderLeftColumn renderEnv =
                 "dark"
             ]
         , p []
+            [ text "font"
+            , text " "
+            , titledButton "Restore the font size to the default."
+                True
+                (ColumnsUIMsg <| ResetFontSize)
+                labels.x
+            , br
+            , titledButton "Increase the font size by 5% of the default."
+                True
+                (ColumnsUIMsg <| FontSize Up)
+                labels.up
+            , text special.nbsp
+            , titledButton "Decrease the font size by 5% of the default."
+                True
+                (ColumnsUIMsg <| FontSize Down)
+                labels.down
+            ]
+        , let
+            cbTitle =
+                "If the box is not checked, resize excluding the left column's width."
+          in
+          p []
+            [ span [ title cbTitle ] [ text "width" ]
+            , text " "
+            , titledCheckBox cbTitle
+                (ColumnsUIMsg <| ToggleResizeColumnsWithLeft)
+                renderEnv.resizeColumnsWithLeft
+                ""
+            , br
+            , titledButton "Increase the column width."
+                True
+                (ColumnsUIMsg <| ColumnWidth Up)
+                labels.up
+            , text special.nbsp
+            , titledButton "Decrease the column width."
+                True
+                (ColumnsUIMsg <| ColumnWidth Down)
+                labels.down
+            ]
+        , p []
             [ button (ColumnsUIMsg <| ShowPostDialog Nothing) "post" ]
         , p []
             [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
         , p []
             [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
         ]
+
+
+labels =
+    { up = special.nbsp ++ "^" ++ special.nbsp
+    , down = special.nbsp ++ "v" ++ special.nbsp
+    , x = special.nbsp ++ "X" ++ special.nbsp
+    }
 
 
 renderFeed : RenderEnv -> Feed -> Html Msg
@@ -6374,8 +6570,8 @@ renderFeed renderEnv { feedType, elements } =
                 []
     in
     div
-        [ style "width" <| px columnWidth
-        , style "height" <| px (h - 20)
+        [ style "height" <| px (h - 20)
+        , style "width" <| px renderEnv.columnWidth
         , style "border" <| "1px solid " ++ color
         ]
         [ div
@@ -6469,22 +6665,24 @@ renderMultiNotification renderEnv account others notification =
         , style "color" color
         , style "padding" "0 3px"
         ]
-        [ description
-        , br
-        , text timeString
-        , br
-        , List.map
-            (\other ->
-                imageLink
-                    { imageUrl = other.avatar
-                    , linkUrl = other.url
-                    , altText = other.display_name
-                    , h = "1.5em"
-                    }
-            )
-            (account :: others)
-            |> List.intersperse (text " ")
-            |> span []
+        [ div [ headerFontSizeStyle ]
+            [ description
+            , br
+            , text timeString
+            , br
+            , List.map
+                (\other ->
+                    imageLink
+                        { imageUrl = other.avatar
+                        , linkUrl = other.url
+                        , altText = other.display_name
+                        , h = "1.5em"
+                        }
+                )
+                (account :: others)
+                |> List.intersperse (text " ")
+                |> span []
+            ]
         , renderNotificationBody renderEnv notification
         ]
 
@@ -6576,6 +6774,16 @@ notificationDescriptionWithDisplayName display_name notification =
             span [] [ b display_name, text "'s ", postName, text " is closed" ]
 
 
+headerFontSize : String
+headerFontSize =
+    "90%"
+
+
+headerFontSizeStyle : Attribute msg
+headerFontSizeStyle =
+    style "font-size" headerFontSize
+
+
 renderNotification : RenderEnv -> Notification -> Html Msg
 renderNotification renderEnv notification =
     let
@@ -6587,12 +6795,14 @@ renderNotification renderEnv notification =
     in
     div [ style "border" <| "1px solid " ++ color ]
         [ div []
-            [ renderAccount color
-                renderEnv.here
-                notification.account
-                description
-                notification.created_at
-                Nothing
+            [ div [ headerFontSizeStyle ]
+                [ renderAccount color
+                    renderEnv.here
+                    notification.account
+                    description
+                    notification.created_at
+                    Nothing
+                ]
             , renderNotificationBody renderEnv notification
             ]
         ]
@@ -6760,6 +6970,7 @@ renderStatus renderEnv statusIn =
             [ div
                 [ class "content"
                 , style "color" color
+                , headerFontSizeStyle
                 ]
                 [ case reblogAccount of
                     Nothing ->
@@ -6977,6 +7188,11 @@ pxBang int =
     px int ++ " !important"
 
 
+columnsBorderSpacing : Int
+columnsBorderSpacing =
+    2
+
+
 renderColumns : Model -> Html Msg
 renderColumns model =
     let
@@ -6988,9 +7204,6 @@ renderColumns model =
 
         ( _, h ) =
             renderEnv.windowSize
-
-        tableWidth =
-            leftColumnWidth + List.length feeds * columnWidth
     in
     renderCenteredScreen model
         ""
@@ -7002,12 +7215,10 @@ renderColumns model =
                 p [ style "color" "red" ]
                     [ text msg ]
         , table
-            [--style "width" <| px tableWidth
+            [ style "border-spacing" <| String.fromInt columnsBorderSpacing
+            , fsStyle renderEnv
             ]
-            [ tr
-                [-- style "width" <| px tableWidth
-                ]
-              <|
+            [ tr [] <|
                 List.concat
                     [ [ td [ style "vertical-align" "top" ]
                             [ Lazy.lazy renderLeftColumn renderEnv ]
@@ -7031,7 +7242,8 @@ renderColumns model =
                                     else
                                         renderEnv
                             in
-                            td [ style "vertical-align" "top" ]
+                            td
+                                [ style "vertical-align" "top" ]
                                 [ Lazy.lazy2 renderFeed env feed ]
                         )
                         feeds
@@ -7512,11 +7724,12 @@ excludedNotificationTypeCheckbox label notificationType model =
         label
 
 
-checkBox : Msg -> Bool -> String -> Html Msg
-checkBox msg isChecked label =
+titledCheckBox : String -> Msg -> Bool -> String -> Html Msg
+titledCheckBox theTitle msg isChecked label =
     span
         [ onClick msg
         , style "cursor" "default"
+        , title theTitle
         ]
         [ input
             [ type_ "checkbox"
@@ -7525,6 +7738,11 @@ checkBox msg isChecked label =
             []
         , b label
         ]
+
+
+checkBox : Msg -> Bool -> String -> Html Msg
+checkBox =
+    titledCheckBox ""
 
 
 customEmojisSelectedUI : Model -> Html Msg
@@ -8689,7 +8907,6 @@ renderHeaders prettify color metadata =
         , Dict.foldr fold [] metadata.headers
             |> table
                 [ style "color" color
-                , style "font-size" "14px"
                 ]
         ]
 
@@ -8714,7 +8931,10 @@ renderDialog model =
         AlertDialog content ->
             dialogRender
                 model.renderEnv
-                { styles = [ ( "width", "40%" ) ]
+                { styles =
+                    [ ( "width", "40%" )
+                    , ( "font-size", fspct model.renderEnv )
+                    ]
                 , title = "Alert"
                 , content = [ text content ]
                 , actionBar =
@@ -8768,7 +8988,10 @@ editColumnsDialog : Model -> Html Msg
 editColumnsDialog model =
     dialogRender
         model.renderEnv
-        { styles = [ ( "width", "40%" ) ]
+        { styles =
+            [ ( "width", "40%" )
+            , ( "font-size", fspct model.renderEnv )
+            ]
         , title = "Edit Columns"
         , content = editColumnDialogRows model
         , actionBar =
@@ -8920,7 +9143,7 @@ postDialog model =
         model.renderEnv
         { styles =
             [ ( "width", "50em" )
-            , ( "font-size", "medium" )
+            , ( "font-size", fspct model.renderEnv )
             ]
         , title =
             if postState.noReply then
@@ -9030,7 +9253,6 @@ postDialogContent renderEnv dropZone postState =
             [ id postDialogTextId
             , rows 20
             , style "width" "100%"
-            , style "font-size" "medium"
             , style "color" color
             , style "background-color" inputBackground
             , onInput (ColumnsUIMsg << SetPostText)
@@ -9703,6 +9925,9 @@ savedModelToModel savedModel model =
             { renderEnv
                 | loginServer = savedRenderEnv.loginServer
                 , style = savedRenderEnv.style
+                , fontSize = savedRenderEnv.fontSize
+                , columnWidth = savedRenderEnv.columnWidth
+                , resizeColumnsWithLeft = savedRenderEnv.resizeColumnsWithLeft
             }
         , page = savedModel.page
         , token = savedModel.token
@@ -9876,20 +10101,29 @@ encodeRenderEnv env =
     JE.object
         [ ( "loginServer", ED.encodeMaybe JE.string env.loginServer )
         , ( "style", encodeStyle env.style )
+        , ( "fontSize", JE.string env.fontSize )
+        , ( "columnWidth", JE.int env.columnWidth )
+        , ( "resizeColumnsWithLeft", JE.bool env.resizeColumnsWithLeft )
         ]
 
 
 renderEnvDecoder : Decoder RenderEnv
 renderEnvDecoder =
     JD.succeed
-        (\loginServer style ->
+        (\loginServer style fontSize columnWidth resizeColumnsWithLeft ->
             { emptyRenderEnv
                 | loginServer = loginServer
                 , style = style
+                , fontSize = fontSize
+                , columnWidth = columnWidth
+                , resizeColumnsWithLeft = resizeColumnsWithLeft
             }
         )
         |> required "loginServer" (JD.nullable JD.string)
         |> required "style" styleDecoder
+        |> optional "fontSize" JD.string "100"
+        |> optional "columnWidth" JD.int 300
+        |> optional "resizeColumnsWithLeft" JD.bool True
 
 
 encodeSavedModel : SavedModel -> Value
