@@ -12,6 +12,7 @@ Bill St. Clair, 2 July 2020
     Do this by adding the including notification's or status's 
     mentions to the included status.
     Or not. Or a preference. Or buttons to choose.
+* Don't @mention yourself in a reply.
 * Images in posts (and fix sensitivity and spoiler text in the client library)
     DONE, with drag-and-drop.
 * Show replied/quoted post in the post dialog, likely optional.
@@ -23,6 +24,11 @@ Bill St. Clair, 2 July 2020
 
 ## For the Columns view
 
+* Server switcher in the left column.
+    Change the master server.
+    Will be less important once a feedset can fetch from multiple servers.
+* Update feed button at top of feed (includes the merge code needed
+    for auto-update).
 * Auto-update, likely without WebSockets initially
     * Indicators of how many posts have been loaded but not displayed
       Click to add to top of column
@@ -31,14 +37,23 @@ Bill St. Clair, 2 July 2020
 
 ## For column status rendering
 
-* Replace :<emoji>: with the URL from the "GET custom_emojis" API request.
 * Show "in reply to" "user"
     Pop up replied-to post on hover over "in reply to"
     Pop up user profile on hover over user
 * Show quoted post inline, with hide/show
+* Ellipsis dialog: block, mute, (un)follow or delete, edit
+* Replace :<emoji>: with the URL from the "GET custom_emojis" API request.
 * Image view popup (currently, clicking on image opens the full-res version in a new tab)
 * Display Polls
 
+## Thread Explorer
+
+* Navigate the `Context` entities returned by `GET statuses/:id/context`.
+* The explorer will pop up when you click on the timestamp of a status.
+* If the status has non-null `in_reply_to_id` non-zero
+    `replies_count`, then this the explorer will fetch context,
+    and create a twist-down tree explorer for investigating it.
+    
 ## For the Feed set "edit" dialog
 
 * The rest of the feed types (hashtag, list, group, conversations, search)
