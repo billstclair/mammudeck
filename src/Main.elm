@@ -81,6 +81,7 @@ import Html.Attributes
         , title
         , type_
         , value
+        , width
         )
 import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
 import Html.Lazy as Lazy
@@ -6375,8 +6376,21 @@ renderCenteredScreen model width body =
 
 renderHome : Model -> Html Msg
 renderHome model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        screenWidth =
+            renderEnv.windowSize |> Tuple.first
+
+        divWidth =
+            min screenWidth 500
+
+        imgWidth =
+            8 * divWidth // 10
+    in
     renderCenteredScreen model
-        "40em"
+        (px divWidth)
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
         , pageSelector True (model.renderEnv.loginServer /= Nothing) model.page
@@ -6396,12 +6410,12 @@ Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a wo
 
 There's a huge list of servers at [fediverse.network](https://fediverse.network/). This webapp doesn't know how to register a new account (yet), so you'll have to do that on the server's web site, then come back here to log in.
             """
-        , p [ style "text-align" "center" ]
+        , p []
             [ img
                 [ src "images/mammoth-500x360.png"
-                , style "width" "500"
-                , style "height" "360"
+                , width imgWidth
                 , alt "Mammoth"
+                , style "text-align" "center"
                 ]
                 []
             ]
