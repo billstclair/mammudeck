@@ -1202,6 +1202,11 @@ handleGetModel maybeValue model =
     }
         |> withCmds
             [ cmd
+            , if mdl.page == HomePage then
+                focusId LoginServerId
+
+              else
+                Cmd.none
             , case mdl.renderEnv.loginServer of
                 Just server ->
                     getFeedSetDefinition server
@@ -1775,6 +1780,9 @@ globalMsg msg model =
                                 Cmd.none
                             ]
 
+                     else if page == HomePage then
+                        focusId LoginServerId
+
                      else
                         Cmd.none
                     )
@@ -1867,8 +1875,7 @@ globalMsg msg model =
                         Cmd.none
 
                      else
-                        Task.attempt (\_ -> Noop) <|
-                            Dom.focus cancelButtonId
+                        focusId CancelButtonId
                     )
 
         OnKeyPress key ->
@@ -2631,7 +2638,7 @@ columnsUIMsg msg model =
 
         ShowServerDialog ->
             { model | dialog = ServerDialog }
-                |> withNoCmd
+                |> withCmd (focusId LoginServerId)
 
         ShowPostDialog maybeStatus ->
             let
@@ -2645,9 +2652,7 @@ columnsUIMsg msg model =
                         |> addPostStateMentions
             }
                 |> withCmd
-                    (Task.attempt (\_ -> Noop) <|
-                        Dom.focus postDialogTextId
-                    )
+                    (focusId PostDialogTextId)
 
         DismissDialog ->
             { model | dialog = NoDialog }
@@ -8888,9 +8893,13 @@ loginSelectedUI : Model -> Html Msg
 loginSelectedUI model =
     p []
         [ pspace
-        , b "server: "
+        , b "Server: "
+        , br
+        , serverSelect model
+        , text " "
         , input
-            [ size 30
+            [ id nodeIds.loginServer
+            , size 30
             , onInput (GlobalMsg << SetServer)
             , value model.server
             , placeholder "mastodon.social"
@@ -8904,8 +8913,6 @@ loginSelectedUI model =
                 )
             ]
             []
-        , text " "
-        , serverSelect model
         , br
         , Html.button
             [ onClick (GlobalMsg Login)
@@ -8949,9 +8956,36 @@ renderHeaders prettify color metadata =
         ]
 
 
-cancelButtonId : String
-cancelButtonId =
-    "cancelButton"
+type NodeId
+    = CancelButtonId
+    | PostDialogTextId
+    | LoginServerId
+
+
+nodeIdAlist : List ( NodeId, String )
+nodeIdAlist =
+    [ ( CancelButtonId, nodeIds.cancelButton )
+    , ( PostDialogTextId, nodeIds.postDialogText )
+    , ( LoginServerId, nodeIds.loginServer )
+    ]
+
+
+focusId : NodeId -> Cmd Msg
+focusId nodeId =
+    case LE.find (\( id, _ ) -> id == nodeId) nodeIdAlist of
+        Nothing ->
+            Cmd.none
+
+        Just ( _, id ) ->
+            Task.attempt (\_ -> Noop) <|
+                Dom.focus id
+
+
+nodeIds =
+    { cancelButton = "cancelButton"
+    , postDialogText = "postDialogText"
+    , loginServer = "loginServer"
+    }
 
 
 renderDialog : Model -> Html Msg
@@ -8981,7 +9015,7 @@ renderDialog model =
                 , actionBar =
                     [ Html.button
                         [ onClick <| (GlobalMsg << SetDialog) NoDialog
-                        , id cancelButtonId
+                        , id nodeIds.cancelButton
                         ]
                         [ b "OK" ]
                     ]
@@ -8997,7 +9031,7 @@ renderDialog model =
                 , actionBar =
                     [ Html.button
                         [ onClick <| (GlobalMsg << SetDialog) NoDialog
-                        , id cancelButtonId
+                        , id nodeIds.cancelButton
                         ]
                         [ b "Cancel" ]
                     , text <| String.repeat 4 special.nbsp
@@ -9066,7 +9100,7 @@ editColumnsDialog model =
         , title = "Edit Columns"
         , content = editColumnDialogRows model
         , actionBar =
-            [ button (ColumnsUIMsg DismissDialog) "OK" ]
+            [ button (ColumnsUIMsg DismissDialog) "Cancel" ]
         }
         True
 
@@ -9245,11 +9279,6 @@ postDialog model =
         True
 
 
-postDialogTextId : String
-postDialogTextId =
-    "postDialogText"
-
-
 statusMentionsString : Status -> String
 statusMentionsString status =
     let
@@ -9324,7 +9353,7 @@ postDialogContent renderEnv dropZone postState =
                 ]
     , p []
         [ textarea
-            [ id postDialogTextId
+            [ id nodeIds.postDialogText
             , rows 20
             , style "width" "100%"
             , style "color" color
