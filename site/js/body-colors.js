@@ -2,7 +2,7 @@
 //
 // body-colors.js
 // Custom HTML element to set background-color and color in the <head> element.
-// Copyright (c) 2019 Bill St. Clair <billstclair@gmail.com>
+// Copyright (c) 2020 Bill St. Clair <billstclair@gmail.com>
 // Some rights reserved.
 // Distributed under the MIT License
 // See LICENSE

@@ -1,4 +1,4 @@
---------------------------------------------------------------------
+-------------------------------------------------------------------
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
@@ -20,6 +20,9 @@
 ----------------------------------------------------------------------
 {--Immediate TODOs
 * Update feed button at top of feed (first step in auto-update)
+    Need to write a render-notify custom element.
+    * `renderNotify [ onRender <Value -> msg> <Value> ] []`
+      Calls the tagger (<Value -> msg>) with <Value> on rendering.
 
 * Show commented post. Option to show replied to post.
 
@@ -40,6 +43,7 @@ import Browser.Navigation as Navigation exposing (Key)
 import Char
 import Cmd.Extra exposing (addCmd, withCmd, withCmds, withNoCmd)
 import CustomElement.BodyColors as BodyColors
+import CustomElement.RenderNotify as RenderNotify
 import CustomElement.WriteClipboard as WriteClipboard
 import Dialog
 import Dict exposing (Dict)
@@ -367,8 +371,6 @@ type alias Model =
     , postState : PostState
     , feedSet : FeedSet
     , loadingFeeds : Set String --loading older posts, that is
-    , feedScrollHeights : Dict String Float
-    , loadingScrollHeights : Dict String Float
     , accountIdDict : Dict String (List AccountId)
     , dropZone : DropZone.Model
 
@@ -430,7 +432,8 @@ type alias Model =
     , msg : Maybe String
     , started : Started
     , funnelState : State
-    , now : Maybe Posix
+    , now : Posix
+    , cmdQueue : List ( Int, Cmd Msg )
     }
 
 
@@ -455,7 +458,6 @@ type Msg
 type GlobalMsg
     = WindowResize Int Int
     | Here Zone
-    | Now Posix
     | SetPage String
     | SetResponseState JsonTree.State
     | SetEntityState JsonTree.State
@@ -491,8 +493,10 @@ type ColumnsUIMsg
     | ToggleResizeColumnsWithLeft
     | ColumnWidth VerticalDirection
     | ReloadAllColumns
-    | ScrollRequests
-    | DoScrollRequests (Cmd Msg)
+    | RefreshFeed FeedType
+    | FeedRendered Value
+    | DelayCmd Int (Cmd Msg)
+    | Tick Posix
     | ShowEditColumnsDialog
     | ShowServerDialog
     | ShowPostDialog (Maybe Status)
@@ -755,6 +759,8 @@ subscriptions model =
     Sub.batch
         [ PortFunnels.subscriptions (GlobalMsg << Process) model
         , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
+
+        --, Time.every 250 (ColumnsUIMsg << Tick)
         , scrollNotify ScrollNotify
         , if model.dialog /= NoDialog then
             Events.onKeyDown keyDecoder
@@ -980,8 +986,6 @@ init value url key =
     , postState = initialPostState
     , feedSet = Types.emptyFeedSet
     , loadingFeeds = Set.empty
-    , feedScrollHeights = Dict.empty
-    , loadingScrollHeights = Dict.empty
     , accountIdDict = Dict.empty
     , dropZone = DropZone.init
     , altKeyDown = False
@@ -1039,7 +1043,8 @@ init value url key =
     , msg = msg
     , started = NotStarted
     , funnelState = initialFunnelState
-    , now = Nothing
+    , now = Time.millisToPosix 0
+    , cmdQueue = []
     }
         -- As soon as the localStorage module reports in,
         -- we'll load the saved model,
@@ -1056,7 +1061,6 @@ init value url key =
                     Cmd.none
             , Task.perform getViewport Dom.getViewport
             , Task.perform (GlobalMsg << Here) Time.here
-            , Task.perform (GlobalMsg << Now) Time.now
             ]
 
 
@@ -1707,31 +1711,27 @@ processScroll value model =
             let
                 id =
                     notification.id
-
-                scrollHeight =
-                    notification.scrollHeight
-
-                clientHeight =
-                    notification.clientHeight
-
-                overhang =
-                    scrollHeight
-                        - (notification.scrollTop + clientHeight)
-
-                mdl =
-                    { model
-                        | feedScrollHeights =
-                            Dict.insert id scrollHeight model.feedScrollHeights
-                    }
             in
-            if
-                Set.member id model.loadingFeeds
-                    || (clientHeight / 4 < overhang)
-            then
-                mdl |> withNoCmd
+            if Set.member id model.loadingFeeds then
+                model |> withNoCmd
 
             else
-                loadMoreCmd id mdl
+                let
+                    scrollHeight =
+                        notification.scrollHeight
+
+                    clientHeight =
+                        notification.clientHeight
+
+                    overhang =
+                        scrollHeight
+                            - (notification.scrollTop + clientHeight)
+                in
+                if clientHeight / 4 <= overhang then
+                    model |> withNoCmd
+
+                else
+                    loadMoreCmd id model
 
 
 {-| Process global messages.
@@ -1757,10 +1757,6 @@ globalMsg msg model =
             }
                 |> withNoCmd
 
-        Now posix ->
-            { model | now = Just posix }
-                |> withNoCmd
-
         SetPage pageString ->
             let
                 page =
@@ -1770,9 +1766,7 @@ globalMsg msg model =
                 |> withCmd
                     (if page == ColumnsPage then
                         Cmd.batch
-                            [ Task.perform ColumnsUIMsg <|
-                                Task.succeed ScrollRequests
-                            , if feedsNeedLoading model then
+                            [ if feedsNeedLoading model then
                                 Task.perform ColumnsUIMsg <|
                                     Task.succeed ReloadAllColumns
 
@@ -2392,35 +2386,12 @@ extendFeed feedId feed model =
 
                 _ ->
                     ""
-
-        scrollHeight =
-            Debug.log "extendFeed, scrollHeight" <|
-                Dict.get feedId model.feedScrollHeights
     in
     if id == "" then
         model |> withNoCmd
 
-    else if
-        -- An attempt to prevent second loading before view
-        (scrollHeight /= Nothing)
-            && (scrollHeight == Debug.log "  loadingScrollHeight" (Dict.get feedId model.loadingScrollHeights))
-    then
-        model |> withNoCmd
-
     else
-        let
-            mdl =
-                { model
-                    | loadingScrollHeights =
-                        case scrollHeight of
-                            Nothing ->
-                                Dict.remove feedId model.loadingScrollHeights
-
-                            Just sh ->
-                                Dict.insert feedId sh model.loadingScrollHeights
-                }
-        in
-        reloadFeedPaging (Just { emptyPaging | max_id = Just id }) feed mdl
+        reloadFeedPaging (Just { emptyPaging | max_id = Just id }) feed model
 
 
 feedsNeedLoading : Model -> Bool
@@ -2462,11 +2433,22 @@ One of these is kept active for each column displayed.
 -}
 makeScrollRequest : FeedType -> Bool -> Cmd Msg
 makeScrollRequest feedType enable =
+    makeScrollRequestWithId (Types.feedID feedType) enable
+
+
+makeScrollRequestWithId : String -> Bool -> Cmd Msg
+makeScrollRequestWithId id enable =
     JE.object
-        [ ( "id", JE.string <| Types.feedID feedType )
+        [ ( "id", JE.string id )
         , ( "enable", JE.bool enable )
         ]
         |> scrollRequest
+
+
+delayCmd : Int -> Cmd Msg -> Cmd Msg
+delayCmd millis cmd =
+    Task.perform ColumnsUIMsg <|
+        Task.succeed (DelayCmd millis cmd)
 
 
 {-| Process UI messages from the columns page.
@@ -2593,44 +2575,69 @@ columnsUIMsg msg model =
 
         ReloadAllColumns ->
             let
-                model2 =
-                    { model | loadingScrollHeights = Dict.empty }
-
                 getFeed : Feed -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
                 getFeed feed ( mdl, cmds ) =
                     let
                         ( mdl2, cmd ) =
-                            reloadFeed feed mdl
-
-                        scrollCmd =
-                            -- Disable scroll processing while fetching
-                            -- Is there a race condition here?
-                            -- If so we'll need Model.noScrollFeedTypes
-                            makeScrollRequest feed.feedType False
+                            reloadFeed feed model
                     in
-                    ( mdl2, Cmd.batch [ cmd, cmds, scrollCmd ] )
+                    ( mdl2, Cmd.batch [ cmd, cmds ] )
             in
-            List.foldr getFeed ( model2, Cmd.none ) model2.feedSet.feeds
+            List.foldr getFeed ( model, Cmd.none ) model.feedSet.feeds
 
-        ScrollRequests ->
+        RefreshFeed feedType ->
+            -- TODO : Change this to do an update, not a total refresh
+            case findFeed feedType model.feedSet of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just feed ->
+                    reloadFeed feed model
+
+        FeedRendered v ->
+            case JD.decodeValue JD.string v of
+                Err _ ->
+                    model |> withNoCmd
+
+                Ok id ->
+                    model |> withCmd (makeScrollRequestWithId id True)
+
+        DelayCmd millis cmd ->
+            if millis <= 0 then
+                model |> withCmd cmd
+
+            else
+                let
+                    now =
+                        Time.posixToMillis model.now
+                in
+                { model
+                    | cmdQueue =
+                        ( now + millis, cmd ) :: model.cmdQueue
+                }
+                    |> withNoCmd
+
+        Tick now ->
             let
-                getScrollRequest : FeedType -> Cmd Msg -> Cmd Msg
-                getScrollRequest feedType cmds =
-                    Cmd.batch [ cmds, makeScrollRequest feedType True ]
+                millis =
+                    Time.posixToMillis now
 
-                cmd =
-                    List.foldr getScrollRequest
-                        Cmd.none
-                        model.feedSetDefinition.feedTypes
+                folder qe ( cmds, queue ) =
+                    let
+                        ( time, cmd ) =
+                            qe
+                    in
+                    if time <= millis then
+                        ( Cmd.batch [ cmd, cmds ], queue )
+
+                    else
+                        ( cmds, qe :: queue )
+
+                ( cmds2, queue2 ) =
+                    List.foldl folder ( Cmd.none, [] ) model.cmdQueue
             in
-            ( model
-              -- Delay for one update round-trip so view is called.
-            , Task.perform ColumnsUIMsg <|
-                Task.succeed (DoScrollRequests cmd)
-            )
-
-        DoScrollRequests cmd ->
-            model |> withCmd cmd
+            { model | now = now }
+                |> withCmd cmds2
 
         ShowEditColumnsDialog ->
             { model | dialog = EditColumnsDialog }
@@ -3307,6 +3314,9 @@ reloadFeedPaging paging feed model =
                             Set.insert id model.loadingFeeds
                     }
 
+                cmd =
+                    makeScrollRequest feedType False
+
                 sendReq =
                     case req of
                         AccountsRequest (Request.GetAccountByUsername _) ->
@@ -3317,10 +3327,10 @@ reloadFeedPaging paging feed model =
                             ColumnsSendMsg
                                 << ReceiveFeed paging feedType
 
-                ( mdl2, cmd ) =
+                ( mdl2, cmd2 ) =
                     sendGeneralRequest sendReq req mdl
 
-                cmd2 =
+                cmd3 =
                     -- It would be nice to delay scrolling until the
                     -- response comes in, but that creates race
                     -- conditions with the scroll detection code, and
@@ -3333,7 +3343,7 @@ reloadFeedPaging paging feed model =
                         _ ->
                             Cmd.none
             in
-            mdl2 |> withCmds [ cmd, cmd2 ]
+            mdl2 |> withCmds [ cmd, cmd2, cmd3 ]
 
 
 pagingToReceiveType : Maybe Paging -> ReceiveFeedType
@@ -3473,7 +3483,6 @@ columnsSendMsg msg model =
                                 |> withCmds
                                     [ cmd
                                     , cmd2
-                                    , makeScrollRequest feedType True
                                     ]
 
 
@@ -6605,6 +6614,9 @@ renderFeed renderEnv { feedType, elements } =
         ( _, h ) =
             renderEnv.windowSize
 
+        feedId =
+            Types.feedID feedType
+
         footer statuses =
             if renderEnv.isFeedLoading && statuses /= [] then
                 [ renderFeedLoadingEmojiFooter renderEnv ]
@@ -6626,14 +6638,19 @@ renderFeed renderEnv { feedType, elements } =
                 feedLoadingEmojiSpan True True
 
               else
-                text ""
+                Html.i
+                    [ onClick <| ColumnsUIMsg (RefreshFeed feedType)
+                    , style "font-size" "80%"
+                    , class "icon-spin3"
+                    ]
+                    []
             , feedTitle feedType
             ]
         , div
             [ style "height" "calc(100% - 1.4em)"
             , style "overflow-y" "auto"
             , style "overflow-x" "hidden"
-            , id <| Types.feedID feedType
+            , id feedId
             ]
           <|
             case elements of
@@ -6661,6 +6678,11 @@ renderFeed renderEnv { feedType, elements } =
 
                 _ ->
                     [ text "" ]
+        , RenderNotify.renderNotify
+            [ RenderNotify.notifyValue <| JE.string feedId
+            , RenderNotify.onRender (ColumnsUIMsg << FeedRendered)
+            ]
+            []
         ]
 
 
