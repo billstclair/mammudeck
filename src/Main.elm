@@ -297,7 +297,6 @@ type alias RenderEnv =
     -- not persistent
     , windowSize : ( Int, Int )
     , here : Zone
-    , isFeedLoading : Bool
     }
 
 
@@ -310,7 +309,6 @@ emptyRenderEnv =
     , resizeColumnsWithLeft = True
     , windowSize = ( 1024, 768 )
     , here = Time.utc
-    , isFeedLoading = False
     }
 
 
@@ -370,9 +368,9 @@ type alias Model =
     , dialog : Dialog
     , postState : PostState
     , feedSet : FeedSet
-    , loadingFeeds : Set String --loading older posts, that is
     , accountIdDict : Dict String (List AccountId)
     , dropZone : DropZone.Model
+    , loadingFeeds : Set String --feed ids
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -760,6 +758,8 @@ subscriptions model =
         [ PortFunnels.subscriptions (GlobalMsg << Process) model
         , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
 
+        -- This enables delayCmd. Without it, delayed commands never run.
+        -- There currently aren't any calls.
         --, Time.every 250 (ColumnsUIMsg << Tick)
         , scrollNotify ScrollNotify
         , if model.dialog /= NoDialog then
@@ -985,9 +985,9 @@ init value url key =
     , dialog = NoDialog
     , postState = initialPostState
     , feedSet = Types.emptyFeedSet
-    , loadingFeeds = Set.empty
     , accountIdDict = Dict.empty
     , dropZone = DropZone.init
+    , loadingFeeds = Set.empty
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -2447,8 +2447,12 @@ makeScrollRequestWithId id enable =
 
 delayCmd : Int -> Cmd Msg -> Cmd Msg
 delayCmd millis cmd =
-    Task.perform ColumnsUIMsg <|
-        Task.succeed (DelayCmd millis cmd)
+    if millis <= 0 then
+        cmd
+
+    else
+        Task.perform ColumnsUIMsg <|
+            Task.succeed (DelayCmd millis cmd)
 
 
 {-| Process UI messages from the columns page.
@@ -3308,6 +3312,9 @@ reloadFeedPaging paging feed model =
                     Debug.log "Loading feed" <|
                         Types.feedID feed.feedType
 
+                renderEnv =
+                    model.renderEnv
+
                 mdl =
                     { model
                         | loadingFeeds =
@@ -3404,10 +3411,14 @@ columnsSendMsg msg model =
                     TimelinesRequest <|
                         Request.GetHomeTimeline { paging = Nothing }
 
+                renderEnv =
+                    model.renderEnv
+
                 model2 =
                     { model
                         | loadingFeeds =
-                            Set.remove (Types.feedID feedType) model.loadingFeeds
+                            Set.remove (Types.feedID feedType)
+                                model.loadingFeeds
                     }
 
                 ( mdl, cmd ) =
@@ -6605,8 +6616,8 @@ labels =
     }
 
 
-renderFeed : RenderEnv -> Feed -> Html Msg
-renderFeed renderEnv { feedType, elements } =
+renderFeed : Bool -> RenderEnv -> Feed -> Html Msg
+renderFeed isFeedLoading renderEnv { feedType, elements } =
     let
         { color } =
             getStyle renderEnv.style
@@ -6615,10 +6626,10 @@ renderFeed renderEnv { feedType, elements } =
             renderEnv.windowSize
 
         feedId =
-            Types.feedID feedType
+            Types.feedID <| Debug.log "renderFeed" feedType
 
         footer statuses =
-            if renderEnv.isFeedLoading && statuses /= [] then
+            if isFeedLoading && statuses /= [] then
                 [ renderFeedLoadingEmojiFooter renderEnv ]
 
             else
@@ -6634,7 +6645,7 @@ renderFeed renderEnv { feedType, elements } =
             , style "text-align" "center"
             , style "color" color
             ]
-            [ if renderEnv.isFeedLoading then
+            [ if isFeedLoading then
                 feedLoadingEmojiSpan True True
 
               else
@@ -7297,19 +7308,16 @@ renderColumns model =
                                 id =
                                     Types.feedID feed.feedType
 
-                                isLoading =
+                                isFeedLoading =
                                     Set.member id model.loadingFeeds
-
-                                env =
-                                    if isLoading then
-                                        { renderEnv | isFeedLoading = True }
-
-                                    else
-                                        renderEnv
                             in
                             td
                                 [ style "vertical-align" "top" ]
-                                [ Lazy.lazy2 renderFeed env feed ]
+                                [ Lazy.lazy3 renderFeed
+                                    isFeedLoading
+                                    renderEnv
+                                    feed
+                                ]
                         )
                         feeds
                     ]

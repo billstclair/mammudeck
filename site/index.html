@@ -65,6 +65,7 @@
       var listeners = {};
       if (scrollNotify && scrollRequest) {
         scrollRequest.subscribe(function(request) {
+          //console.log("scrollRequest: ", request);
           var id = request.id;
           var enable = request.enable;
           if (id) {
@@ -80,17 +81,17 @@
               if (node) {
                 var o = {node: node}
                 var listener = function() {
-                  var notification = {id: id,
-                                      scrollLeft: node.scrollLeft,
-                                      scrollTop: node.scrollTop,
-                                      scrollWidth : node.scrollWidth,
-                                      scrollHeight : node.scrollHeight,
-                                      clientWidth : node.clientWidth,
-                                      clientHeight : node.clientHeight
-                                     }
                   if (!o.ticking) {
                     o.ticking = true;
                     window.requestAnimationFrame(function() {
+                      var notification = {id: id,
+                                          scrollLeft: node.scrollLeft,
+                                          scrollTop: node.scrollTop,
+                                          scrollWidth : node.scrollWidth,
+                                          scrollHeight : node.scrollHeight,
+                                          clientWidth : node.clientWidth,
+                                          clientHeight : node.clientHeight
+                                         }
                       scrollNotify.send(notification);
                       //console.log('scrollNotify: ', notification);
                       o.ticking = false;

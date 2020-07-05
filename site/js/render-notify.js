@@ -11,8 +11,6 @@
 
 (function() {
 
-  console.log("render-notify.js");
-
 customElements.define('render-notify', class extends HTMLElement {
   constructor() {
     super();
