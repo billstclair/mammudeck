@@ -7,14 +7,14 @@ Bill St. Clair, 2 July 2020
 ## For the Post dialog
 
 * Reply should @mention the participants.
-    DONE, except favorite and repost notifications, plus
+    **DONE**, except favorite and repost notifications, plus
     reposted timeline entries should include those people as well.
     Do this by adding the including notification's or status's 
     mentions to the included status.
     Or not. Or a preference. Or buttons to choose.
 * Don't @mention yourself in a reply.
 * Images in posts (and fix sensitivity and spoiler text in the client library)
-    DONE, with drag-and-drop.
+    **DONE**, with drag-and-drop.
 * Show replied/quoted post in the post dialog, likely optional.
 * Reply and Quote checkboxes, so you can change if/how the post mentions another
 * Visibility (non, public, unlisted, private, direct)
@@ -70,7 +70,7 @@ Bill St. Clair, 2 July 2020
 
 ## Mobile layout!
 
-* DONE modulo the Progressive Web App manifest, so saving to desktop will
+* **DONE** modulo the Progressive Web App manifest, so saving to desktop will
     get a better icon and name.
     https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps
     https://web.dev/progressive-web-apps/
@@ -78,9 +78,9 @@ Bill St. Clair, 2 July 2020
 ## New Settings dialog
 
 * Column width, possibly per-column (photo posters elicit more real estate)
-    DONE, but not per-column
+    **DONE**, but not per-column
 * Font size
-    DONE.
+    **DONE**.
 * Color options other than light/dark
     Do everything with CSS classes, not inline styles.
     User editing of the CSS classes
