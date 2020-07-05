@@ -228,6 +228,7 @@ type Dialog
     | AlertDialog String
     | ConfirmDialog String String Msg
     | EditColumnsDialog
+    | ServerDialog
     | PostDialog
 
 
@@ -495,6 +496,7 @@ type ColumnsUIMsg
     | ScrollRequests
     | DoScrollRequests (Cmd Msg)
     | ShowEditColumnsDialog
+    | ShowServerDialog
     | ShowPostDialog (Maybe Status)
     | DismissDialog
     | AddFeedColumn FeedType
@@ -1977,13 +1979,16 @@ globalMsg msg model =
                         }
                             |> Url.toString
                     }
+
+                mdl =
+                    { model | dialog = NoDialog }
             in
             case Login.loginTask sau <| Dict.get model.server model.tokens of
                 Redirect task ->
-                    ( model, Task.attempt (GlobalMsg << ReceiveRedirect) task )
+                    ( mdl, Task.attempt (GlobalMsg << ReceiveRedirect) task )
 
                 FetchAccount task ->
-                    ( model, Task.attempt (GlobalMsg << ReceiveFetchAccount) task )
+                    ( mdl, Task.attempt (GlobalMsg << ReceiveFetchAccount) task )
 
         Logout ->
             case model.renderEnv.loginServer of
@@ -2626,6 +2631,10 @@ columnsUIMsg msg model =
             { model | dialog = EditColumnsDialog }
                 |> withNoCmd
 
+        ShowServerDialog ->
+            { model | dialog = ServerDialog }
+                |> withNoCmd
+
         ShowPostDialog maybeStatus ->
             let
                 postState =
@@ -3069,10 +3078,19 @@ addFeedType feedType model =
                 | feeds =
                     List.append feedSet.feeds [ newFeed ]
             }
+
+        userNameInput =
+            case feedType of
+                UserFeed _ ->
+                    ""
+
+                _ ->
+                    model.userNameInput
     in
     { model
         | feedSetDefinition = newFeedSetDefinition
         , feedSet = newFeedSet
+        , userNameInput = userNameInput
     }
         |> reloadFeed newFeed
         |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
@@ -6508,15 +6526,10 @@ renderLeftColumn renderEnv =
         , style "padding-top" "5px"
         ]
         [ p []
-            [ case renderEnv.loginServer of
-                Nothing ->
-                    text ""
-
-                Just server ->
-                    span []
-                        [ link "server" <| "https://" ++ server
-                        , br
-                        ]
+            [ titledButton "Show server information. Switch servers."
+                True
+                (ColumnsUIMsg <| ShowServerDialog)
+                "server"
             ]
         , p [] [ pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage ]
         , p []
@@ -8952,6 +8965,9 @@ renderDialog model =
         EditColumnsDialog ->
             editColumnsDialog model
 
+        ServerDialog ->
+            serverDialog model
+
         PostDialog ->
             postDialog model
 
@@ -9009,6 +9025,37 @@ dialogRender renderEnv config visible =
                     config.styles
         }
         visible
+
+
+serverDialog : Model -> Html Msg
+serverDialog model =
+    dialogRender
+        model.renderEnv
+        { styles =
+            [ ( "width", "40%" )
+            , ( "font-size", fspct model.renderEnv )
+            ]
+        , title = "Server"
+        , content = serverDialogContent model
+        , actionBar =
+            [ button (ColumnsUIMsg DismissDialog) "OK" ]
+        }
+        True
+
+
+serverDialogContent : Model -> List (Html Msg)
+serverDialogContent model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
+    [ div []
+        [ p []
+            [ primaryServerLine model ]
+        , p []
+            [ loginSelectedUI model ]
+        ]
+    ]
 
 
 editColumnsDialog : Model -> Html Msg
