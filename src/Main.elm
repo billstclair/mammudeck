@@ -6889,7 +6889,7 @@ feedTitle feedType =
             b "Home"
 
         UserFeed { username } ->
-            b <| "User: " ++ username
+            b <| username
 
         PublicFeed _ ->
             b "Public"
