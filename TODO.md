@@ -7,7 +7,7 @@ Bill St. Clair, 2 July 2020
 ## For the Post dialog
 
 * Reply should @mention the participants.
-    Done, except favorite and repost notifications, plus
+    DONE, except favorite and repost notifications, plus
     reposted timeline entries should include those people as well.
     Do this by adding the including notification's or status's 
     mentions to the included status.
@@ -21,13 +21,14 @@ Bill St. Clair, 2 July 2020
 * Post size tracking and limitation
 * Editing of posts
     (actual edit on servers that support that, delete/repost on others)
+* Upload videos.
 
 ## For the Columns view
 
 * Server switcher in the left column.
     Change the master server.
     Will be less important once a feedset can fetch from multiple servers.
-* Update feed button at top of feed (includes the merge code needed
+* "Update feed" button at top of feed (includes the merge code needed
     for auto-update).
 * Auto-update, likely without WebSockets initially
     * Indicators of how many posts have been loaded but not displayed
@@ -45,6 +46,7 @@ Bill St. Clair, 2 July 2020
 * Replace :<emoji>: with the URL from the "GET custom_emojis" API request.
 * Image view popup (currently, clicking on image opens the full-res version in a new tab)
 * Display Polls
+* Video attachments.
 
 ## Thread Explorer
 
@@ -68,10 +70,17 @@ Bill St. Clair, 2 July 2020
 
 ## Mobile layout!
 
+* DONE modulo the Progressive Web App manifest, so saving to desktop will
+    get a better icon and name.
+    https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps
+    https://web.dev/progressive-web-apps/
+
 ## New Settings dialog
 
 * Column width, possibly per-column (photo posters elicit more real estate)
+    DONE, but not per-column
 * Font size
+    DONE.
 * Color options other than light/dark
     Do everything with CSS classes, not inline styles.
     User editing of the CSS classes

@@ -18,6 +18,19 @@
 --   &api=[key in selectedRequestFromUrlDict]
 --
 ----------------------------------------------------------------------
+{--Immediate TODOs
+* Server switcher in the left column.
+
+* Update feed button at top of feed (first step in auto-update)
+
+* Show commented post. Option to show replied to post.
+
+* Ellipsis dialog: block, mute, (un)follow, delete, edit
+
+* thread explorer (not sure yet what this will be, but I have yet to see anyone do real justice to comment trees).It needs to be similar to the JSON tree in the Mammudeck's API Exporer window, showing who replied at each level, with clicks to include an excerpt, the whole comment, and the subtree. But I haven't yet thought about how that maps to the API.
+
+The 'GET statuses/:id/context' API call is used to navigate in the reply tree. Play with it at mammudeck.com/?api=statuses
+--}
 
 
 port module Main exposing (main)
