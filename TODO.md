@@ -26,6 +26,7 @@ Bill St. Clair, 2 July 2020
 ## For the Columns view
 
 * Server switcher in the left column.
+  **DONE*.
   Change the master server.
   Will be less important once a feedset can fetch from multiple servers.
 * "Update feed" button at top of feed (includes the merge code needed

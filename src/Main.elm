@@ -19,8 +19,6 @@
 --
 ----------------------------------------------------------------------
 {--Immediate TODOs
-* Server switcher in the left column.
-
 * Update feed button at top of feed (first step in auto-update)
 
 * Show commented post. Option to show replied to post.
@@ -9032,8 +9030,7 @@ serverDialog model =
     dialogRender
         model.renderEnv
         { styles =
-            [ ( "width", "40%" )
-            , ( "font-size", fspct model.renderEnv )
+            [ ( "font-size", fspct model.renderEnv )
             ]
         , title = "Server"
         , content = serverDialogContent model
