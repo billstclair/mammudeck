@@ -19,23 +19,30 @@
 --
 ----------------------------------------------------------------------
 {--Immediate TODOs
-* Update feed button at top of feed (first step in auto-update)
-    Buttons are there, and they reload the feed.
-    Need to make them do incremental update, just load messages
-    since the top one, and put a red line between new and old.
 
-* Show quoted post.
+* Don't include yourself in @mentions for replies.
 
 * More feed types. Lists, groups, hashtags, search
     Parameters for user, public, and notification
 
-* Show commented post. Option to show replied to post.
+* Show quoted post. Option to show replied to post.
 
 * Ellipsis dialog: block, mute, (un)follow, delete, edit
 
-* thread explorer (not sure yet what this will be, but I have yet to see anyone do real justice to comment trees).It needs to be similar to the JSON tree in the Mammudeck's API Exporer window, showing who replied at each level, with clicks to include an excerpt, the whole comment, and the subtree. But I haven't yet thought about how that maps to the API.
+* Update feed button at top of feed (first step in auto-update).
+  Buttons are there, and they reload the feed.  Need to make them do
+  incremental update, just load messages since the top one, and put a
+  red line between new and old.
+
+* Thread Explorer (not sure yet what this will be, but I have yet to
+  see anyone do real justice to comment trees).It needs to be similar
+  to the JSON tree in the Mammudeck's API Exporer window, showing who
+  replied at each level, with clicks to include an excerpt, the whole
+  comment, and the subtree. But I haven't yet thought about how that
+  maps to the API.
 
 The 'GET statuses/:id/context' API call is used to navigate in the reply tree. Play with it at mammudeck.com/?api=statuses
+
 --}
 
 
@@ -2660,12 +2667,20 @@ columnsUIMsg msg model =
             let
                 postState =
                     model.postState
+
+                me =
+                    case model.account of
+                        Nothing ->
+                            ""
+
+                        Just account ->
+                            account.username
             in
             { model
                 | dialog = PostDialog
                 , postState =
                     { postState | replyTo = maybeStatus }
-                        |> addPostStateMentions
+                        |> addPostStateMentions me
             }
                 |> withCmd
                     (focusId PostDialogTextId)
@@ -9314,20 +9329,24 @@ postDialog model =
         True
 
 
-statusMentionsString : Status -> String
-statusMentionsString status =
+statusMentionsString : String -> Status -> String
+statusMentionsString me status =
     let
-        addMention username res =
-            "@" ++ username ++ " " ++ res
+        addMention acct res =
+            if acct == me then
+                res
+
+            else
+                "@" ++ acct ++ " " ++ res
     in
-    List.map .username status.mentions
-        |> (::) status.account.username
+    List.map .acct status.mentions
+        |> (::) status.account.acct
         |> LE.unique
         |> List.foldr addMention ""
 
 
-addPostStateMentions : PostState -> PostState
-addPostStateMentions postState =
+addPostStateMentions : String -> PostState -> PostState
+addPostStateMentions me postState =
     let
         postText =
             postState.text
@@ -9347,7 +9366,7 @@ addPostStateMentions postState =
             else
                 let
                     mentionsString =
-                        statusMentionsString replyTo
+                        statusMentionsString me replyTo
                 in
                 { postState
                     | text = mentionsString
