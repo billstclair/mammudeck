@@ -20,8 +20,6 @@
 ----------------------------------------------------------------------
 {--Immediate TODOs
 
-* Don't include yourself in @mentions for replies.
-
 * More feed types. Lists, groups, hashtags, search
     Parameters for user, public, and notification
 

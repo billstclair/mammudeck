@@ -6,15 +6,6 @@ Bill St. Clair, 2 July 2020
 
 ## For the Post dialog
 
-* Reply should @mention the participants.
-  **DONE**, except favorite and repost notifications, plus
-  reposted timeline entries should include those people as well.
-  Do this by adding the including notification's or status's 
-  mentions to the included status.
-  Or not. Or a preference. Or buttons to choose.
-* Don't @mention yourself in a reply.
-* Images in posts (and fix sensitivity and spoiler text in the client library).
-  **DONE**, with drag-and-drop.
 * Show replied/quoted post in the post dialog, likely optional.
 * Reply and Quote checkboxes, so you can change if/how the post mentions another
 * Visibility (non, public, unlisted, private, direct)
@@ -22,13 +13,19 @@ Bill St. Clair, 2 July 2020
 * Editing of posts
   (actual edit on servers that support that, delete/repost on others)
 * Upload videos.
+* Reply should @mention the participants.
+  **DONE**, except favorite and repost notifications, plus
+  reposted timeline entries should include those people as well.
+  Do this by adding the including notification's or status's 
+  mentions to the included status.
+  Or not. Or a preference. Or buttons to choose.
+* Don't @mention yourself in a reply.
+  **DONE**..
+* Images in posts (and fix sensitivity and spoiler text in the client library).
+  **DONE**, with drag-and-drop.
 
 ## For the Columns view
 
-* Server switcher in the left column.
-  **DONE*.
-  Change the master server.
-  Will be less important once a feedset can fetch from multiple servers.
 * "Update feed" button at top of feed (includes the merge code needed
   for auto-update).
 * Auto-update, likely without WebSockets initially
@@ -36,6 +33,10 @@ Bill St. Clair, 2 July 2020
     Click to add to top of column
   * Indicators of how many invisible posts are off screen, to right and left
     Click to scroll to the next one in that direction
+* Server switcher in the left column.
+  **DONE*.
+  Change the master server.
+  Will be less important once a feedset can fetch from multiple servers.
 
 ## For column status rendering
 
@@ -80,11 +81,12 @@ Bill St. Clair, 2 July 2020
 
 ## New Settings dialog
 
+* Color options other than light/dark
+  Do everything with CSS classes, not inline styles.
+  User editing of the CSS classes
 * Column width, possibly per-column (photo posters elicit more real estate).
   **DONE**, but not per-column.
 * Font size.
   **DONE**
-* Color options other than light/dark
-  Do everything with CSS classes, not inline styles.
-  User editing of the CSS classes
+
 And that's just to get to version 1.0. Bill be busy boy.
