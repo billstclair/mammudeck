@@ -39,6 +39,8 @@ Bill St. Clair, 2 July 2020
 
 ## For column status rendering
 
+* Turn foo.com into https://foo.com in the client, since the Gab backend
+  doesn't do that. It apparently does it in the client, too (but check that).
 * Show "in reply to" "user"
   Pop up replied-to post on hover over "in reply to"
   Pop up user profile on hover over user

@@ -2583,11 +2583,11 @@ columnsUIMsg msg model =
                 getFeed feed ( mdl, cmds ) =
                     let
                         ( mdl2, cmd ) =
-                            reloadFeed feed model
+                            reloadFeed feed mdl
                     in
                     ( mdl2, Cmd.batch [ cmd, cmds ] )
             in
-            List.foldr getFeed ( model, Cmd.none ) model.feedSet.feeds
+            List.foldl getFeed ( model, Cmd.none ) model.feedSet.feeds
 
         RefreshFeed feedType ->
             -- TODO : Change this to do an update, not a total refresh
@@ -3417,7 +3417,7 @@ columnsSendMsg msg model =
                 model2 =
                     { model
                         | loadingFeeds =
-                            Set.remove (Types.feedID feedType)
+                            Set.remove (Debug.log "ReceiveFeed" (Types.feedID feedType))
                                 model.loadingFeeds
                     }
 
@@ -6677,8 +6677,8 @@ renderFeed isFeedLoading renderEnv { feedType, elements } =
                             gangNotifications notifications
 
                         ( _, _ ) =
-                            ( Debug.log "notifications" <| List.length notifications
-                            , Debug.log "  ganged" <| List.length gangedNotifications
+                            ( List.length notifications
+                            , gangedNotifications
                             )
                     in
                     List.concat
