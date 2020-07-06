@@ -20,9 +20,14 @@
 ----------------------------------------------------------------------
 {--Immediate TODOs
 * Update feed button at top of feed (first step in auto-update)
-    Need to write a render-notify custom element.
-    * `renderNotify [ onRender <Value -> msg> <Value> ] []`
-      Calls the tagger (<Value -> msg>) with <Value> on rendering.
+    Buttons are there, and they reload the feed.
+    Need to make them do incremental update, just load messages
+    since the top one, and put a red line between new and old.
+
+* Show quoted post.
+
+* More feed types. Lists, groups, hashtags, search
+    Parameters for user, public, and notification
 
 * Show commented post. Option to show replied to post.
 
@@ -9099,7 +9104,7 @@ serverDialog model =
         , title = "Server"
         , content = serverDialogContent model
         , actionBar =
-            [ button (ColumnsUIMsg DismissDialog) "OK" ]
+            [ button (ColumnsUIMsg DismissDialog) "Cancel" ]
         }
         True
 
@@ -9130,7 +9135,7 @@ editColumnsDialog model =
         , title = "Edit Columns"
         , content = editColumnDialogRows model
         , actionBar =
-            [ button (ColumnsUIMsg DismissDialog) "Cancel" ]
+            [ button (ColumnsUIMsg DismissDialog) "OK" ]
         }
         True
 
