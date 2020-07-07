@@ -23,6 +23,8 @@
 * More feed types. Lists, groups, hashtags, search
     Parameters for user, public, and notification
 
+* Multiple feedsets per server.
+
 * Show quoted post. Option to show replied to post.
 
 * Ellipsis dialog: block, mute, (un)follow, delete, edit
@@ -151,6 +153,7 @@ import Mastodon.Entity as Entity
         , Field
         , FilterContext(..)
         , Focus
+        , Group
         , Notification
         , NotificationType(..)
         , Privacy(..)
@@ -7082,6 +7085,25 @@ renderStatus renderEnv statusIn =
                     status.created_at
                     status.url
                 ]
+            , case status.group of
+                Nothing ->
+                    text ""
+
+                Just group ->
+                    div
+                        [ class "content"
+                        , style "color" color
+                        ]
+                        [ text "Group: "
+                        , case groupUrl renderEnv group of
+                            Nothing ->
+                                text group.title
+
+                            Just url ->
+                                a [ href url ]
+                                    [ text group.title ]
+                        , text <| " (" ++ String.fromInt group.member_count ++ " members)"
+                        ]
             , hr
             , div
                 [ class "content"
@@ -7092,6 +7114,16 @@ renderStatus renderEnv statusIn =
             , renderStatusActions renderEnv status
             ]
         ]
+
+
+groupUrl : RenderEnv -> Group -> Maybe String
+groupUrl renderEnv group =
+    case renderEnv.loginServer of
+        Nothing ->
+            Nothing
+
+        Just loginServer ->
+            Just <| "https://" ++ loginServer ++ "/groups/" ++ group.id
 
 
 renderMediaAttachments : RenderEnv -> Status -> Html Msg
