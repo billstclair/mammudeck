@@ -7,11 +7,12 @@ Bill St. Clair, 2 July 2020
 ## For the Post dialog
 
 * Show replied/quoted post in the post dialog, likely optional.
-* Reply and Quote checkboxes, so you can change if/how the post mentions another
+* Reply and Quote checkboxes, so you can change if/how the post mentions another.
+* Post to a group.
 * Visibility (non, public, unlisted, private, direct)
-* Post size tracking and limitation
+* Post size tracking and limitation.
 * Editing of posts
-  (actual edit on servers that support that, delete/repost on others)
+  (actual edit on servers that support that, delete/repost on others).
 * Upload videos.
 * Reply should @mention the participants.
   **DONE**, except favorite and repost notifications, plus
@@ -65,6 +66,9 @@ Bill St. Clair, 2 July 2020
 ## For the Feed set "edit" dialog
 
 * The rest of the feed types (hashtag, list, group, conversations, search)
+  Groups mostly done, except:
+  * Incremental search for group name in "Edit Columns" dialog,
+    instead of entering ID.
 * Popup interactive search for users
 * Popup interactive search for hashtags
 * Popup interactive search for groups
@@ -82,7 +86,30 @@ Bill St. Clair, 2 July 2020
   * https://web.dev/progressive-web-apps/
   **ALL DONE**
 
-## New Settings dialog
+## User dialog
+
+* Popup whenever you click on an @user mention, or the column header of a user feed.
+* Show all the stuff on Gab.com's profile page.
+* Link to `Account.url`.
+* Add or remove column.
+
+## Group dialog
+
+* Popup whenever you click on a group name, or on the member count in a
+  group feed header.
+* Show `Group.title`, `Group.description`, `Group.cover_image_url`, `Group.member_count`.
+* Enable joining or leaving the group.
+* Link to `groupUrl renderEnv group`.
+* Add or remove column.
+* Adiminstrative stuff.
+
+## List dialog
+
+* Show `ListEntity.title`, and some of the info from `ListsRequest <| GetListAccounts { id }`
+* Add and remove accounts.
+* Rename the list.
+
+## Settings dialog
 
 * Make it an option to replace the left column with a floating button.
   That buton will bring up a "Post" dialog, with a button to switch to

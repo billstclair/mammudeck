@@ -21,10 +21,6 @@
 {--Immediate TODOs
 
 * Group feeds
-    ** Put a header at the top of group feeds with the group name,
-       description, cover image, and member count, and don't show the
-       name in each post.
-
     ** Incremental search for the group name in the "Edit Columns"
        dialog, instead of entering the ID.
 
@@ -6872,6 +6868,33 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
                     ]
                     []
             , title
+            , case feedType of
+                GroupFeed _ ->
+                    case feedEnv.group of
+                        Just group ->
+                            let
+                                memberLine =
+                                    text <| "(" ++ String.fromInt group.member_count ++ ") members"
+
+                                memberLink =
+                                    case groupUrl renderEnv group of
+                                        Nothing ->
+                                            memberLine
+
+                                        Just url ->
+                                            a [ href url ]
+                                                [ memberLine ]
+                            in
+                            span []
+                                [ br
+                                , memberLink
+                                ]
+
+                        _ ->
+                            text ""
+
+                _ ->
+                    text ""
             ]
         , div
             [ style "height" "calc(100% - 1.4em)"
@@ -6883,7 +6906,7 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
             case elements of
                 StatusElements statuses ->
                     List.concat
-                        [ List.map (renderStatus renderEnv) statuses
+                        [ List.map (renderStatus renderEnv feedEnv) statuses
                         , footer statuses
                         ]
 
@@ -6905,6 +6928,8 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
 
                 _ ->
                     [ text "" ]
+
+        -- This turns scroll tracking back on, after the virtual DOM is synced.
         , RenderNotify.renderNotify
             [ RenderNotify.notifyValue <| JE.string feedId
             , RenderNotify.onRender (ColumnsUIMsg << FeedRendered)
@@ -7238,8 +7263,8 @@ renderFeedLoadingEmojiFooter renderEnv =
         ]
 
 
-renderStatus : RenderEnv -> Status -> Html Msg
-renderStatus renderEnv statusIn =
+renderStatus : RenderEnv -> FeedEnv -> Status -> Html Msg
+renderStatus renderEnv feedEnv statusIn =
     let
         ( status, account, reblogAccount ) =
             case statusIn.reblog of
@@ -7288,19 +7313,24 @@ renderStatus renderEnv statusIn =
                     text ""
 
                 Just group ->
-                    div
-                        [ class "content"
-                        , style "color" color
-                        ]
-                        [ case groupUrl renderEnv group of
-                            Nothing ->
-                                text group.title
+                    case feedEnv.group of
+                        Just _ ->
+                            text ""
 
-                            Just url ->
-                                a [ href url ]
-                                    [ text group.title ]
-                        , text <| " (" ++ String.fromInt group.member_count ++ " members)"
-                        ]
+                        _ ->
+                            div
+                                [ class "content"
+                                , style "color" color
+                                ]
+                                [ case groupUrl renderEnv group of
+                                    Nothing ->
+                                        text group.title
+
+                                    Just url ->
+                                        a [ href url ]
+                                            [ text group.title ]
+                                , text <| " (" ++ String.fromInt group.member_count ++ " members)"
+                                ]
             , hr
             , div
                 [ class "content"
