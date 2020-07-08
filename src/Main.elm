@@ -20,10 +20,20 @@
 ----------------------------------------------------------------------
 {--Immediate TODOs
 
+* Group feeds
+    ** Put a header at the top of group feeds with the group name,
+       description, cover image, and member count, and don't show the
+       name in each post.
+
+    ** Incremental search for the group name in the "Edit Columns"
+       dialog, instead of entering the ID.
+
+    ** Post to a group.
+
 * More feed types. Lists, groups, hashtags, search
     Parameters for user, public, and notification
 
-* Multiple feedsets per server.
+* Multiple named feedsets per server.
 
 * Show quoted post. Option to show replied to post.
 

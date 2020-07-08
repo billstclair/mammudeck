@@ -213,8 +213,11 @@ feedIdToType id =
     else if "public" == id then
         Just <| PublicFeed { flags = Nothing }
 
+    else if "group: " == String.left 7 id then
+        Just <| GroupFeed (String.dropLeft 7 id)
+
     else if "hashtag: " == String.left 9 id then
-        Just <| HashtagFeed (String.right 9 id)
+        Just <| HashtagFeed (String.dropLeft 9 id)
 
     else if "list: " == String.left 6 id then
         Just <| ListFeed (String.dropLeft 6 id)
