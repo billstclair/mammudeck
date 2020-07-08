@@ -2662,8 +2662,8 @@ columnsUIMsg msg model =
                     (renderEnv.windowSize |> Tuple.first) - 8 - leftColWid |> toFloat
 
                 colMargin =
-                    -- 4 should be 2, but works.
-                    columnsBorderSpacing + 4 |> toFloat
+                    -- 1 should be 0, but works.
+                    columnsBorderSpacing + 1 |> toFloat
 
                 cols =
                     (windowWidth / (columnWidth + colMargin))
@@ -7543,7 +7543,10 @@ renderColumns model =
             ]
             [ tr [] <|
                 List.concat
-                    [ [ td [ style "vertical-align" "top" ]
+                    [ [ td
+                            [ style "vertical-align" "top"
+                            , style "padding" "0"
+                            ]
                             [ Lazy.lazy renderLeftColumn renderEnv ]
                       ]
                     , List.map
@@ -7562,7 +7565,9 @@ renderColumns model =
                                     getFeedEnv feed.feedType model
                             in
                             td
-                                [ style "vertical-align" "top" ]
+                                [ style "vertical-align" "top"
+                                , style "padding" "0"
+                                ]
                                 [ Lazy.lazy4 renderFeed
                                     isFeedLoading
                                     renderEnv

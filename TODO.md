@@ -34,9 +34,11 @@ Bill St. Clair, 2 July 2020
   * Indicators of how many invisible posts are off screen, to right and left
     Click to scroll to the next one in that direction
 * Server switcher in the left column.
-  **DONE*.
+  **DONE**.
   Change the master server.
   Will be less important once a feedset can fetch from multiple servers.
+* It is possible to scroll to the end of a feed.
+  Detect this, and don't keep loading over and over to get nothing.
 
 ## For column status rendering
 
@@ -78,9 +80,13 @@ Bill St. Clair, 2 July 2020
   get a better icon and name.
   * https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps
   * https://web.dev/progressive-web-apps/
+  **ALL DONE**
 
 ## New Settings dialog
 
+* Make it an option to replace the left column with a floating button.
+  That buton will bring up a "Post" dialog, with a button to switch to
+  the settings dialog
 * Color options other than light/dark
   Do everything with CSS classes, not inline styles.
   User editing of the CSS classes
