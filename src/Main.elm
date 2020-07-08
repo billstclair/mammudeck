@@ -325,6 +325,16 @@ emptyRenderEnv =
     }
 
 
+type alias FeedEnv =
+    { group : Maybe Group
+    }
+
+
+emptyFeedEnv : FeedEnv
+emptyFeedEnv =
+    { group = Nothing }
+
+
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -375,6 +385,7 @@ type alias Model =
     , filterInput : FilterInput
     , scheduledStatusId : String
     , userNameInput : String
+    , groupIdInput : String
 
     -- Non-persistent below here
     , initialPage : InitialPage
@@ -384,6 +395,8 @@ type alias Model =
     , accountIdDict : Dict String (List AccountId)
     , dropZone : DropZone.Model
     , loadingFeeds : Set String --feed ids
+    , groupDict : Dict String Group
+    , feedEnvs : Dict String FeedEnv
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -516,6 +529,7 @@ type ColumnsUIMsg
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType Int
     | UserNameInput String
+    | GroupIdInput String
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
     | StatusEllipsisDialog Status
@@ -992,6 +1006,7 @@ init value url key =
     , filterInput = emptyFilterInput
     , scheduledStatusId = ""
     , userNameInput = ""
+    , groupIdInput = ""
 
     -- Non-persistent below here
     , initialPage = initialPage
@@ -1001,6 +1016,8 @@ init value url key =
     , accountIdDict = Dict.empty
     , dropZone = DropZone.init
     , loadingFeeds = Set.empty
+    , groupDict = Dict.empty
+    , feedEnvs = Dict.empty
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -1279,34 +1296,108 @@ handleGetModelInternal maybeValue model =
 handleGetFeedSetDefinition : Maybe Value -> Model -> ( Model, Cmd Msg )
 handleGetFeedSetDefinition maybeValue model =
     let
-        feedSetDefinition =
+        ( feedSetDefinition, mdl, getGroupsCmd ) =
             case maybeValue of
                 Nothing ->
-                    Types.defaultFeedSetDefinition
+                    ( Types.defaultFeedSetDefinition, model, Cmd.none )
 
                 Just value ->
                     case JD.decodeValue MED.feedSetDefinitionDecoder value of
                         Err _ ->
-                            Types.defaultFeedSetDefinition
+                            ( Types.defaultFeedSetDefinition, model, Cmd.none )
 
                         Ok fsd ->
-                            fsd
+                            let
+                                folder : FeedType -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+                                folder feedType ( mdl2, cmd2 ) =
+                                    case feedType of
+                                        GroupFeed group_id ->
+                                            let
+                                                ( mdl3, cmd3 ) =
+                                                    maybeLoadGroup group_id mdl2
+                                            in
+                                            mdl3 |> withCmds [ cmd2, cmd3 ]
+
+                                        _ ->
+                                            mdl2 |> withCmd cmd2
+
+                                ( mdl4, cmd4 ) =
+                                    List.foldl folder ( model, Cmd.none ) fsd.feedTypes
+                            in
+                            ( fsd, mdl4, cmd4 )
+
+        mdl5 =
+            List.foldl addFeedEnv model feedSetDefinition.feedTypes
 
         feedSet =
             Types.feedSetDefinitionToFeedSet feedSetDefinition
-    in
-    { model
-        | feedSetDefinition = Debug.log "handleGetFeedSetDefinition" feedSetDefinition
-        , feedSet = feedSet
-    }
-        |> withCmd
-            (if model.page == ColumnsPage then
+
+        reloadCmd =
+            if model.page == ColumnsPage then
                 Task.perform ColumnsUIMsg <|
                     Task.succeed ReloadAllColumns
 
-             else
+            else
                 Cmd.none
-            )
+    in
+    { mdl
+        | feedSetDefinition = Debug.log "handleGetFeedSetDefinition" feedSetDefinition
+        , feedSet = feedSet
+    }
+        |> withCmds [ getGroupsCmd, reloadCmd ]
+
+
+getFeedEnv : FeedType -> Model -> FeedEnv
+getFeedEnv feedType model =
+    let
+        feedId =
+            Types.feedID feedType
+    in
+    case Dict.get feedId model.feedEnvs of
+        Just feedEnv ->
+            feedEnv
+
+        Nothing ->
+            emptyFeedEnv
+
+
+addFeedEnv : FeedType -> Model -> Model
+addFeedEnv feedType model =
+    let
+        feedId =
+            Types.feedID feedType
+    in
+    case feedType of
+        GroupFeed group_id ->
+            case getGroup group_id model of
+                Nothing ->
+                    model
+
+                Just group ->
+                    let
+                        feedEnv =
+                            { emptyFeedEnv
+                                | group = Just group
+                            }
+                    in
+                    { model
+                        | feedEnvs =
+                            Dict.insert feedId
+                                feedEnv
+                                model.feedEnvs
+                    }
+
+        _ ->
+            model
+
+
+removeFeedEnv : FeedType -> Model -> Model
+removeFeedEnv feedType model =
+    let
+        feedId =
+            Types.feedID feedType
+    in
+    { model | feedEnvs = Dict.remove feedId model.feedEnvs }
 
 
 handleGetToken : String -> Value -> Model -> ( Model, Cmd Msg )
@@ -2703,6 +2794,10 @@ columnsUIMsg msg model =
             { model | userNameInput = userNameInput }
                 |> withNoCmd
 
+        GroupIdInput groupIdInput ->
+            { model | groupIdInput = groupIdInput }
+                |> withNoCmd
+
         ToggleStatusRepeat status ->
             let
                 mes =
@@ -2968,6 +3063,10 @@ fillinFeedType feedType model =
                 , flags = Nothing
                 }
 
+        GroupFeed _ ->
+            Debug.log "fillinFeedType" <|
+                GroupFeed model.groupIdInput
+
         _ ->
             feedType
 
@@ -3075,8 +3174,11 @@ deleteFeedType feedType model =
                 | feeds =
                     List.filter (.feedType >> (/=) feedType) feedSet.feeds
             }
+
+        mdl2 =
+            removeFeedEnv feedType model
     in
-    { model
+    { mdl2
         | feedSetDefinition = newFeedSetDefinition
         , feedSet = newFeedSet
     }
@@ -3104,7 +3206,7 @@ addFeedType feedType model =
             model.feedSet
 
         newFeed =
-            { feedType = feedType
+            { feedType = Debug.log "addFeedType" feedType
             , elements = Types.feedTypeToElements feedType
             }
 
@@ -3121,14 +3223,54 @@ addFeedType feedType model =
 
                 _ ->
                     model.userNameInput
+
+        ( groupIdInput, mdl, loadGroupCmd ) =
+            case feedType of
+                GroupFeed group_id ->
+                    let
+                        ( mdl2, cmd ) =
+                            maybeLoadGroup group_id model
+                    in
+                    ( "", mdl2, cmd )
+
+                _ ->
+                    ( model.groupIdInput, model, Cmd.none )
+
+        mdl3 =
+            addFeedEnv feedType mdl
     in
-    { model
+    { mdl3
         | feedSetDefinition = newFeedSetDefinition
         , feedSet = newFeedSet
         , userNameInput = userNameInput
+        , groupIdInput = groupIdInput
     }
         |> reloadFeed newFeed
         |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
+        |> addCmd loadGroupCmd
+
+
+maybeLoadGroup : String -> Model -> ( Model, Cmd Msg )
+maybeLoadGroup group_id model =
+    case getGroup group_id model of
+        Nothing ->
+            let
+                ( mdl2, cmd ) =
+                    sendRequest
+                        (GroupsRequest <|
+                            Request.GetGroup { id = group_id }
+                        )
+                        model
+            in
+            ( mdl2, cmd )
+
+        Just _ ->
+            ( model, Cmd.none )
+
+
+getGroup : String -> Model -> Maybe Group
+getGroup group_id model =
+    Dict.get group_id model.groupDict
 
 
 {-| TODO:
@@ -3282,7 +3424,7 @@ reloadFeedPaging : Maybe Paging -> Feed -> Model -> ( Model, Cmd Msg )
 reloadFeedPaging paging feed model =
     let
         feedType =
-            feed.feedType
+            Debug.log "reloadFeedPaging" feed.feedType
 
         request =
             case feedType of
@@ -3293,6 +3435,14 @@ reloadFeedPaging paging feed model =
 
                 UserFeed params ->
                     Just <| startReloadUserFeed paging params model
+
+                GroupFeed group_id ->
+                    Just <|
+                        TimelinesRequest <|
+                            Request.GetGroupTimeline
+                                { group_id = group_id
+                                , paging = paging
+                                }
 
                 PublicFeed { flags } ->
                     Just <|
@@ -5483,6 +5633,28 @@ applyResponseSideEffects response model =
                 _ ->
                     model
 
+        GroupsRequest (Request.GetGroup _) ->
+            case response.entity of
+                GroupEntity group ->
+                    let
+                        mdl =
+                            { model
+                                | groupDict = Dict.insert group.id group model.groupDict
+                            }
+
+                        feedType =
+                            GroupFeed group.id
+                    in
+                    case findFeed feedType model.feedSet of
+                        Nothing ->
+                            mdl
+
+                        Just _ ->
+                            addFeedEnv feedType mdl
+
+                _ ->
+                    model
+
         GroupsRequest (Request.PostGroup _) ->
             case response.entity of
                 GroupEntity { id } ->
@@ -6476,7 +6648,7 @@ renderHome model =
 
           else
             primaryServerLine model
-        , loginSelectedUI model
+        , loginSelectedUI True model
         , Markdown.toHtml []
             """
 Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a work in progress. Keep an eye on the "Columns" page for new features. Use the "API Explorer" page to do low-level API hacking.
@@ -6637,8 +6809,8 @@ labels =
     }
 
 
-renderFeed : Bool -> RenderEnv -> Feed -> Html Msg
-renderFeed isFeedLoading renderEnv { feedType, elements } =
+renderFeed : Bool -> RenderEnv -> FeedEnv -> Feed -> Html Msg
+renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
     let
         { color } =
             getStyle renderEnv.style
@@ -6655,6 +6827,19 @@ renderFeed isFeedLoading renderEnv { feedType, elements } =
 
             else
                 []
+
+        title =
+            case feedType of
+                GroupFeed _ ->
+                    case feedEnv.group of
+                        Just group ->
+                            b group.title
+
+                        _ ->
+                            feedTitle feedType
+
+                _ ->
+                    feedTitle feedType
     in
     div
         [ style "height" <| px (h - 20)
@@ -6676,7 +6861,7 @@ renderFeed isFeedLoading renderEnv { feedType, elements } =
                     , class "icon-spin3"
                     ]
                     []
-            , feedTitle feedType
+            , title
             ]
         , div
             [ style "height" "calc(100% - 1.4em)"
@@ -6967,6 +7152,9 @@ feedTitle feedType =
         NotificationFeed _ ->
             b "Notifications"
 
+        GroupFeed group_id ->
+            b <| "Group ID " ++ group_id
+
         _ ->
             text ""
 
@@ -7094,8 +7282,7 @@ renderStatus renderEnv statusIn =
                         [ class "content"
                         , style "color" color
                         ]
-                        [ text "Group: "
-                        , case groupUrl renderEnv group of
+                        [ case groupUrl renderEnv group of
                             Nothing ->
                                 text group.title
 
@@ -7360,12 +7547,16 @@ renderColumns model =
 
                                 isFeedLoading =
                                     Set.member id model.loadingFeeds
+
+                                feedEnv =
+                                    getFeedEnv feed.feedType model
                             in
                             td
                                 [ style "vertical-align" "top" ]
-                                [ Lazy.lazy3 renderFeed
+                                [ Lazy.lazy4 renderFeed
                                     isFeedLoading
                                     renderEnv
+                                    feedEnv
                                     feed
                                 ]
                         )
@@ -7434,7 +7625,7 @@ renderExplorer model =
                 [ selectedRequestHtml LoginSelected
                     "https://docs.joinmastodon.org/methods/apps/oauth/"
                     model
-                    loginSelectedUI
+                    (loginSelectedUI True)
                 , selectedRequestHtml InstanceSelected
                     "https://docs.joinmastodon.org/methods/instance/"
                     model
@@ -8969,8 +9160,8 @@ onKeyUp tagger =
     on "keyup" (JD.map tagger keyCode)
 
 
-loginSelectedUI : Model -> Html Msg
-loginSelectedUI model =
+loginSelectedUI : Bool -> Model -> Html Msg
+loginSelectedUI showLoginButton model =
     p []
         [ pspace
         , b "Server: "
@@ -8994,14 +9185,25 @@ loginSelectedUI model =
             ]
             []
         , br
-        , Html.button
-            [ onClick (GlobalMsg Login)
-            , disabled <| model.server == ""
-            ]
-            [ b "Login" ]
-        , text " "
+        , if showLoginButton then
+            span []
+                [ renderLoginButton model
+                , text " "
+                ]
+
+          else
+            text ""
         , button (GlobalMsg SetLoginServer) "Set Server"
         ]
+
+
+renderLoginButton : Model -> Html Msg
+renderLoginButton model =
+    Html.button
+        [ onClick (GlobalMsg Login)
+        , disabled <| model.server == ""
+        ]
+        [ b "Login" ]
 
 
 renderHeaders : Bool -> String -> Http.Metadata -> Html Msg
@@ -9149,7 +9351,9 @@ serverDialog model =
         , title = "Server"
         , content = serverDialogContent model
         , actionBar =
-            [ button (ColumnsUIMsg DismissDialog) "Cancel" ]
+            [ renderLoginButton model
+            , button (ColumnsUIMsg DismissDialog) "Cancel"
+            ]
         }
         True
 
@@ -9164,7 +9368,7 @@ serverDialogContent model =
         [ p []
             [ primaryServerLine model ]
         , p []
-            [ loginSelectedUI model ]
+            [ loginSelectedUI True model ]
         ]
     ]
 
@@ -9272,12 +9476,29 @@ editColumnDialogRows model =
                     ]
                     (ColumnsUIMsg <| AddFeedColumn Types.defaultUserFeedType)
               ]
+            , [ row
+                    [ b "Group: "
+                    , input
+                        [ size 30
+                        , onInput (ColumnsUIMsg << GroupIdInput)
+                        , value model.groupIdInput
+                        , placeholder <|
+                            "Group ID (search coming)"
+                        ]
+                        []
+                    ]
+                    (ColumnsUIMsg <| AddFeedColumn Types.defaultGroupFeedType)
+              ]
             ]
     , hrpct 100
     , let
         feedRow feedType =
+            let
+                title =
+                    smartFeedTitle feedType model
+            in
             tr []
-                [ td [] [ feedTitle feedType ]
+                [ td [] [ title ]
                 , td [] [ button (ColumnsUIMsg <| DeleteFeedColumn feedType) "Delete" ]
                 , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType -1) "<-" ]
                 , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType 1) "->" ]
@@ -9286,6 +9507,21 @@ editColumnDialogRows model =
       table [] <|
         List.map feedRow feedTypes
     ]
+
+
+smartFeedTitle : FeedType -> Model -> Html Msg
+smartFeedTitle feedType model =
+    case feedType of
+        GroupFeed group_id ->
+            case getGroup group_id model of
+                Just group ->
+                    b group.title
+
+                _ ->
+                    feedTitle feedType
+
+        _ ->
+            feedTitle feedType
 
 
 type alias PostState =
@@ -10045,6 +10281,7 @@ type alias SavedModel =
     , filterInput : FilterInput
     , scheduledStatusId : String
     , userNameInput : String
+    , groupIdInput : String
     }
 
 
@@ -10095,6 +10332,7 @@ modelToSavedModel model =
     , filterInput = model.filterInput
     , scheduledStatusId = model.scheduledStatusId
     , userNameInput = model.userNameInput
+    , groupIdInput = model.groupIdInput
     }
 
 
@@ -10160,6 +10398,7 @@ savedModelToModel savedModel model =
         , filterInput = savedModel.filterInput
         , scheduledStatusId = savedModel.scheduledStatusId
         , userNameInput = savedModel.userNameInput
+        , groupIdInput = savedModel.groupIdInput
     }
 
 
@@ -10366,6 +10605,7 @@ encodeSavedModel savedModel =
         , ( "filterInput", encodeFilterInput savedModel.filterInput )
         , ( "scheduledStatusId", JE.string savedModel.scheduledStatusId )
         , ( "userNameInput", JE.string savedModel.userNameInput )
+        , ( "groupIdInput", JE.string savedModel.groupIdInput )
         ]
 
 
@@ -10419,6 +10659,7 @@ savedModelDecoder =
         |> optional "filterInput" filterInputDecoder emptyFilterInput
         |> optional "scheduledStatusId" JD.string ""
         |> optional "userNameInput" JD.string ""
+        |> optional "groupIdInput" JD.string ""
 
 
 put : String -> Maybe Value -> Cmd Msg

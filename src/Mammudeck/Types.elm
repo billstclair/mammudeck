@@ -31,6 +31,7 @@ module Mammudeck.Types exposing
     , allButMentionNotificationExclusions
     , defaultFeedSet
     , defaultFeedSetDefinition
+    , defaultGroupFeedType
     , defaultNotificationExclusions
     , defaultPublicFeedFlags
     , defaultUserFeedFlags
@@ -119,6 +120,11 @@ defaultUserFeedType =
         , server = ""
         , flags = Nothing
         }
+
+
+defaultGroupFeedType : FeedType
+defaultGroupFeedType =
+    GroupFeed ""
 
 
 type alias PublicFeedParams =
