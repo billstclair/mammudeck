@@ -5907,12 +5907,7 @@ modifyStatus id modifier oldStatus =
 
                     Just (WrappedStatus wrapped) ->
                         if id == wrapped.id then
-                            ( { oldStatus
-                                | reblog =
-                                    Just <| WrappedStatus (modifier oldStatus)
-                              }
-                            , True
-                            )
+                            modifyStatus id modifier wrapped
 
                         else
                             ( oldStatus, False )
@@ -5923,12 +5918,7 @@ modifyStatus id modifier oldStatus =
 
             Just (WrappedStatus wrapped) ->
                 if id == wrapped.id then
-                    ( { oldStat2
-                        | quote =
-                            Just <| WrappedStatus (modifier oldStatus)
-                      }
-                    , True
-                    )
+                    modifyStatus id modifier wrapped
 
                 else
                     ( oldStat2, chngd2 )
