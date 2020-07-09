@@ -7358,7 +7358,7 @@ renderStatusCard renderEnv status =
                 [ style "margin" "4px" ]
                 [ div
                     [ style "border" "1px solid"
-                    , style "padding" "2px"
+                    , style "padding" "4px"
                     ]
                     [ case card.image of
                         Nothing ->
@@ -7369,7 +7369,7 @@ renderStatusCard renderEnv status =
                                 [ a [ href card.url ]
                                     [ img
                                         [ src image
-                                        , width (renderEnv.columnWidth - 14)
+                                        , width (renderEnv.columnWidth - 18)
                                         , style "text-align" "center"
                                         ]
                                         []
