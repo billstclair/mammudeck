@@ -7364,7 +7364,13 @@ renderStatusQuote renderEnv feedEnv status =
                             [ span [ style "font-size" "80%" ]
                                 [ text "[quote]" ]
                             , br
-                            , renderStatus renderEnv feedEnv wrappedStatus
+                            , renderStatus
+                                { renderEnv
+                                    | columnWidth =
+                                        renderEnv.columnWidth - 16
+                                }
+                                feedEnv
+                                wrappedStatus
                             ]
                         ]
 
