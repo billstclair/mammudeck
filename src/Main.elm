@@ -5905,23 +5905,33 @@ modifyStatus id modifier oldStatus =
                     Nothing ->
                         ( oldStatus, False )
 
-                    Just (WrappedStatus wrapped) ->
-                        if id == wrapped.id then
-                            modifyStatus id modifier wrapped
-
-                        else
-                            ( oldStatus, False )
+                    Just (WrappedStatus reblog) ->
+                        let
+                            ( reblog3, changd3 ) =
+                                modifyStatus reblog
+                        in
+                        ( { oldStatus
+                            | reblog =
+                                Just <| WrappedStatus reblog3
+                          }
+                        , chngd3
+                        )
         in
         case oldStat2.quote of
             Nothing ->
                 ( oldStat2, chngd2 )
 
-            Just (WrappedStatus wrapped) ->
-                if id == wrapped.id then
-                    modifyStatus id modifier wrapped
-
-                else
-                    ( oldStat2, chngd2 )
+            Just (WrappedStatus quote) ->
+                let
+                    ( quote4, changd4 ) =
+                        modifyStatus quote
+                in
+                ( { oldStat2
+                    | quote =
+                        Just <| WrappedStatus quote4
+                  }
+                , chngd2
+                )
 
 
 modifyStatuses : String -> (Status -> Status) -> List Status -> ( List Status, Bool )
