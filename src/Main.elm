@@ -7341,10 +7341,32 @@ renderStatus renderEnv feedEnv statusIn =
                 ]
                 body
             , renderMediaAttachments renderEnv status
+            , renderStatusQuote renderEnv feedEnv status
             , renderStatusCard renderEnv status
             , renderStatusActions renderEnv status
             ]
         ]
+
+
+renderStatusQuote : RenderEnv -> FeedEnv -> Status -> Html Msg
+renderStatusQuote renderEnv feedEnv status =
+    case status.quote of
+        Nothing ->
+            text ""
+
+        Just quote ->
+            case quote of
+                WrappedStatus wrappedStatus ->
+                    div [ style "margin" "4px" ]
+                        [ div
+                            [ style "padding" "4px"
+                            ]
+                            [ span [ style "font-size" "80%" ]
+                                [ text "[quote]" ]
+                            , br
+                            , renderStatus renderEnv feedEnv wrappedStatus
+                            ]
+                        ]
 
 
 renderStatusCard : RenderEnv -> Status -> Html Msg
