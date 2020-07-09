@@ -7428,13 +7428,8 @@ renderStatusCard renderEnv status =
                                                 ]
                                     ]
                         ]
-                    , p [] <|
-                        case Html.Parser.run card.description of
-                            Ok nodes ->
-                                Util.toVirtualDom nodes
-
-                            _ ->
-                                [ text card.description ]
+                    , p []
+                        [ text card.description ]
                     ]
                 ]
 
