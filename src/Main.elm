@@ -20,6 +20,8 @@
 ----------------------------------------------------------------------
 {--Immediate TODOs
 
+* Edit Columns dialog needs scrolling so it doesn't overflow the screen.
+
 * Group feeds
     ** Incremental search for the group name in the "Edit Columns"
        dialog, instead of entering the ID.
@@ -76,6 +78,7 @@ import Html
         , col
         , div
         , h2
+        , h3
         , img
         , input
         , option
@@ -7338,9 +7341,91 @@ renderStatus renderEnv feedEnv statusIn =
                 ]
                 body
             , renderMediaAttachments renderEnv status
+            , renderStatusCard renderEnv status
             , renderStatusActions renderEnv status
             ]
         ]
+
+
+renderStatusCard : RenderEnv -> Status -> Html Msg
+renderStatusCard renderEnv status =
+    case status.card of
+        Nothing ->
+            text ""
+
+        Just card ->
+            div
+                [ style "margin" "4px" ]
+                [ div
+                    [ style "border" "1px solid"
+                    , style "padding" "2px"
+                    ]
+                    [ case card.image of
+                        Nothing ->
+                            text ""
+
+                        Just image ->
+                            p []
+                                [ a [ href card.url ]
+                                    [ img
+                                        [ src image
+                                        , width (renderEnv.columnWidth - 14)
+                                        , style "text-align" "center"
+                                        ]
+                                        []
+                                    ]
+                                ]
+                    , p []
+                        [ b card.title
+                        , case nothingIfMaybeBlank card.author_name of
+                            Nothing ->
+                                text ""
+
+                            Just author_name ->
+                                span [ style "font-size" "80%" ]
+                                    [ br
+                                    , text "by "
+                                    , maybeLink author_name card.author_url
+                                    , case nothingIfMaybeBlank card.provider_name of
+                                        Nothing ->
+                                            text ""
+
+                                        Just provider_name ->
+                                            span []
+                                                [ text " "
+                                                , maybeLink provider_name
+                                                    card.provider_url
+                                                ]
+                                    ]
+                        ]
+                    , p []
+                        [ text card.description ]
+                    ]
+                ]
+
+
+nothingIfMaybeBlank : Maybe String -> Maybe String
+nothingIfMaybeBlank maybeString =
+    case maybeString of
+        Nothing ->
+            Nothing
+
+        Just string ->
+            if string == "" then
+                Nothing
+
+            else
+                Just string
+
+
+maybeLink : String -> Maybe String -> Html msg
+maybeLink string maybeUrl =
+    case nothingIfMaybeBlank maybeUrl of
+        Nothing ->
+            text string
+
+        Just url ->
+            a [ href url ] [ text string ]
 
 
 groupUrl : RenderEnv -> Group -> Maybe String

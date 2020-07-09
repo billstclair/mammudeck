@@ -21,7 +21,7 @@ Bill St. Clair, 2 July 2020
   mentions to the included status.
   Or not. Or a preference. Or buttons to choose.
 * Don't @mention yourself in a reply.
-  **DONE**..
+  **DONE**.
 * Images in posts (and fix sensitivity and spoiler text in the client library).
   **DONE**, with drag-and-drop.
 
@@ -84,7 +84,7 @@ Bill St. Clair, 2 July 2020
   get a better icon and name.
   * https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps
   * https://web.dev/progressive-web-apps/
-  **ALL DONE**
+  * **ALL DONE**
 
 ## User dialog
 
