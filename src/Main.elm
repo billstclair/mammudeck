@@ -9669,13 +9669,13 @@ editColumnDialogRows model =
                     [ titledButton "Move this column left"
                         True
                         (ColumnsUIMsg <| MoveFeedColumn feedType -1)
-                        "<-"
+                        "<"
                     ]
                 , td []
                     [ titledButton "Move this column right"
                         True
                         (ColumnsUIMsg <| MoveFeedColumn feedType 1)
-                        "->"
+                        ">"
                     ]
                 ]
       in
