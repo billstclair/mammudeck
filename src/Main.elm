@@ -5907,8 +5907,8 @@ modifyStatus id modifier oldStatus =
 
                     Just (WrappedStatus reblog) ->
                         let
-                            ( reblog3, changd3 ) =
-                                modifyStatus reblog
+                            ( reblog3, chngd3 ) =
+                                modifyStatus id modifier reblog
                         in
                         ( { oldStatus
                             | reblog =
@@ -5923,14 +5923,14 @@ modifyStatus id modifier oldStatus =
 
             Just (WrappedStatus quote) ->
                 let
-                    ( quote4, changd4 ) =
-                        modifyStatus quote
+                    ( quote4, chngd4 ) =
+                        modifyStatus id modifier quote
                 in
                 ( { oldStat2
                     | quote =
                         Just <| WrappedStatus quote4
                   }
-                , chngd2
+                , chngd4
                 )
 
 
