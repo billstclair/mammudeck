@@ -20,6 +20,8 @@
 ----------------------------------------------------------------------
 {--Immediate TODOs
 
+* Try to parse card.description as HTML.
+
 * Edit Columns dialog needs scrolling so it doesn't overflow the screen.
 
 * Group feeds
@@ -121,7 +123,7 @@ import Html.Attributes
         )
 import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
 import Html.Lazy as Lazy
-import Html.Parser as Parser exposing (Node)
+import Html.Parser exposing (Node)
 import Html.Parser.Util as Util
 import Http
 import Iso8601
@@ -7141,7 +7143,7 @@ renderNotificationBody renderEnv notification =
         Just status ->
             let
                 body =
-                    case Parser.run status.content of
+                    case Html.Parser.run status.content of
                         Ok nodes ->
                             Util.toVirtualDom nodes
 
@@ -7281,7 +7283,7 @@ renderStatus renderEnv feedEnv statusIn =
             getStyle renderEnv.style
 
         body =
-            case Parser.run status.content of
+            case Html.Parser.run status.content of
                 Ok nodes ->
                     Util.toVirtualDom nodes
 
@@ -7426,8 +7428,13 @@ renderStatusCard renderEnv status =
                                                 ]
                                     ]
                         ]
-                    , p []
-                        [ text card.description ]
+                    , p [] <|
+                        case Html.Parser.run card.description of
+                            Ok nodes ->
+                                Util.toVirtualDom nodes
+
+                            _ ->
+                                [ text card.description ]
                     ]
                 ]
 
