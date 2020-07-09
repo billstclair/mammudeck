@@ -9535,10 +9535,19 @@ serverDialogContent model =
 
 editColumnsDialog : Model -> Html Msg
 editColumnsDialog model =
+    let
+        ( _, windowHeight ) =
+            model.renderEnv.windowSize
+
+        maxHeight =
+            (90 * windowHeight // 100 |> String.fromInt) ++ "px"
+    in
     dialogRender
         model.renderEnv
         { styles =
             [ ( "max-width", "95%" )
+            , ( "max-height", "90%" )
+            , ( "overflow", "auto" )
             , ( "font-size", fspct model.renderEnv )
             ]
         , title = "Edit Columns"
@@ -9566,6 +9575,9 @@ editColumnDialogRows model =
                 [ td [] td1
                 , td [] [ button msg "+" ]
                 ]
+
+        renderEnv =
+            model.renderEnv
     in
     -- This will change quite a bit when I add multiple-server support
     [ table [] <|
@@ -9630,7 +9642,7 @@ editColumnDialogRows model =
                         , value model.userNameInput
                         , placeholder <|
                             "username@"
-                                ++ Maybe.withDefault "server" model.renderEnv.loginServer
+                                ++ Maybe.withDefault "server" renderEnv.loginServer
                         ]
                         []
                     ]
@@ -9663,7 +9675,7 @@ editColumnDialogRows model =
                     [ titledButton "Remove this column"
                         True
                         (ColumnsUIMsg <| DeleteFeedColumn feedType)
-                        "X"
+                        "x"
                     ]
                 , td []
                     [ titledButton "Move this column left"
@@ -9678,9 +9690,20 @@ editColumnDialogRows model =
                         ">"
                     ]
                 ]
+
+        ( _, windowHeight ) =
+            renderEnv.windowSize
+
+        maxHeight =
+            (String.fromInt <| 70 * windowHeight // 100) ++ "px"
       in
-      table [] <|
-        List.map feedRow feedTypes
+      div
+        [--style "max-height" "70%"
+         --, style "overflow" "auto"
+        ]
+        [ table [] <|
+            List.map feedRow feedTypes
+        ]
     ]
 
 
