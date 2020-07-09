@@ -20,7 +20,7 @@
 ----------------------------------------------------------------------
 {--Immediate TODOs
 
-* Try to parse card.description as HTML.
+See ../TODO.md for the full list.
 
 * Edit Columns dialog needs scrolling so it doesn't overflow the screen.
 
@@ -9538,7 +9538,7 @@ editColumnsDialog model =
     dialogRender
         model.renderEnv
         { styles =
-            [ ( "width", "40%" )
+            [ ( "max-width", "95%" )
             , ( "font-size", fspct model.renderEnv )
             ]
         , title = "Edit Columns"
@@ -9659,9 +9659,24 @@ editColumnDialogRows model =
             in
             tr []
                 [ td [] [ title ]
-                , td [] [ button (ColumnsUIMsg <| DeleteFeedColumn feedType) "Delete" ]
-                , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType -1) "<-" ]
-                , td [] [ button (ColumnsUIMsg <| MoveFeedColumn feedType 1) "->" ]
+                , td []
+                    [ titledButton "Remove this column"
+                        True
+                        (ColumnsUIMsg <| DeleteFeedColumn feedType)
+                        "X"
+                    ]
+                , td []
+                    [ titledButton "Move this column left"
+                        True
+                        (ColumnsUIMsg <| MoveFeedColumn feedType -1)
+                        "<-"
+                    ]
+                , td []
+                    [ titledButton "Move this column right"
+                        True
+                        (ColumnsUIMsg <| MoveFeedColumn feedType 1)
+                        "->"
+                    ]
                 ]
       in
       table [] <|
