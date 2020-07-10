@@ -22,8 +22,6 @@
 
 See ../TODO.md for the full list.
 
-* Edit Columns dialog needs scrolling so it doesn't overflow the screen.
-
 * Group feeds
     ** Incremental search for the group name in the "Edit Columns"
        dialog, instead of entering the ID.
@@ -7678,6 +7676,9 @@ renderColumns model =
 
         ( _, h ) =
             renderEnv.windowSize
+
+        ( windowWidth, windowHeight ) =
+            renderEnv.windowSize
     in
     renderCenteredScreen model
         ""
@@ -7688,6 +7689,21 @@ renderColumns model =
             Just msg ->
                 p [ style "color" "red" ]
                     [ text msg ]
+        , if model.dialog /= NoDialog then
+            text ""
+
+          else
+            div
+                [ style "position" "fixed"
+                , style "bottom" <| (10 |> String.fromInt) ++ "px"
+                , style "right" <| (10 |> String.fromInt) ++ "px"
+                ]
+                [ Html.button
+                    [ onClick (ColumnsUIMsg <| ShowPostDialog Nothing)
+                    , style "background-color" "lightblue"
+                    ]
+                    [ text "P" ]
+                ]
         , table
             [ style "border-spacing" <| String.fromInt columnsBorderSpacing
             , fsStyle renderEnv
