@@ -190,6 +190,8 @@ import PortFunnels exposing (FunnelDict, Handler(..), State)
 import Regex
 import Set exposing (Set)
 import String.Extra as SE
+import Svg exposing (svg)
+import Svg.Attributes as Svga
 import Task
 import Time exposing (Month, Posix, Zone)
 import Time.Format as Format
@@ -312,6 +314,7 @@ filterInputDecoder =
 type alias RenderEnv =
     { loginServer : Maybe String
     , style : Style
+    , fontSizePct : Int
     , fontSize : String --percent
     , columnWidth : Int --pixels
     , resizeColumnsWithLeft : Bool
@@ -326,6 +329,7 @@ emptyRenderEnv : RenderEnv
 emptyRenderEnv =
     { loginServer = Nothing
     , style = LightStyle
+    , fontSizePct = 100
     , fontSize = "100"
     , columnWidth = 300
     , resizeColumnsWithLeft = True
@@ -2587,7 +2591,8 @@ columnsUIMsg msg model =
             { model
                 | renderEnv =
                     { renderEnv
-                        | fontSize = "100"
+                        | fontSizePct = 100
+                        , fontSize = "100"
                     }
             }
                 |> withNoCmd
@@ -2602,20 +2607,15 @@ columnsUIMsg msg model =
                         Down ->
                             -5
 
-                fontSize =
-                    case String.toInt renderEnv.fontSize of
-                        Just i ->
-                            i
-
-                        Nothing ->
-                            100
+                fontSizePct =
+                    max 50 renderEnv.fontSizePct + delta
             in
             { model
                 | renderEnv =
                     { renderEnv
-                        | fontSize =
-                            (max 50 fontSize + delta)
-                                |> String.fromInt
+                        | fontSizePct = fontSizePct
+                        , fontSize =
+                            fontSizePct |> String.fromInt
                     }
             }
                 |> withNoCmd
@@ -6483,12 +6483,13 @@ type alias ImageSpec =
     { imageUrl : String
     , linkUrl : String
     , altText : String
+    , borderColor : Maybe String
     , h : String
     }
 
 
 imageLink : ImageSpec -> Html Msg
-imageLink { imageUrl, linkUrl, altText, h } =
+imageLink { imageUrl, linkUrl, altText, borderColor, h } =
     a
         [ href linkUrl
         , blankTarget
@@ -6498,6 +6499,13 @@ imageLink { imageUrl, linkUrl, altText, h } =
             , alt altText
             , style "height" h
             , title altText
+            , style "border" <|
+                case borderColor of
+                    Just color ->
+                        "3px solid " ++ color
+
+                    Nothing ->
+                        "none"
             ]
             []
         ]
@@ -6692,6 +6700,7 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
                 { imageUrl = "images/elm-logo-125x125.png"
                 , linkUrl = "https://elm-lang.org/"
                 , altText = "Elm Inside"
+                , borderColor = Nothing
                 , h = "32px"
                 }
             , text " "
@@ -6704,6 +6713,7 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
                         "images/GitHub-Mark-32px.png"
                 , linkUrl = "https://github.com/billstclair/mammudeck"
                 , altText = "GitHub"
+                , borderColor = Nothing
                 , h = "32px"
                 }
             ]
@@ -6996,6 +7006,7 @@ renderMultiNotification renderEnv account others notification =
                         { imageUrl = other.avatar
                         , linkUrl = other.url
                         , altText = other.display_name
+                        , borderColor = Nothing
                         , h = "1.5em"
                         }
                 )
@@ -7116,7 +7127,8 @@ renderNotification renderEnv notification =
     div [ style "border" <| "1px solid " ++ color ]
         [ div []
             [ div [ headerFontSizeStyle ]
-                [ renderAccount color
+                [ renderAccount 0
+                    color
                     renderEnv.here
                     notification.account
                     description
@@ -7208,8 +7220,60 @@ feedTitle feedType =
             text ""
 
 
-renderAccount : String -> Zone -> Account -> Html Msg -> Datetime -> Maybe UrlString -> Html Msg
-renderAccount color zone account description datetime url =
+ariaLabel : String -> Attribute msg
+ariaLabel =
+    Html.Attributes.attribute "aria-label"
+
+
+{-| Stolen from gab.com.
+
+    <svg style="margin-left: 5px;"
+         version="1.1"
+         xmlns="http://www.w3.org/2000/svg"
+         x="0px"
+         y="0px"
+         width="19px"
+         height="19px"
+         viewBox="0 0 32 32"
+         xml:space="preserve"
+         aria-label="Verified Account">
+      <g>
+        <path fill="#3E99ED"
+              d="M 27.31 4.69 C 24.29 1.66 20.27 0 16 0 C 11.73 0 7.71 1.66 4.69 4.69 C 1.66 7.71 0 11.73 0 16 C 0 20.27 1.66 24.29 4.69 27.31 C 7.71 30.34 11.73 32 16 32 C 20.27 32 24.29 30.34 27.31 27.31 C 30.34 24.29 32 20.27 32 16 C 32 11.73 30.34 7.71 27.31 4.69 Z M 23.64 12.19 L 14.7 21.13 C 14.52 21.32 14.28 21.41 14.04 21.41 C 13.8 21.41 13.56 21.32 13.38 21.13 L 8.36 16.11 C 7.99 15.75 7.99 15.15 8.36 14.79 C 8.72 14.42 9.32 14.42 9.68 14.79 L 14.04 19.14 L 22.32 10.87 C 22.68 10.5 23.28 10.5 23.64 10.87 C 24.01 11.23 24.01 11.82 23.64 12.19 Z M 23.64 12.19">
+        </path>
+      </g>
+    </svg>
+
+-}
+blueCheck : Int -> Html msg
+blueCheck scalePct =
+    let
+        sizepx =
+            (17 * scalePct // 100 |> String.fromInt) ++ "px"
+    in
+    svg
+        [ Svga.style "margin-left: 5px;"
+        , Svga.version "1.1"
+        , Svga.x "0px"
+        , Svga.y "0px"
+        , Svga.width sizepx
+        , Svga.height sizepx
+        , Svga.viewBox "0 0 32 32"
+        , Svga.xmlSpace "preserve"
+        , ariaLabel "Verified Account"
+        ]
+        [ Svg.g []
+            [ Svg.path
+                [ Svga.fill "#3E99ED"
+                , Svga.d "M 27.31 4.69 C 24.29 1.66 20.27 0 16 0 C 11.73 0 7.71 1.66 4.69 4.69 C 1.66 7.71 0 11.73 0 16 C 0 20.27 1.66 24.29 4.69 27.31 C 7.71 30.34 11.73 32 16 32 C 20.27 32 24.29 30.34 27.31 27.31 C 30.34 24.29 32 20.27 32 16 C 32 11.73 30.34 7.71 27.31 4.69 Z M 23.64 12.19 L 14.7 21.13 C 14.52 21.32 14.28 21.41 14.04 21.41 C 13.8 21.41 13.56 21.32 13.38 21.13 L 8.36 16.11 C 7.99 15.75 7.99 15.15 8.36 14.79 C 8.72 14.42 9.32 14.42 9.68 14.79 L 14.04 19.14 L 22.32 10.87 C 22.68 10.5 23.28 10.5 23.64 10.87 C 24.01 11.23 24.01 11.82 23.64 12.19 Z M 23.64 12.19"
+                ]
+                []
+            ]
+        ]
+
+
+renderAccount : Int -> String -> Zone -> Account -> Html Msg -> Datetime -> Maybe UrlString -> Html Msg
+renderAccount fontSizePct color zone account description datetime url =
     table []
         [ tr []
             [ td []
@@ -7217,6 +7281,12 @@ renderAccount color zone account description datetime url =
                     { imageUrl = account.avatar
                     , linkUrl = account.url
                     , altText = ""
+                    , borderColor =
+                        if account.is_pro then
+                            Just "gold"
+
+                        else
+                            Nothing
                     , h = "3em"
                     }
                 ]
@@ -7224,6 +7294,11 @@ renderAccount color zone account description datetime url =
                 [ description
                 , br
                 , link ("@" ++ account.username) account.url
+                , if account.is_verified && fontSizePct > 0 then
+                    blueCheck fontSizePct
+
+                  else
+                    text ""
                 , br
                 , let
                     timeString =
@@ -7310,7 +7385,8 @@ renderStatus renderEnv feedEnv statusIn =
                             [ link acct.display_name acct.url
                             , text " reblogged:"
                             ]
-                , renderAccount color
+                , renderAccount renderEnv.fontSizePct
+                    color
                     renderEnv.here
                     account
                     (b account.display_name)
@@ -7410,7 +7486,8 @@ renderStatusCard renderEnv status =
                                     ]
                                 ]
                     , p []
-                        [ b card.title
+                        [ a [ href card.url ]
+                            [ b card.title ]
                         , case nothingIfMaybeBlank card.author_name of
                             Nothing ->
                                 text ""
@@ -10747,6 +10824,7 @@ encodeRenderEnv env =
     JE.object
         [ ( "loginServer", ED.encodeMaybe JE.string env.loginServer )
         , ( "style", encodeStyle env.style )
+        , ( "fontSizePct", JE.int env.fontSizePct )
         , ( "fontSize", JE.string env.fontSize )
         , ( "columnWidth", JE.int env.columnWidth )
         , ( "resizeColumnsWithLeft", JE.bool env.resizeColumnsWithLeft )
@@ -10756,10 +10834,24 @@ encodeRenderEnv env =
 renderEnvDecoder : Decoder RenderEnv
 renderEnvDecoder =
     JD.succeed
-        (\loginServer style fontSize columnWidth resizeColumnsWithLeft ->
+        (\loginServer style fontSizePct_ fontSize_ columnWidth resizeColumnsWithLeft ->
+            let
+                ( fontSizePct, fontSize ) =
+                    if fontSizePct_ == 0 then
+                        case String.toInt fontSize_ of
+                            Just int ->
+                                ( int, fontSize_ )
+
+                            Nothing ->
+                                ( 100, "100" )
+
+                    else
+                        ( fontSizePct_, String.fromInt fontSizePct_ )
+            in
             { emptyRenderEnv
                 | loginServer = loginServer
                 , style = style
+                , fontSizePct = fontSizePct
                 , fontSize = fontSize
                 , columnWidth = columnWidth
                 , resizeColumnsWithLeft = resizeColumnsWithLeft
@@ -10767,6 +10859,7 @@ renderEnvDecoder =
         )
         |> required "loginServer" (JD.nullable JD.string)
         |> required "style" styleDecoder
+        |> optional "fontSizePct" JD.int 0
         |> optional "fontSize" JD.string "100"
         |> optional "columnWidth" JD.int 300
         |> optional "resizeColumnsWithLeft" JD.bool True
