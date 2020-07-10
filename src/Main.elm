@@ -7007,7 +7007,7 @@ renderMultiNotification renderEnv account others notification =
                         , linkUrl = other.url
                         , altText = other.display_name
                         , borderColor =
-                            if account.is_pro then
+                            if other.is_pro then
                                 Just "gold"
 
                             else
