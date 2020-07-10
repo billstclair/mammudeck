@@ -7130,6 +7130,22 @@ renderNotification renderEnv notification =
         ]
 
 
+statusBody : Status -> List (Html Msg)
+statusBody status =
+    case Html.Parser.run status.content of
+        Ok nodes ->
+            Util.toVirtualDom nodes
+
+        Err _ ->
+            [ case status.plain_markdown of
+                Just markdown ->
+                    text markdown
+
+                Nothing ->
+                    text status.content
+            ]
+
+
 renderNotificationBody : RenderEnv -> Notification -> Html Msg
 renderNotificationBody renderEnv notification =
     let
@@ -7143,12 +7159,7 @@ renderNotificationBody renderEnv notification =
         Just status ->
             let
                 body =
-                    case Html.Parser.run status.content of
-                        Ok nodes ->
-                            Util.toVirtualDom nodes
-
-                        Err _ ->
-                            [ text status.content ]
+                    statusBody status
 
                 timeString =
                     formatIso8601 renderEnv.here status.created_at
@@ -7283,12 +7294,7 @@ renderStatus renderEnv feedEnv statusIn =
             getStyle renderEnv.style
 
         body =
-            case Html.Parser.run status.content of
-                Ok nodes ->
-                    Util.toVirtualDom nodes
-
-                Err _ ->
-                    [ text status.content ]
+            statusBody status
     in
     div [ style "border" <| "1px solid " ++ color ]
         [ div []
