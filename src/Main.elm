@@ -7006,7 +7006,12 @@ renderMultiNotification renderEnv account others notification =
                         { imageUrl = other.avatar
                         , linkUrl = other.url
                         , altText = other.display_name
-                        , borderColor = Nothing
+                        , borderColor =
+                            if account.is_pro then
+                                Just "gold"
+
+                            else
+                                Nothing
                         , h = "1.5em"
                         }
                 )
