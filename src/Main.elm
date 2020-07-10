@@ -7132,7 +7132,7 @@ renderNotification renderEnv notification =
     div [ style "border" <| "1px solid " ++ color ]
         [ div []
             [ div [ headerFontSizeStyle ]
-                [ renderAccount 0
+                [ renderAccount renderEnv.fontSizePct
                     color
                     renderEnv.here
                     notification.account
