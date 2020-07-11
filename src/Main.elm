@@ -6674,7 +6674,13 @@ Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a wo
 
 [Wikipedia says](https://en.wikipedia.org/wiki/Mastodon) that "Mastodons... are any species of extinct proboscideans in the genus Mammut (family Mammutidae), distantly related to elephants..." I removed the ending "t" from "Mammut" and added "deck" to get "Mammudeck".
 
+To get started, enter the domain of a Fediverse server on which you have an account, e.g. "mastodon.online", in the text entry field below "Server:" above, and click the "Login" button. You will be redirected to that server to login, and to authorize Mammudeck to access your account. You can login to multiple sites, and Mammudeck will remember them, and their access tokens, in your browser's local storage database, on your computer. NO information about you is EVER stored on Mammudeck.com, though the server you log in to will create one or more cookies to remember your login there.
+
+You may choose amongst known sites in the pop-up below "Server:", then click the "Login" button, (or click the "Server" button in the left column of the "Columns" page, which is where you'll spend most of your time).
+
 There's a huge list of servers at [fediverse.network](https://fediverse.network/). This webapp doesn't know how to register a new account (yet), so you'll have to do that on the server's web site, then come back here to log in.
+
+Mammudeck is a labor of love, but I wouldn't at all mind it becoming a full-time job. That can only happen if you, my customers, support me. If you use it, and like it, please donate at [paypal.me/billstclair](https://www.paypal.me/billstclair).
             """
         , p []
             [ img
@@ -9452,7 +9458,7 @@ loginSelectedUI showLoginButton model =
             , size 30
             , onInput (GlobalMsg << SetServer)
             , value model.server
-            , placeholder "mastodon.social"
+            , placeholder "mastodon.online"
             , onKeyUp
                 (\code ->
                     if code == 13 then
