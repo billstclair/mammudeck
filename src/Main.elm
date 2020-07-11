@@ -357,6 +357,7 @@ type alias Model =
     -- Columns page state
     , feedSetDefinition : FeedSetDefinition
     , supportsAccountByUsername : Dict String Bool
+    , postState : PostState
 
     -- API Explorer page state
     , prettify : Bool
@@ -403,7 +404,6 @@ type alias Model =
     -- Non-persistent below here
     , initialPage : InitialPage
     , dialog : Dialog
-    , postState : PostState
     , feedSet : FeedSet
     , accountIdDict : Dict String (List AccountId)
     , dropZone : DropZone.Model
@@ -980,6 +980,7 @@ init value url key =
     , server = ""
     , feedSetDefinition = Types.emptyFeedSetDefinition
     , supportsAccountByUsername = Dict.empty
+    , postState = initialPostState
     , prettify = True
     , selectedRequest = LoginSelected
     , username = ""
@@ -1024,7 +1025,6 @@ init value url key =
     -- Non-persistent below here
     , initialPage = initialPage
     , dialog = NoDialog
-    , postState = initialPostState
     , feedSet = Types.emptyFeedSet
     , accountIdDict = Dict.empty
     , dropZone = DropZone.init
@@ -2869,7 +2869,9 @@ columnsUIMsg msg model =
                     { model
                         | postState =
                             { postState
-                                | files = postState.files ++ [ file ]
+                                | fileNames =
+                                    postState.fileNames
+                                        ++ [ File.name file ]
                             }
                     }
                         |> sendRequest
@@ -2933,7 +2935,7 @@ columnsUIMsg msg model =
                 | postState =
                     { postState
                         | media_ids = LE.removeAt index postState.media_ids
-                        , files = LE.removeAt index postState.files
+                        , fileNames = LE.removeAt index postState.fileNames
                         , fileUrls = LE.removeAt index postState.fileUrls
                     }
             }
@@ -5441,11 +5443,11 @@ fixPostStateMedia request model =
                         postState =
                             model.postState
 
-                        files =
-                            postState.files
+                        fileNames =
+                            postState.fileNames
 
                         len =
-                            List.length files
+                            List.length fileNames
 
                         fileUrls =
                             postState.fileUrls
@@ -5454,7 +5456,7 @@ fixPostStateMedia request model =
                         { model
                             | postState =
                                 { postState
-                                    | files = List.take (len - 1) files
+                                    | fileNames = List.take (len - 1) fileNames
                                     , fileUrls =
                                         if List.length fileUrls == len then
                                             List.take (len - 1) fileUrls
@@ -5716,7 +5718,7 @@ applyResponseSideEffects response model =
                         ( mdl, isExplorer ) =
                             case mediaReq of
                                 Request.PostMedia { file } ->
-                                    if Just file == LE.last postState.files then
+                                    if Just (File.name file) == LE.last postState.fileNames then
                                         -- From the post dialog on the
                                         -- Columns page.
                                         ( { model
@@ -9847,10 +9849,7 @@ type alias PostState =
     , mentionsString : String
     , sensitive : Bool
     , media_ids : List String
-
-    -- The files list is one longer than media_ids, while a
-    -- "POST media" request is outstanding.
-    , files : List File
+    , fileNames : List String
     , fileUrls : List String
     }
 
@@ -9864,7 +9863,7 @@ initialPostState =
     , mentionsString = ""
     , sensitive = False
     , media_ids = []
-    , files = []
+    , fileNames = []
     , fileUrls = []
     }
 
@@ -9900,7 +9899,7 @@ postDialog model =
         , actionBar =
             [ enabledButton
                 ((postState.text /= "" || postState.media_ids /= [])
-                    && (List.length postState.files == List.length postState.media_ids)
+                    && (List.length postState.fileNames == List.length postState.media_ids)
                 )
                 (ColumnsUIMsg Post)
                 "Post"
@@ -9999,10 +9998,15 @@ postDialogContent renderEnv dropZone postState =
             []
         ]
     , p []
-        [ enabledButton
-            ((List.length postState.files < maximumPostAttachments)
-                && (List.length postState.files == List.length postState.media_ids)
-            )
+        [ let
+            fileCount =
+                List.length postState.fileNames
+
+            enabled =
+                (fileCount < maximumPostAttachments)
+                    && (fileCount == List.length postState.media_ids)
+          in
+          enabledButton enabled
             (ColumnsUIMsg ChoosePostAttachment)
             "Choose File"
         , text " "
@@ -10013,11 +10017,14 @@ postDialogContent renderEnv dropZone postState =
             urls =
                 postState.fileUrls
 
-            files =
-                postState.files
+            fileNames =
+                postState.fileNames
 
             images =
-                List.map3 postImage files urls (List.range 0 <| List.length urls - 1)
+                List.map3 postImage
+                    fileNames
+                    urls
+                    (List.range 0 <| List.length urls - 1)
           in
           if images == [] then
             text ""
@@ -10106,11 +10113,11 @@ decodeFiles =
 -}
 
 
-postImage : File -> String -> Int -> Html Msg
-postImage file url index =
+postImage : String -> String -> Int -> Html Msg
+postImage fileName url index =
     img
         [ src url
-        , alt <| File.name file
+        , alt <| fileName
         , style "height" "4em"
         , onClick <| (ColumnsUIMsg <| DeletePostAttachment index)
         ]
@@ -10557,6 +10564,7 @@ type alias SavedModel =
     , server : String
     , feedSetDefinition : FeedSetDefinition
     , supportsAccountByUsername : Dict String Bool
+    , postState : PostState
     , prettify : Bool
     , selectedRequest : SelectedRequest
     , username : String
@@ -10608,6 +10616,7 @@ modelToSavedModel model =
     , server = model.server
     , feedSetDefinition = model.feedSetDefinition
     , supportsAccountByUsername = model.supportsAccountByUsername
+    , postState = model.postState
     , prettify = model.prettify
     , selectedRequest = model.selectedRequest
     , username = model.username
@@ -10674,6 +10683,7 @@ savedModelToModel savedModel model =
         , server = savedModel.server
         , feedSetDefinition = savedModel.feedSetDefinition
         , supportsAccountByUsername = savedModel.supportsAccountByUsername
+        , postState = savedModel.postState
         , prettify = savedModel.prettify
         , selectedRequest = savedModel.selectedRequest
         , username = savedModel.username
@@ -10883,6 +10893,35 @@ renderEnvDecoder =
         |> optional "resizeColumnsWithLeft" JD.bool True
 
 
+encodePostState : PostState -> Value
+encodePostState postState =
+    JE.object
+        [ ( "replyTo", ED.encodeMaybe ED.encodeStatus postState.replyTo )
+        , ( "noReply", JE.bool postState.noReply )
+        , ( "quote", JE.bool postState.quote )
+        , ( "text", JE.string postState.text )
+        , ( "mentionsString", JE.string postState.mentionsString )
+        , ( "sensitive", JE.bool postState.sensitive )
+        , ( "media_ids", JE.list JE.string postState.media_ids )
+        , ( "fileNames", JE.list JE.string postState.fileNames )
+        , ( "fileUrls", JE.list JE.string postState.fileUrls )
+        ]
+
+
+postStateDecoder : Decoder PostState
+postStateDecoder =
+    JD.succeed PostState
+        |> required "replyTo" (JD.nullable ED.statusDecoder)
+        |> required "noReply" JD.bool
+        |> required "quote" JD.bool
+        |> required "text" JD.string
+        |> required "mentionsString" JD.string
+        |> required "sensitive" JD.bool
+        |> required "media_ids" (JD.list JD.string)
+        |> required "fileNames" (JD.list JD.string)
+        |> required "fileUrls" (JD.list JD.string)
+
+
 encodeSavedModel : SavedModel -> Value
 encodeSavedModel savedModel =
     JE.object
@@ -10896,6 +10935,7 @@ encodeSavedModel savedModel =
         , ( "supportsAccountByUsername"
           , JE.dict identity JE.bool savedModel.supportsAccountByUsername
           )
+        , ( "postState", encodePostState savedModel.postState )
         , ( "accountId", JE.string savedModel.accountId )
         , ( "accountIds", JE.string savedModel.accountIds )
         , ( "showMetadata", JE.bool savedModel.showMetadata )
@@ -10951,6 +10991,7 @@ savedModelDecoder =
             MED.feedSetDefinitionDecoder
             Types.defaultFeedSetDefinition
         |> optional "supportsAccountByUsername" (JD.dict JD.bool) Dict.empty
+        |> optional "postState" postStateDecoder initialPostState
         |> optional "prettify" JD.bool True
         |> optional "selectedRequest" selectedRequestDecoder LoginSelected
         |> optional "username" JD.string ""
