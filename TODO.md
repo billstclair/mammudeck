@@ -40,6 +40,8 @@ Bill St. Clair, 2 July 2020
   Will be less important once a feedset can fetch from multiple servers.
 * It is possible to scroll to the end of a feed.
   Detect this, and don't keep loading over and over to get nothing.
+* The group columns, with higher headers, are rendering past the bottom
+  of the window.
 
 ## For column status rendering
 

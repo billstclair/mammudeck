@@ -192,6 +192,7 @@ import Set exposing (Set)
 import String.Extra as SE
 import Svg exposing (Svg, svg)
 import Svg.Attributes as Svga
+import Svg.Button as Button exposing (Button, TriangularButtonDirection(..))
 import Task
 import Time exposing (Month, Posix, Zone)
 import Time.Format as Format
@@ -410,6 +411,8 @@ type alias Model =
     , loadingFeeds : Set String --feed ids
     , groupDict : Dict String Group
     , feedEnvs : Dict String FeedEnv
+    , showFullFloatingButtons : Bool
+    , isTouchAware : Bool
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -536,7 +539,11 @@ type ColumnsUIMsg
     | Tick Posix
     | ShowEditColumnsDialog
     | ShowServerDialog
+    | SimpleButtonMsg Button.Msg ColumnsUIMsg
+    | ShowFullFloatingButtons
+    | ScrollPage ScrollDirection
     | ShowPostDialog (Maybe Status)
+    | ShowSettingsDialog
     | DismissDialog
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
@@ -802,7 +809,7 @@ subscriptions model =
         -- There currently aren't any calls.
         --, Time.every 250 (ColumnsUIMsg << Tick)
         , scrollNotify ScrollNotify
-        , if model.dialog /= NoDialog then
+        , if model.dialog /= NoDialog || model.showFullFloatingButtons then
             Events.onKeyDown keyDecoder
 
           else
@@ -1031,6 +1038,8 @@ init value url key =
     , loadingFeeds = Set.empty
     , groupDict = Dict.empty
     , feedEnvs = Dict.empty
+    , showFullFloatingButtons = False
+    , isTouchAware = False
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -1990,9 +1999,20 @@ globalMsg msg model =
                     )
 
         OnKeyPress key ->
-            { model
+            let
+                isEscape =
+                    key == "Escape"
+
+                mdl =
+                    if isEscape then
+                        { model | showFullFloatingButtons = False }
+
+                    else
+                        model
+            in
+            { mdl
                 | dialog =
-                    if key == "Escape" then
+                    if isEscape then
                         NoDialog
 
                     else
@@ -2764,6 +2784,30 @@ columnsUIMsg msg model =
             { model | dialog = ServerDialog }
                 |> withCmd (focusId LoginServerId)
 
+        ScrollPage direction ->
+            -- TODO
+            model |> withNoCmd
+
+        ShowFullFloatingButtons ->
+            { model | showFullFloatingButtons = True } |> withNoCmd
+
+        SimpleButtonMsg m cuiMsg ->
+            let
+                ( isClick, but, _ ) =
+                    Button.update (\bm -> SimpleButtonMsg bm cuiMsg)
+                        m
+                        simpleButton
+
+                mdl =
+                    { model | isTouchAware = Button.isTouchAware but }
+            in
+            if isClick then
+                update (ColumnsUIMsg cuiMsg)
+                    { model | showFullFloatingButtons = False }
+
+            else
+                model |> withNoCmd
+
         ShowPostDialog maybeStatus ->
             let
                 postState =
@@ -2785,6 +2829,10 @@ columnsUIMsg msg model =
             }
                 |> withCmd
                     (focusId PostDialogTextId)
+
+        ShowSettingsDialog ->
+            -- TODO
+            model |> withNoCmd
 
         DismissDialog ->
             { model | dialog = NoDialog }
@@ -7771,6 +7819,149 @@ columnsBorderSpacing =
     2
 
 
+oldFloatingButtons : Model -> Html Msg
+oldFloatingButtons model =
+    Html.button
+        [ onClick (ColumnsUIMsg <| ShowPostDialog Nothing)
+        , style "background-color" "lightblue"
+        ]
+        [ text "P" ]
+
+
+triangleHeight : Float -> Float
+triangleHeight width =
+    width * sqrt 3 * 0.5
+
+
+floatingButtonColors : Button.Colors
+floatingButtonColors =
+    let
+        colors =
+            Button.defaultColors
+    in
+    { colors
+        | background = "lightBlue"
+        , text = "black"
+    }
+
+
+floatingButtons : Model -> Html Msg
+floatingButtons model =
+    let
+        ( _, sh ) =
+            model.renderEnv.windowSize
+
+        tw =
+            toFloat sh / 7
+
+        -- w + w*sqrt(3) = tw
+        w =
+            tw / (1 + sqrt 3)
+
+        l =
+            w * sqrt 3 / 2
+
+        squareButton location label cuiMsg title =
+            Button.render
+                location
+                (Button.TextContent label)
+                (\m -> ColumnsUIMsg (SimpleButtonMsg m cuiMsg))
+                (Button.simpleButton ( w, w ) ()
+                    |> Button.setTouchAware model.isTouchAware
+                    |> Button.setColors floatingButtonColors
+                    |> addButtonTitle title
+                )
+
+        triangleButton direction location cuiMsg title =
+            Button.render
+                location
+                Button.NoContent
+                (\m -> ColumnsUIMsg (SimpleButtonMsg m cuiMsg))
+                (Button.simpleButton ( l, w ) ()
+                    |> Button.setTouchAware model.isTouchAware
+                    |> Button.setColors floatingButtonColors
+                    |> Button.setTriangularButtonRenderers direction
+                    |> addButtonTitle title
+                )
+
+        th =
+            if model.showFullFloatingButtons then
+                3 * w - 2
+
+            else
+                w
+    in
+    svg
+        [ Svga.width <| String.fromFloat tw
+        , Svga.height <| String.fromFloat th
+        ]
+    <|
+        if model.showFullFloatingButtons then
+            [ squareButton ( l, 0 )
+                "S"
+                ShowSettingsDialog
+                "Show Settings Dialog"
+            , squareButton ( l, w - 1 )
+                "R"
+                ReloadAllColumns
+                "Reload All Columns"
+            , squareButton ( l, 2 * w - 2 )
+                "P"
+                (ShowPostDialog Nothing)
+                "Show Post Dialog"
+            , triangleButton LeftButton
+                ( 1, 2 * w - 2 )
+                (ScrollPage ScrollLeft)
+                "Scroll One Page Left"
+            , triangleButton RightButton
+                ( l + w - 2, 2 * w - 2 )
+                (ScrollPage ScrollRight)
+                "Scroll One Page Right"
+            ]
+
+        else
+            [ squareButton ( l, 0 )
+                ""
+                ShowFullFloatingButtons
+                "Expand Buttons, Click or Escape to Contract"
+            , triangleButton LeftButton
+                ( 1, 0 )
+                (ScrollPage ScrollLeft)
+                "Scroll One Page Left"
+            , triangleButton RightButton
+                ( l + w - 2, 0 )
+                (ScrollPage ScrollRight)
+                "Scroll One Page Right"
+            ]
+
+
+type ScrollDirection
+    = ScrollRight
+    | ScrollLeft
+
+
+addButtonTitle : String -> Button state msg -> Button state msg
+addButtonTitle title svgButton =
+    let
+        renderer =
+            Button.getRenderOverlay svgButton
+
+        newRenderer wrapper but =
+            Svg.g []
+                [ Svg.title [] [ Svg.text title ]
+                , renderer wrapper but
+                ]
+    in
+    Button.setRenderOverlay newRenderer svgButton
+
+
+{-| Never rendered. Just used for updating.
+-}
+simpleButton : Button () ColumnsUIMsg
+simpleButton =
+    Button.simpleButton ( 10, 10 ) ()
+
+
 renderColumns : Model -> Html Msg
 renderColumns model =
     let
@@ -7804,12 +7995,7 @@ renderColumns model =
                 , style "bottom" <| (10 |> String.fromInt) ++ "px"
                 , style "right" <| (10 |> String.fromInt) ++ "px"
                 ]
-                [ Html.button
-                    [ onClick (ColumnsUIMsg <| ShowPostDialog Nothing)
-                    , style "background-color" "lightblue"
-                    ]
-                    [ text "P" ]
-                ]
+                [ floatingButtons model ]
         , table
             [ style "border-spacing" <| String.fromInt columnsBorderSpacing
             , fsStyle renderEnv
