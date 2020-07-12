@@ -1,3 +1,14 @@
+/* Enable scroll events on the <body>.
+ * https://stackoverflow.com/a/59005489/1386989
+ */
+:root {
+    overflow: hidden;
+}
+body {
+    overflow-x: scroll;
+    max-width: 100vw;
+}
+
 .invisible {
     display: none;
 }

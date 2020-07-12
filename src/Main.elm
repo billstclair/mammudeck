@@ -413,6 +413,7 @@ type alias Model =
     , feedEnvs : Dict String FeedEnv
     , showFullFloatingButtons : Bool
     , isTouchAware : Bool
+    , bodyScroll : ScrollNotification
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -1040,6 +1041,7 @@ init value url key =
     , feedEnvs = Dict.empty
     , showFullFloatingButtons = False
     , isTouchAware = False
+    , bodyScroll = emptyScrollNotification
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -1113,6 +1115,7 @@ init value url key =
                     Cmd.none
             , Task.perform getViewport Dom.getViewport
             , Task.perform (GlobalMsg << Here) Time.here
+            , makeScrollRequestWithId "body" True
             ]
 
 
@@ -1838,7 +1841,11 @@ processScroll value model =
                 id =
                     notification.id
             in
-            if Set.member id model.loadingFeeds then
+            if id == "body" then
+                { model | bodyScroll = notification }
+                    |> withNoCmd
+
+            else if Set.member id model.loadingFeeds then
                 model |> withNoCmd
 
             else
@@ -2786,7 +2793,8 @@ columnsUIMsg msg model =
 
         ScrollPage direction ->
             -- TODO
-            model |> withNoCmd
+            { model | dialog = AlertDialog "Scrolling not yet implemented." }
+                |> withNoCmd
 
         ShowFullFloatingButtons ->
             { model | showFullFloatingButtons = True } |> withNoCmd
@@ -2831,8 +2839,8 @@ columnsUIMsg msg model =
                     (focusId PostDialogTextId)
 
         ShowSettingsDialog ->
-            -- TODO
-            model |> withNoCmd
+            { model | dialog = AlertDialog "Settings Dialog not yet implemented." }
+                |> withNoCmd
 
         DismissDialog ->
             { model | dialog = NoDialog }
