@@ -3067,34 +3067,23 @@ scrollPage direction model =
                 ScrollLeft ->
                     let
                         nominal =
-                            Debug.log "  nominal" <|
-                                max col0Left <|
-                                    scrollLeft
-                                        - windowWidth
+                            max col0Left <| scrollLeft - windowWidth
 
                         proper =
-                            Debug.log "  proper" <|
-                                (nominal - col0Left + columnWidth - 1)
-                                    // columnWidth
+                            (nominal - col0Left + columnWidth - 1) // columnWidth
                     in
                     max 0 proper * columnWidth + col0Left
 
                 ScrollRight ->
                     let
                         maxScroll =
-                            Debug.log "  maxScroll" <|
-                                width
-                                    - windowWidth
+                            width - windowWidth
 
                         nominal =
-                            Debug.log "  nominal" <|
-                                scrollLeft
-                                    + windowWidth
+                            scrollLeft + windowWidth
 
                         proper =
-                            Debug.log "  proper" <|
-                                (nominal - col0Left)
-                                    // columnWidth
+                            (nominal - col0Left) // columnWidth
                     in
                     min maxScroll
                         ((proper * columnWidth) + col0Left)
