@@ -5,12 +5,12 @@
     overflow: hidden;
 }
 body {
-    overflow-x: hidden;
+    overflow: hidden;
 }
 #body {
-    overflow-x: scroll;
+    overflow: auto;
     max-width: 100vw;
-    max-height: 100hw;
+    max-height: 100vh;
 }
 
 

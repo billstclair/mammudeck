@@ -22,14 +22,29 @@
 
 See ../TODO.md for the full list.
 
+* Probe for existence of groups and other features at login. Persist.
+
+* Double-click on scroll button scrolls to the end.
+
+* On reply to post, select "Reply", "Quote", or "None" for reply type.
+  Persist existence of quote feature (and figure out how to test for it,
+  other than making a quoted post, and seeing if it comes back that
+  way, which may be the only way, then fail if it does not).
+
+* Settings dialog. Hide left column.
+
+* Configure location of the scroll pill (and call it that).
+    Top, bottom or center. Left, middle, or right.
+    Assuming the CSS works for center and middle.
+
 * Group feeds
     ** Incremental search for the group name in the "Edit Columns"
        dialog, instead of entering the ID.
-
     ** Post to a group.
 
 * More feed types. Lists, groups, hashtags, search
     Parameters for user, public, and notification
+    Increment search for users.
 
 * Multiple named feedsets per server.
 
@@ -347,6 +362,12 @@ emptyFeedEnv =
     { group = Nothing }
 
 
+{-| server -> (feature -> available-p)
+-}
+type alias Features =
+    Dict String (Dict String Bool)
+
+
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -357,6 +378,7 @@ type alias Model =
     , feedSetDefinition : FeedSetDefinition
     , supportsAccountByUsername : Dict String Bool
     , postState : PostState
+    , features : Features
 
     -- API Explorer page state
     , prettify : Bool
@@ -986,6 +1008,7 @@ init value url key =
     , feedSetDefinition = Types.emptyFeedSetDefinition
     , supportsAccountByUsername = Dict.empty
     , postState = initialPostState
+    , features = Dict.empty
     , prettify = True
     , selectedRequest = LoginSelected
     , username = ""
@@ -10817,6 +10840,7 @@ type alias SavedModel =
     , feedSetDefinition : FeedSetDefinition
     , supportsAccountByUsername : Dict String Bool
     , postState : PostState
+    , features : Features
     , prettify : Bool
     , selectedRequest : SelectedRequest
     , username : String
@@ -10869,6 +10893,7 @@ modelToSavedModel model =
     , feedSetDefinition = model.feedSetDefinition
     , supportsAccountByUsername = model.supportsAccountByUsername
     , postState = model.postState
+    , features = model.features
     , prettify = model.prettify
     , selectedRequest = model.selectedRequest
     , username = model.username
@@ -10935,6 +10960,7 @@ savedModelToModel savedModel model =
         , feedSetDefinition = savedModel.feedSetDefinition
         , supportsAccountByUsername = savedModel.supportsAccountByUsername
         , postState = savedModel.postState
+        , features = savedModel.features
         , prettify = savedModel.prettify
         , selectedRequest = savedModel.selectedRequest
         , username = savedModel.username
@@ -11141,6 +11167,16 @@ renderEnvDecoder =
         |> optional "columnWidth" JD.int 300
 
 
+encodeFeatures : Features -> Value
+encodeFeatures features =
+    JE.dict identity (JE.dict identity JE.bool) features
+
+
+featuresDecoder : Decoder Features
+featuresDecoder =
+    JD.dict <| JD.dict JD.bool
+
+
 encodePostState : PostState -> Value
 encodePostState postState =
     JE.object
@@ -11184,6 +11220,7 @@ encodeSavedModel savedModel =
           , JE.dict identity JE.bool savedModel.supportsAccountByUsername
           )
         , ( "postState", encodePostState savedModel.postState )
+        , ( "features", encodeFeatures savedModel.features )
         , ( "accountId", JE.string savedModel.accountId )
         , ( "accountIds", JE.string savedModel.accountIds )
         , ( "showMetadata", JE.bool savedModel.showMetadata )
@@ -11240,6 +11277,7 @@ savedModelDecoder =
             Types.defaultFeedSetDefinition
         |> optional "supportsAccountByUsername" (JD.dict JD.bool) Dict.empty
         |> optional "postState" postStateDecoder initialPostState
+        |> optional "features" featuresDecoder Dict.empty
         |> optional "prettify" JD.bool True
         |> optional "selectedRequest" selectedRequestDecoder LoginSelected
         |> optional "username" JD.string ""
