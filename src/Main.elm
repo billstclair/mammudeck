@@ -582,6 +582,7 @@ type ColumnsUIMsg
     | DeletePostAttachment Int
     | TogglePostSensitive
     | ShowStatusImages String
+    | SetPostReplyType ReplyType
     | Post
     | ProbeGroupsFeature String
 
@@ -2898,7 +2899,22 @@ columnsUIMsg msg model =
             { model
                 | dialog = PostDialog
                 , postState =
-                    { postState | replyTo = maybeStatus }
+                    { postState
+                        | replyTo =
+                            case maybeStatus of
+                                Just _ ->
+                                    maybeStatus
+
+                                Nothing ->
+                                    postState.replyTo
+                        , replyType =
+                            case maybeStatus of
+                                Just _ ->
+                                    ReplyToPost
+
+                                _ ->
+                                    postState.replyType
+                    }
                         |> addPostStateMentions me
             }
                 |> withCmd
@@ -3080,31 +3096,51 @@ columnsUIMsg msg model =
             modifyColumnsStatus id (\s -> { s | sensitive = False }) model
                 |> withNoCmd
 
+        SetPostReplyType replyType ->
+            let
+                postState =
+                    model.postState
+            in
+            { model
+                | postState =
+                    { postState | replyType = replyType }
+            }
+                |> withNoCmd
+
         Post ->
             let
                 postState =
                     model.postState
 
+                replyType =
+                    postState.replyType
+
                 replyTo =
-                    if postState.noReply then
-                        Nothing
-
-                    else
-                        postState.replyTo
-
-                in_reply_to_id =
-                    case replyTo of
-                        Nothing ->
+                    case replyType of
+                        NoReply ->
                             Nothing
 
+                        _ ->
+                            postState.replyTo
+
+                ( in_reply_to_id, quote_id ) =
+                    case replyTo of
+                        Nothing ->
+                            ( Nothing, Nothing )
+
                         Just status ->
-                            Just status.id
+                            case replyType of
+                                ReplyToPost ->
+                                    ( Just status.id, Nothing )
+
+                                _ ->
+                                    ( Nothing, Just status.id )
 
                 post =
                     { status = nothingIfBlank postState.text
                     , in_reply_to_id = in_reply_to_id
                     , group_id = Nothing
-                    , quote_of_id = Nothing
+                    , quote_of_id = quote_id
                     , media_ids = postState.media_ids
                     , poll = Nothing
                     , sensitive = postState.sensitive
@@ -8047,15 +8083,6 @@ columnsBorderSpacing =
     2
 
 
-oldFloatingButtons : Model -> Html Msg
-oldFloatingButtons model =
-    Html.button
-        [ onClick (ColumnsUIMsg <| ShowPostDialog Nothing)
-        , style "background-color" "lightblue"
-        ]
-        [ text "P" ]
-
-
 triangleHeight : Float -> Float
 triangleHeight width =
     width * sqrt 3 * 0.5
@@ -10321,10 +10348,15 @@ smartFeedTitle feedType model =
             feedTitle feedType
 
 
+type ReplyType
+    = ReplyToPost
+    | QuotePost
+    | NoReply
+
+
 type alias PostState =
     { replyTo : Maybe Status
-    , noReply : Bool
-    , quote : Bool
+    , replyType : ReplyType
     , text : String
     , mentionsString : String
     , sensitive : Bool
@@ -10337,8 +10369,7 @@ type alias PostState =
 initialPostState : PostState
 initialPostState =
     { replyTo = Nothing
-    , noReply = False
-    , quote = False
+    , replyType = NoReply
     , text = ""
     , mentionsString = ""
     , sensitive = False
@@ -10361,20 +10392,15 @@ postDialog model =
             , ( "font-size", fspct model.renderEnv )
             ]
         , title =
-            if postState.noReply then
-                "Post"
+            case postState.replyType of
+                ReplyToPost ->
+                    "Reply"
 
-            else
-                case postState.replyTo of
-                    Nothing ->
-                        "Post"
+                QuotePost ->
+                    "Quote"
 
-                    Just _ ->
-                        if postState.quote then
-                            "Quote"
-
-                        else
-                            "Reply"
+                _ ->
+                    "Post"
         , content = postDialogContent model.renderEnv model.dropZone postState
         , actionBar =
             [ enabledButton
@@ -10453,6 +10479,18 @@ postDialogContent renderEnv dropZone postState =
             let
                 timeString =
                     formatIso8601 renderEnv.here replyTo.created_at
+
+                replyType =
+                    postState.replyType
+
+                replyRadio val lab =
+                    radioButton
+                        { buttonValue = val
+                        , radioValue = replyType
+                        , radioName = "replyType"
+                        , setter = ColumnsUIMsg <| SetPostReplyType val
+                        , label = lab
+                        }
             in
             p []
                 [ text "to "
@@ -10464,6 +10502,12 @@ postDialogContent renderEnv dropZone postState =
 
                     Just url ->
                         link timeString url
+                , br
+                , replyRadio ReplyToPost "Reply"
+                , text " "
+                , replyRadio QuotePost "Quote"
+                , text " "
+                , replyRadio NoReply "Neither"
                 ]
     , p []
         [ textarea
@@ -11382,12 +11426,40 @@ featuresDecoder =
     JD.dict <| JD.dict JD.bool
 
 
+encodeReplyType : ReplyType -> Value
+encodeReplyType replyType =
+    case replyType of
+        ReplyToPost ->
+            JE.string "ReplyToPost"
+
+        QuotePost ->
+            JE.string "QuotePost"
+
+        NoReply ->
+            JE.string "NoReply"
+
+
+replyTypeDecoder : Decoder ReplyType
+replyTypeDecoder =
+    JD.string
+        |> JD.andThen
+            (\s ->
+                if s == "ReplyToPost" then
+                    JD.succeed ReplyToPost
+
+                else if s == "QuotePost" then
+                    JD.succeed QuotePost
+
+                else
+                    JD.succeed NoReply
+            )
+
+
 encodePostState : PostState -> Value
 encodePostState postState =
     JE.object
         [ ( "replyTo", ED.encodeMaybe ED.encodeStatus postState.replyTo )
-        , ( "noReply", JE.bool postState.noReply )
-        , ( "quote", JE.bool postState.quote )
+        , ( "replyType", encodeReplyType postState.replyType )
         , ( "text", JE.string postState.text )
         , ( "mentionsString", JE.string postState.mentionsString )
         , ( "sensitive", JE.bool postState.sensitive )
@@ -11401,8 +11473,7 @@ postStateDecoder : Decoder PostState
 postStateDecoder =
     JD.succeed PostState
         |> required "replyTo" (JD.nullable ED.statusDecoder)
-        |> required "noReply" JD.bool
-        |> required "quote" JD.bool
+        |> optional "replyType" replyTypeDecoder NoReply
         |> required "text" JD.string
         |> required "mentionsString" JD.string
         |> required "sensitive" JD.bool
