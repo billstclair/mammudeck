@@ -22,10 +22,6 @@
 
 See ../TODO.md for the full list.
 
-* Probe for existence of groups and other features at login. Persist.
-
-* Double-click on scroll button scrolls to the end.
-
 * On reply to post, select "Reply", "Quote", or "None" for reply type.
   Persist existence of quote feature (and figure out how to test for it,
   other than making a quoted post, and seeing if it comes back that
@@ -3190,7 +3186,7 @@ scrollPage direction now model =
             Time.posixToMillis lastNow
 
         rawNewScroll =
-            if lastDirection == direction && lastMillis + 200 >= millis then
+            if lastDirection == direction && lastMillis + 400 >= millis then
                 case direction of
                     ScrollLeft ->
                         col0Left
