@@ -119,6 +119,7 @@ Bill St. Clair, 2 July 2020
 * Color options other than light/dark
   Do everything with CSS classes, not inline styles.
   User editing of the CSS classes
+* Reprobe for features.
 * Column width, possibly per-column (photo posters elicit more real estate).
   **DONE**, but not per-column.
 * Font size.

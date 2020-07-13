@@ -434,6 +434,7 @@ type alias Model =
     , showFullFloatingButtons : Bool
     , isTouchAware : Bool
     , bodyScroll : ScrollNotification
+    , featureProbeRequest : Maybe ( String, Request )
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -562,6 +563,7 @@ type ColumnsUIMsg
     | SimpleButtonMsg Button.Msg ColumnsUIMsg
     | ShowFullFloatingButtons
     | ScrollPage ScrollDirection
+    | ClearFeatures
     | ShowPostDialog (Maybe Status)
     | ShowSettingsDialog
     | DismissDialog
@@ -582,6 +584,7 @@ type ColumnsUIMsg
     | TogglePostSensitive
     | ShowStatusImages String
     | Post
+    | ProbeGroupsFeature String
 
 
 type ReceiveFeedType
@@ -1062,6 +1065,7 @@ init value url key =
     , showFullFloatingButtons = False
     , isTouchAware = False
     , bodyScroll = emptyScrollNotification
+    , featureProbeRequest = Nothing
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -1331,14 +1335,19 @@ handleGetModelInternal maybeValue model =
                                 , msg = Nothing
                             }
                     in
-                    if mdl2.renderEnv.loginServer == Nothing then
-                        ( mdl2
-                        , Task.perform (GlobalMsg << SetServer) <|
-                            Task.succeed mdl2.server
-                        )
+                    case mdl2.renderEnv.loginServer of
+                        Nothing ->
+                            ( mdl2
+                            , Task.perform (GlobalMsg << SetServer) <|
+                                Task.succeed mdl2.server
+                            )
 
-                    else
-                        getVerifyCredentials mdl2
+                        Just server ->
+                            let
+                                ( mdl3, cmd3 ) =
+                                    getVerifyCredentials mdl2
+                            in
+                            mdl3 |> withCmds [ cmd3, fetchFeatures server mdl2 ]
 
 
 handleGetFeedSetDefinition : Maybe Value -> Model -> ( Model, Cmd Msg )
@@ -2211,7 +2220,7 @@ globalMsg msg model =
 
                 Ok ( server, app, cmd ) ->
                     { model | msg = Nothing }
-                        |> withCmd cmd
+                        |> withCmds [ cmd, fetchFeatures server model ]
 
         ReceiveAuthorization result ->
             case result of
@@ -2311,6 +2320,7 @@ globalMsg msg model =
                             , checkAccountByUsername loginServer mdl2
                             , getAccountIdRelationships False mdl2
                             , getFeedSetDefinition loginServer
+                            , fetchFeatures loginServer model
                             ]
 
         ReceiveInstance result ->
@@ -2451,6 +2461,47 @@ checkAccountByUsername server model =
 
         Just _ ->
             Cmd.none
+
+
+featureNames =
+    { groups = "groups"
+    }
+
+
+{-| Fetch features if we don't know them already.
+
+Currently, the only feature is the existence of groups.
+
+-}
+fetchFeatures : String -> Model -> Cmd Msg
+fetchFeatures server model =
+    if model.featureProbeRequest /= Nothing then
+        Cmd.none
+
+    else
+        let
+            groupsName =
+                featureNames.groups
+
+            groupsKnown =
+                case Dict.get server model.features of
+                    Nothing ->
+                        False
+
+                    Just dict ->
+                        case Dict.get groupsName dict of
+                            Nothing ->
+                                False
+
+                            _ ->
+                                True
+        in
+        if groupsKnown then
+            Cmd.none
+
+        else
+            Task.perform ColumnsUIMsg <|
+                (Task.succeed <| ProbeGroupsFeature (Debug.log "ProbeGroupsFeature" server))
 
 
 {-| Merge account into server's accountIdDict entry.
@@ -2822,6 +2873,9 @@ columnsUIMsg msg model =
             else
                 model |> withNoCmd
 
+        ClearFeatures ->
+            { model | features = Dict.empty } |> withNoCmd
+
         ShowPostDialog maybeStatus ->
             let
                 postState =
@@ -3058,6 +3112,32 @@ columnsUIMsg msg model =
             sendRequest
                 (StatusesRequest <| Request.PostStatus post)
                 { model | dialog = NoDialog }
+
+        ProbeGroupsFeature server ->
+            probeGroupsFeature server model
+
+
+probeGroupsFeature : String -> Model -> ( Model, Cmd Msg )
+probeGroupsFeature server model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        mdl =
+            { model
+                | renderEnv =
+                    { renderEnv | loginServer = Just server }
+            }
+
+        request =
+            GroupsRequest <|
+                Request.GetGroups { tab = Request.AdminGroups }
+
+        ( _, cmd ) =
+            sendRequest request mdl
+    in
+    { model | featureProbeRequest = Just ( Debug.log "probeGroupsFeature" server, request ) }
+        |> withCmd cmd
 
 
 scrollPage : ScrollDirection -> Model -> ( Model, Cmd Msg )
@@ -5426,6 +5506,29 @@ getAccountId model =
                 ""
 
 
+handleFeatureProbeError : Request -> Error -> Model -> ( Model, Bool )
+handleFeatureProbeError request error model =
+    case model.featureProbeRequest of
+        Nothing ->
+            ( model, False )
+
+        Just ( server, sentRequest ) ->
+            if request == sentRequest then
+                let
+                    mdl =
+                        setServerHasFeature (Just server)
+                            featureNames.groups
+                            False
+                            model
+                in
+                ( { mdl | featureProbeRequest = Nothing }
+                , True
+                )
+
+            else
+                ( model, False )
+
+
 {-| Here when we get a response back from sending a Request.
 
 Errors are not always errors. If the request was Post(Un)ReblogStatus
@@ -5530,9 +5633,19 @@ receiveResponse request result model =
 
                             Just m ->
                                 ( m, Nothing )
+
+                ( mdl5, wasFeatureProbe ) =
+                    handleFeatureProbeError request err mdl4
+
+                msg5 =
+                    if wasFeatureProbe then
+                        Nothing
+
+                    else
+                        msg4
             in
-            { mdl4
-                | msg = msg4
+            { mdl5
+                | msg = msg5
                 , response = response
                 , entity = entity
                 , metadata = metadata
@@ -5770,6 +5883,12 @@ applyResponseSideEffects response model =
 
                 _ ->
                     model
+
+        GroupsRequest (Request.GetGroups _) ->
+            setServerHasFeature model.renderEnv.loginServer
+                featureNames.groups
+                True
+                model
 
         GroupsRequest (Request.GetGroup _) ->
             case response.entity of
@@ -6947,6 +7066,9 @@ renderLeftColumn renderEnv =
                 (ColumnsUIMsg <| ColumnWidth Down)
                 labels.down
             ]
+
+        --, p []
+        --  [ button (ColumnsUIMsg <| ClearFeatures) "clear" ]
         , p []
             [ button (ColumnsUIMsg <| ShowPostDialog Nothing) "post" ]
         , p []
@@ -9957,6 +10079,55 @@ plus =
     "+"
 
 
+setServerHasFeature : Maybe String -> String -> Bool -> Model -> Model
+setServerHasFeature maybeServer featureName hasFeature model =
+    case maybeServer of
+        Nothing ->
+            model
+
+        Just server ->
+            let
+                features =
+                    model.features
+            in
+            case Dict.get server features of
+                Nothing ->
+                    { model
+                        | features =
+                            Dict.insert server
+                                (Dict.fromList [ ( featureName, hasFeature ) ])
+                                features
+                    }
+
+                Just dict ->
+                    { model
+                        | features =
+                            Dict.insert server
+                                (Dict.insert featureName hasFeature dict)
+                                features
+                    }
+
+
+serverHasFeature : Maybe String -> String -> Model -> Bool
+serverHasFeature maybeServer featureName model =
+    case maybeServer of
+        Nothing ->
+            False
+
+        Just server ->
+            case Dict.get server model.features of
+                Nothing ->
+                    False
+
+                Just dict ->
+                    case Dict.get featureName dict of
+                        Nothing ->
+                            False
+
+                        Just hasFeature ->
+                            hasFeature
+
+
 editColumnDialogRows : Model -> List (Html Msg)
 editColumnDialogRows model =
     let
@@ -10042,18 +10213,22 @@ editColumnDialogRows model =
                     ]
                     (ColumnsUIMsg <| AddFeedColumn Types.defaultUserFeedType)
               ]
-            , [ row
-                    [ b "Group: "
-                    , input
-                        [ size 30
-                        , onInput (ColumnsUIMsg << GroupIdInput)
-                        , value model.groupIdInput
-                        , placeholder <|
-                            "Group ID (search coming)"
+            , [ if not <| serverHasFeature renderEnv.loginServer featureNames.groups model then
+                    text ""
+
+                else
+                    row
+                        [ b "Group: "
+                        , input
+                            [ size 30
+                            , onInput (ColumnsUIMsg << GroupIdInput)
+                            , value model.groupIdInput
+                            , placeholder <|
+                                "Group ID (search coming)"
+                            ]
+                            []
                         ]
-                        []
-                    ]
-                    (ColumnsUIMsg <| AddFeedColumn Types.defaultGroupFeedType)
+                        (ColumnsUIMsg <| AddFeedColumn Types.defaultGroupFeedType)
               ]
             ]
     , hrpct 100
