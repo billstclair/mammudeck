@@ -22,11 +22,6 @@
 
 See ../TODO.md for the full list.
 
-* On reply to post, select "Reply", "Quote", or "None" for reply type.
-  Persist existence of quote feature (and figure out how to test for it,
-  other than making a quoted post, and seeing if it comes back that
-  way, which may be the only way, then fail if it does not).
-
 * Settings dialog. Hide left column.
 
 * Configure location of the scroll pill (and call it that).
@@ -10483,6 +10478,17 @@ postDialogContent renderEnv dropZone postState =
                 replyType =
                     postState.replyType
 
+                preposition =
+                    case replyType of
+                        ReplyToPost ->
+                            "to "
+
+                        QuotePost ->
+                            "of "
+
+                        NoReply ->
+                            "by "
+
                 replyRadio val lab =
                     radioButton
                         { buttonValue = val
@@ -10493,7 +10499,7 @@ postDialogContent renderEnv dropZone postState =
                         }
             in
             p []
-                [ text "to "
+                [ text preposition
                 , text replyTo.account.display_name
                 , br
                 , case replyTo.url of

@@ -7,7 +7,6 @@ Bill St. Clair, 2 July 2020
 ## For the Post dialog
 
 * Show replied/quoted post in the post dialog, likely optional.
-* Reply and Quote checkboxes, so you can change if/how the post mentions another.
 * Post to a group.
 * Visibility (non, public, unlisted, private, direct)
 * Post size tracking (let them post and get an error if too big).
