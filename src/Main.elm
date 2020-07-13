@@ -434,6 +434,7 @@ type alias Model =
     , showFullFloatingButtons : Bool
     , isTouchAware : Bool
     , bodyScroll : ScrollNotification
+    , lastScroll : ( ScrollDirection, Posix )
     , featureProbeRequest : Maybe ( String, Request )
 
     -- API Explorer state
@@ -562,7 +563,9 @@ type ColumnsUIMsg
     | ShowServerDialog
     | SimpleButtonMsg Button.Msg ColumnsUIMsg
     | ShowFullFloatingButtons
+    | TimestampedCmd (Posix -> ColumnsUIMsg) Posix
     | ScrollPage ScrollDirection
+    | ScrollPageAtTime ScrollDirection Posix
     | ClearFeatures
     | ShowPostDialog (Maybe Status)
     | ShowSettingsDialog
@@ -1065,6 +1068,7 @@ init value url key =
     , showFullFloatingButtons = False
     , isTouchAware = False
     , bodyScroll = emptyScrollNotification
+    , lastScroll = ( ScrollLeft, Time.millisToPosix 0 )
     , featureProbeRequest = Nothing
     , altKeyDown = False
     , request = Nothing
@@ -2850,8 +2854,14 @@ columnsUIMsg msg model =
             { model | dialog = ServerDialog }
                 |> withCmd (focusId LoginServerId)
 
+        TimestampedCmd wrapper now ->
+            columnsUIMsg (wrapper now) model
+
         ScrollPage direction ->
-            scrollPage direction model
+            model |> withCmd (timestampCmd <| ScrollPageAtTime direction)
+
+        ScrollPageAtTime direction now ->
+            scrollPage direction now model
 
         ShowFullFloatingButtons ->
             { model | showFullFloatingButtons = True } |> withNoCmd
@@ -3140,8 +3150,13 @@ probeGroupsFeature server model =
         |> withCmd cmd
 
 
-scrollPage : ScrollDirection -> Model -> ( Model, Cmd Msg )
-scrollPage direction model =
+timestampCmd : (Posix -> ColumnsUIMsg) -> Cmd Msg
+timestampCmd wrapper =
+    Task.perform (ColumnsUIMsg << TimestampedCmd wrapper) Time.now
+
+
+scrollPage : ScrollDirection -> Posix -> Model -> ( Model, Cmd Msg )
+scrollPage direction now model =
     let
         renderEnv =
             model.renderEnv
@@ -3165,31 +3180,49 @@ scrollPage direction model =
         width =
             col0Left + columnCnt * columnWidth
 
+        ( lastDirection, lastNow ) =
+            model.lastScroll
+
+        millis =
+            Time.posixToMillis now
+
+        lastMillis =
+            Time.posixToMillis lastNow
+
         rawNewScroll =
-            case direction of
-                ScrollLeft ->
-                    let
-                        nominal =
-                            max col0Left <| scrollLeft - windowWidth
+            if lastDirection == direction && lastMillis + 200 >= millis then
+                case direction of
+                    ScrollLeft ->
+                        col0Left
 
-                        proper =
-                            (nominal - col0Left + columnWidth - 1) // columnWidth
-                    in
-                    max 0 proper * columnWidth + col0Left
+                    ScrollRight ->
+                        width - windowWidth
 
-                ScrollRight ->
-                    let
-                        maxScroll =
-                            width - windowWidth
+            else
+                case direction of
+                    ScrollLeft ->
+                        let
+                            nominal =
+                                max col0Left <| scrollLeft - windowWidth
 
-                        nominal =
-                            scrollLeft + windowWidth
+                            proper =
+                                (nominal - col0Left + columnWidth - 1) // columnWidth
+                        in
+                        max 0 proper * columnWidth + col0Left
 
-                        proper =
-                            (nominal - col0Left) // columnWidth
-                    in
-                    min maxScroll
-                        ((proper * columnWidth) + col0Left)
+                    ScrollRight ->
+                        let
+                            maxScroll =
+                                width - windowWidth
+
+                            nominal =
+                                scrollLeft + windowWidth
+
+                            proper =
+                                (nominal - col0Left) // columnWidth
+                        in
+                        min maxScroll
+                            ((proper * columnWidth) + col0Left)
 
         newScroll =
             rawNewScroll + 1
@@ -3202,7 +3235,8 @@ scrollPage direction model =
             else
                 Cmd.none
     in
-    model |> withCmd cmd
+    { model | lastScroll = ( direction, now ) }
+        |> withCmd cmd
 
 
 adjustColumnsForPost : Status -> Model -> Model
