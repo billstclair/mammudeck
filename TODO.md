@@ -20,6 +20,9 @@ Bill St. Clair, 2 July 2020
   Do this by adding the including notification's or status's 
   mentions to the included status.
   Or not. Or a preference. Or buttons to choose.
+* See if there's any way to convert a data URL back into a File,
+  so that we can recover from the browser navigating away while a
+  file is being uploaded.
 * Don't @mention yourself in a reply.
   **DONE**.
 * Images in posts (and fix sensitivity and spoiler text in the client library).

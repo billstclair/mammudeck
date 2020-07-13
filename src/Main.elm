@@ -11379,6 +11379,25 @@ postStateDecoder =
         |> required "media_ids" (JD.list JD.string)
         |> required "fileNames" (JD.list JD.string)
         |> required "fileUrls" (JD.list JD.string)
+        |> JD.andThen
+            (fixDecodedPostState >> JD.succeed)
+
+
+fixDecodedPostState : PostState -> PostState
+fixDecodedPostState postState =
+    let
+        { media_ids, fileNames, fileUrls } =
+            postState
+
+        len =
+            min (List.length media_ids) <|
+                min (List.length fileNames) (List.length fileUrls)
+    in
+    { postState
+        | media_ids = List.take len media_ids
+        , fileNames = List.take len fileNames
+        , fileUrls = List.take len fileUrls
+    }
 
 
 encodeSavedModel : SavedModel -> Value
