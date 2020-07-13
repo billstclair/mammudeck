@@ -85,7 +85,9 @@
               delete listeners[id];
             }
             if (enable) {
-              var node = (id == 'body') ? document.body : document.getElementById(id);
+              var node = //(id == 'body') ?
+                  //document.body :
+                  document.getElementById(id);
               if (node) {
                 var o = {node: node}
                 var listener = function() {

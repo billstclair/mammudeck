@@ -318,7 +318,6 @@ type alias RenderEnv =
     , fontSizePct : Int
     , fontSize : String --percent
     , columnWidth : Int --pixels
-    , resizeColumnsWithLeft : Bool
 
     -- not persistent
     , windowSize : ( Int, Int )
@@ -333,7 +332,6 @@ emptyRenderEnv =
     , fontSizePct = 100
     , fontSize = "100"
     , columnWidth = 300
-    , resizeColumnsWithLeft = True
     , windowSize = ( 1024, 768 )
     , here = Time.utc
     }
@@ -531,7 +529,6 @@ type ColumnsUIMsg
     = ColumnsUINoop
     | ResetFontSize
     | FontSize VerticalDirection
-    | ToggleResizeColumnsWithLeft
     | ColumnWidth VerticalDirection
     | ReloadAllColumns
     | RefreshFeed FeedType
@@ -1122,8 +1119,11 @@ init value url key =
 getViewport : Viewport -> Msg
 getViewport viewport =
     let
+        vp1 =
+            Debug.log "viewport" viewport
+
         vp =
-            viewport.viewport
+            vp1.viewport
     in
     GlobalMsg <| WindowResize (round vp.width) (round vp.height)
 
@@ -2647,16 +2647,6 @@ columnsUIMsg msg model =
             }
                 |> withNoCmd
 
-        ToggleResizeColumnsWithLeft ->
-            { model
-                | renderEnv =
-                    { renderEnv
-                        | resizeColumnsWithLeft =
-                            not renderEnv.resizeColumnsWithLeft
-                    }
-            }
-                |> withNoCmd
-
         ColumnWidth direction ->
             -- pixels -> column count -> + delta -> pixels
             let
@@ -2672,12 +2662,7 @@ columnsUIMsg msg model =
                             1.0
 
                 leftColWid =
-                    if renderEnv.resizeColumnsWithLeft then
-                        scaledLeftColumnWidth renderEnv
-                            + (2 * columnsBorderSpacing)
-
-                    else
-                        0
+                    0
 
                 columnWidth =
                     renderEnv.columnWidth |> toFloat
@@ -2792,9 +2777,7 @@ columnsUIMsg msg model =
                 |> withCmd (focusId LoginServerId)
 
         ScrollPage direction ->
-            -- TODO
-            { model | dialog = AlertDialog "Scrolling not yet implemented." }
-                |> withNoCmd
+            scrollPage direction model
 
         ShowFullFloatingButtons ->
             { model | showFullFloatingButtons = True } |> withNoCmd
@@ -3052,6 +3035,82 @@ columnsUIMsg msg model =
             sendRequest
                 (StatusesRequest <| Request.PostStatus post)
                 { model | dialog = NoDialog }
+
+
+scrollPage : ScrollDirection -> Model -> ( Model, Cmd Msg )
+scrollPage direction model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        ( windowWidth, _ ) =
+            renderEnv.windowSize
+    in
+    let
+        scrollLeft =
+            model.bodyScroll.scrollLeft |> round
+
+        col0Left =
+            leftColumnWidth + 5
+
+        columnCnt =
+            model.feedSet.feeds |> List.length
+
+        columnWidth =
+            renderEnv.columnWidth + 4
+
+        width =
+            col0Left + columnCnt * columnWidth
+
+        rawNewScroll =
+            case direction of
+                ScrollLeft ->
+                    let
+                        nominal =
+                            Debug.log "  nominal" <|
+                                max col0Left <|
+                                    scrollLeft
+                                        - windowWidth
+
+                        proper =
+                            Debug.log "  proper" <|
+                                (nominal - col0Left + columnWidth - 1)
+                                    // columnWidth
+                    in
+                    max 0 proper * columnWidth + col0Left
+
+                ScrollRight ->
+                    let
+                        maxScroll =
+                            Debug.log "  maxScroll" <|
+                                width
+                                    - windowWidth
+
+                        nominal =
+                            Debug.log "  nominal" <|
+                                scrollLeft
+                                    + windowWidth
+
+                        proper =
+                            Debug.log "  proper" <|
+                                (nominal - col0Left)
+                                    // columnWidth
+                    in
+                    min maxScroll
+                        ((proper * columnWidth) + col0Left)
+
+        newScroll =
+            rawNewScroll + 1
+
+        cmd =
+            if newScroll /= scrollLeft then
+                Dom.setViewportOf "body" (toFloat newScroll) 0
+                    |> Task.attempt (\_ -> Noop)
+
+            else
+                Cmd.none
+    in
+    model |> withCmd cmd
 
 
 adjustColumnsForPost : Status -> Model -> Model
@@ -6627,15 +6686,17 @@ view model =
             ]
             []
         , renderDialog model
-        , case model.page of
-            HomePage ->
-                renderHome model
+        , div [ id "body" ]
+            [ case model.page of
+                HomePage ->
+                    renderHome model
 
-            ColumnsPage ->
-                renderColumns model
+                ColumnsPage ->
+                    renderColumns model
 
-            ExplorerPage ->
-                renderExplorer model
+                ExplorerPage ->
+                    renderExplorer model
+            ]
         ]
     }
 
@@ -6863,11 +6924,6 @@ renderLeftColumn renderEnv =
           in
           p []
             [ span [ title cbTitle ] [ text "width" ]
-            , text " "
-            , titledCheckBox cbTitle
-                (ColumnsUIMsg <| ToggleResizeColumnsWithLeft)
-                renderEnv.resizeColumnsWithLeft
-                ""
             , br
             , titledButton "Increase the column width."
                 True
@@ -8003,7 +8059,10 @@ renderColumns model =
                 , style "bottom" <| (10 |> String.fromInt) ++ "px"
                 , style "right" <| (10 |> String.fromInt) ++ "px"
                 ]
-                [ floatingButtons model ]
+                [ floatingButtons model
+                , br
+                , text (model.bodyScroll.scrollLeft |> String.fromFloat)
+                ]
         , table
             [ style "border-spacing" <| String.fromInt columnsBorderSpacing
             , fsStyle renderEnv
@@ -10879,7 +10938,6 @@ savedModelToModel savedModel model =
                 , style = savedRenderEnv.style
                 , fontSize = savedRenderEnv.fontSize
                 , columnWidth = savedRenderEnv.columnWidth
-                , resizeColumnsWithLeft = savedRenderEnv.resizeColumnsWithLeft
             }
         , page = savedModel.page
         , token = savedModel.token
@@ -11058,14 +11116,13 @@ encodeRenderEnv env =
         , ( "fontSizePct", JE.int env.fontSizePct )
         , ( "fontSize", JE.string env.fontSize )
         , ( "columnWidth", JE.int env.columnWidth )
-        , ( "resizeColumnsWithLeft", JE.bool env.resizeColumnsWithLeft )
         ]
 
 
 renderEnvDecoder : Decoder RenderEnv
 renderEnvDecoder =
     JD.succeed
-        (\loginServer style fontSizePct_ fontSize_ columnWidth resizeColumnsWithLeft ->
+        (\loginServer style fontSizePct_ fontSize_ columnWidth ->
             let
                 ( fontSizePct, fontSize ) =
                     if fontSizePct_ == 0 then
@@ -11085,7 +11142,6 @@ renderEnvDecoder =
                 , fontSizePct = fontSizePct
                 , fontSize = fontSize
                 , columnWidth = columnWidth
-                , resizeColumnsWithLeft = resizeColumnsWithLeft
             }
         )
         |> required "loginServer" (JD.nullable JD.string)
@@ -11093,7 +11149,6 @@ renderEnvDecoder =
         |> optional "fontSizePct" JD.int 0
         |> optional "fontSize" JD.string "100"
         |> optional "columnWidth" JD.int 300
-        |> optional "resizeColumnsWithLeft" JD.bool True
 
 
 encodePostState : PostState -> Value
