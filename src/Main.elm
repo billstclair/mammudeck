@@ -8049,8 +8049,9 @@ renderColumns model =
                 , style "right" <| (10 |> String.fromInt) ++ "px"
                 ]
                 [ floatingButtons model
-                , br
-                , text (model.bodyScroll.scrollLeft |> String.fromFloat)
+
+                --, br
+                --, text (model.bodyScroll.scrollLeft |> String.fromFloat)
                 ]
         , table
             [ style "border-spacing" <| String.fromInt columnsBorderSpacing
