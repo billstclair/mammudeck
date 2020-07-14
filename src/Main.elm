@@ -63,7 +63,7 @@ The 'GET statuses/:id/context' API call is used to navigate in the reply tree. P
 --}
 
 
-port module Main exposing (main)
+port module Main exposing (main, parseEmojiString)
 
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Dom as Dom exposing (Viewport)
@@ -110,6 +110,7 @@ import Html.Attributes
         , class
         , cols
         , disabled
+        , draggable
         , height
         , hidden
         , href
@@ -7577,11 +7578,157 @@ renderNotification renderEnv notification =
         ]
 
 
-statusBody : Status -> List (Html Msg)
-statusBody status =
+type EmojiOrTextString
+    = EmojiString String
+    | TextString String
+
+
+validEmojiChar : Char -> Bool
+validEmojiChar c =
+    Char.isAlpha c || c == '-' || c == '_'
+
+
+validEmojiName : String -> Bool
+validEmojiName string =
+    (String.length string > 0)
+        && (String.toList string
+                |> LE.find (\c -> not (validEmojiChar c))
+                |> (==) Nothing
+           )
+
+
+parseEmojiString : String -> List EmojiOrTextString
+parseEmojiString string =
+    let
+        substrs =
+            String.split ":" string
+
+        len =
+            List.length substrs
+
+        loop : List String -> List EmojiOrTextString -> List EmojiOrTextString
+        loop tail res =
+            case tail of
+                [] ->
+                    List.reverse res
+
+                [ last ] ->
+                    List.reverse <|
+                        case res of
+                            (TextString x) :: more ->
+                                TextString (x ++ last) :: more
+
+                            _ ->
+                                TextString last :: res
+
+                first :: rest ->
+                    if validEmojiName first then
+                        case rest of
+                            car :: cdr ->
+                                loop cdr <|
+                                    TextString car
+                                        :: EmojiString first
+                                        :: res
+
+                            _ ->
+                                loop rest <| EmojiString first :: res
+
+                    else
+                        let
+                            cF =
+                                ":" ++ first
+                        in
+                        case res of
+                            (TextString x) :: more ->
+                                loop rest <| TextString (x ++ cF) :: more
+
+                            _ ->
+                                loop rest <| TextString cF :: res
+    in
+    case substrs of
+        first :: rest ->
+            loop rest [ TextString first ]
+
+        _ ->
+            [ TextString string ]
+
+
+{-| <img draggable="false" style="height:16px;width:16px;margin:-3px 0 0;font-family:'object-fit:contain',inherit;vertical-align:middle;-o-object-fit:contain;object-fit:contain;" alt=":vomit:" title=":vomit:" src="https://gab.com/system/custom_emojis/images/000/008/280/original/bf13580b84754702.png?1563335294">
+-}
+emojiStringToImg : String -> Dict String Emoji -> EmojiOrTextString -> Html.Parser.Node
+emojiStringToImg size dict emojiOrText =
+    case emojiOrText of
+        TextString s ->
+            Html.Parser.Text s
+
+        EmojiString s ->
+            let
+                tit =
+                    ":" ++ s ++ ":"
+            in
+            case Dict.get s dict of
+                Nothing ->
+                    Html.Parser.Text <| ":" ++ s ++ ":"
+
+                Just emoji ->
+                    Html.Parser.Element "img"
+                        [ ( "src", emoji.url )
+                        , ( "draggable", "false" )
+                        , ( "style", "height:" ++ size ++ "; width:" ++ size )
+
+                        -- ("style", "margin:-3px 0 0;")
+                        , ( "title", tit )
+                        , ( "alt", tit )
+                        ]
+                        []
+
+
+replaceEmojiReferences : RenderEnv -> List Html.Parser.Node -> List Html.Parser.Node
+replaceEmojiReferences renderEnv nodes =
+    let
+        emojis =
+            renderEnv.emojis
+
+        size =
+            18 * renderEnv.fontSizePct // 100
+
+        sizeStr =
+            String.fromInt size ++ "px"
+
+        updater : Html.Parser.Node -> Html.Parser.Node
+        updater node =
+            case node of
+                Html.Parser.Text string ->
+                    case parseEmojiString string of
+                        [] ->
+                            node
+
+                        [ TextString _ ] ->
+                            node
+
+                        emojisAndStrings ->
+                            Html.Parser.Element "span"
+                                []
+                            <|
+                                List.map (emojiStringToImg sizeStr renderEnv.emojis)
+                                    emojisAndStrings
+
+                Html.Parser.Element tag attrs subnodes ->
+                    Html.Parser.Element tag attrs <|
+                        replaceEmojiReferences renderEnv subnodes
+
+                _ ->
+                    node
+    in
+    List.map updater nodes
+
+
+statusBody : RenderEnv -> Status -> List (Html Msg)
+statusBody renderEnv status =
     case Html.Parser.run status.content of
         Ok nodes ->
-            Util.toVirtualDom nodes
+            replaceEmojiReferences renderEnv nodes
+                |> Util.toVirtualDom
 
         Err _ ->
             [ case status.plain_markdown of
@@ -7606,7 +7753,7 @@ renderNotificationBody renderEnv notification =
         Just status ->
             let
                 body =
-                    statusBody status
+                    statusBody renderEnv status
 
                 timeString =
                     formatIso8601 renderEnv.here status.created_at
@@ -7817,7 +7964,7 @@ renderStatus renderEnv feedEnv statusIn =
             getStyle renderEnv.style
 
         body =
-            statusBody status
+            statusBody renderEnv status
     in
     div [ style "border" <| "1px solid " ++ color ]
         [ div []
