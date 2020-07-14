@@ -7585,7 +7585,7 @@ type EmojiOrTextString
 
 validEmojiChar : Char -> Bool
 validEmojiChar c =
-    Char.isAlpha c || c == '-' || c == '_'
+    Char.isAlpha c || Char.isDigit c || c == '-' || c == '_'
 
 
 validEmojiName : String -> Bool
