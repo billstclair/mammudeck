@@ -22,6 +22,8 @@
 
 See ../TODO.md for the full list.
 
+* Replace :<emoji>: with the <img> URL from the "GET custom_emojis" API request.
+
 * Settings dialog. Hide left column.
 
 * Configure location of the scroll pill (and call it that).
