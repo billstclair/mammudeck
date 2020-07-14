@@ -7674,7 +7674,7 @@ emojiStringToImg size dict emojiOrText =
                     Html.Parser.Element "img"
                         [ ( "src", emoji.url )
                         , ( "draggable", "false" )
-                        , ( "style", "height:" ++ size ++ "; width:" ++ size )
+                        , ( "style", "height:" ++ size ++ ";" )
 
                         -- ("style", "margin:-3px 0 0;")
                         , ( "title", tit )
