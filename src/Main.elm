@@ -578,6 +578,7 @@ type ColumnsUIMsg
     | TogglePostSensitive
     | ShowStatusImages String
     | SetPostReplyType ReplyType
+    | ClearPostStateReplyTo
     | Post
     | ProbeGroupsFeature String
 
@@ -3100,6 +3101,29 @@ columnsUIMsg msg model =
             { model
                 | postState =
                     { postState | replyType = replyType }
+            }
+                |> withNoCmd
+
+        ClearPostStateReplyTo ->
+            let
+                postState =
+                    model.postState
+
+                text =
+                    if postState.text == postState.mentionsString then
+                        ""
+
+                    else
+                        postState.text
+            in
+            { model
+                | postState =
+                    { postState
+                        | replyTo = Nothing
+                        , replyType = NoReply
+                        , text = text
+                        , mentionsString = ""
+                    }
             }
                 |> withNoCmd
 
@@ -10599,6 +10623,8 @@ postDialogContent hasQuoteFeature renderEnv dropZone postState =
 
                     else
                         "No Reply"
+                , text " "
+                , button (ColumnsUIMsg ClearPostStateReplyTo) "Clear Reply"
                 ]
     , p []
         [ textarea
