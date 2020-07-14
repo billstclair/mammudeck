@@ -2461,6 +2461,7 @@ checkAccountByUsername server model =
 
 featureNames =
     { groups = "groups"
+    , quote = "quote"
     }
 
 
@@ -6303,11 +6304,54 @@ splitMediaIds string =
             |> List.map String.trim
 
 
+quoteFieldDecoder : Decoder Value
+quoteFieldDecoder =
+    JD.field "quote" JD.value
+
+
+quoteFieldExists : Status -> Bool
+quoteFieldExists status =
+    case JD.decodeValue quoteFieldDecoder status.v of
+        Ok _ ->
+            True
+
+        _ ->
+            False
+
+
+{-| This relies on the fact that if the quote field is supported,
+it is always passed, with a null value if there is no quoted post.
+-}
+updateQuoteFeature : List Status -> Model -> Model
+updateQuoteFeature statuses model =
+    let
+        maybeServer =
+            model.renderEnv.loginServer
+    in
+    case statuses of
+        status :: _ ->
+            if serverKnowsFeature maybeServer featureNames.quote model then
+                model
+
+            else
+                setServerHasFeature maybeServer
+                    featureNames.quote
+                    (quoteFieldExists status)
+                    model
+
+        _ ->
+            model
+
+
 statusSmartPaging : Entity -> Maybe Paging -> Model -> Model
 statusSmartPaging entity paging model =
     case entity of
         StatusListEntity statuses ->
-            smartPaging statuses .id paging model
+            let
+                mdl =
+                    updateQuoteFeature statuses model
+            in
+            smartPaging statuses .id paging mdl
 
         _ ->
             model
@@ -10131,6 +10175,26 @@ plus =
     "+"
 
 
+serverKnowsFeature : Maybe String -> String -> Model -> Bool
+serverKnowsFeature maybeServer featureName model =
+    case maybeServer of
+        Nothing ->
+            False
+
+        Just server ->
+            case Dict.get server model.features of
+                Nothing ->
+                    False
+
+                Just dict ->
+                    case Dict.get featureName dict of
+                        Nothing ->
+                            False
+
+                        _ ->
+                            True
+
+
 setServerHasFeature : Maybe String -> String -> Bool -> Model -> Model
 setServerHasFeature maybeServer featureName hasFeature model =
     case maybeServer of
@@ -10379,9 +10443,15 @@ postDialog model =
     let
         postState =
             model.postState
+
+        renderEnv =
+            model.renderEnv
+
+        hasQuoteFeature =
+            serverHasFeature renderEnv.loginServer featureNames.quote model
     in
     dialogRender
-        model.renderEnv
+        renderEnv
         { styles =
             [ ( "width", "50em" )
             , ( "font-size", fspct model.renderEnv )
@@ -10396,7 +10466,11 @@ postDialog model =
 
                 _ ->
                     "Post"
-        , content = postDialogContent model.renderEnv model.dropZone postState
+        , content =
+            postDialogContent hasQuoteFeature
+                model.renderEnv
+                model.dropZone
+                postState
         , actionBar =
             [ enabledButton
                 ((postState.text /= "" || postState.media_ids /= [])
@@ -10460,8 +10534,8 @@ maximumPostAttachments =
     4
 
 
-postDialogContent : RenderEnv -> DropZone.Model -> PostState -> List (Html Msg)
-postDialogContent renderEnv dropZone postState =
+postDialogContent : Bool -> RenderEnv -> DropZone.Model -> PostState -> List (Html Msg)
+postDialogContent hasQuoteFeature renderEnv dropZone postState =
     let
         { inputBackground, color } =
             getStyle renderEnv.style
@@ -10510,10 +10584,21 @@ postDialogContent renderEnv dropZone postState =
                         link timeString url
                 , br
                 , replyRadio ReplyToPost "Reply"
-                , text " "
-                , replyRadio QuotePost "Quote"
-                , text " "
-                , replyRadio NoReply "Neither"
+                , if hasQuoteFeature then
+                    span []
+                        [ text " "
+                        , replyRadio QuotePost "Quote"
+                        , text " "
+                        ]
+
+                  else
+                    text " "
+                , replyRadio NoReply <|
+                    if hasQuoteFeature then
+                        "Neither"
+
+                    else
+                        "No Reply"
                 ]
     , p []
         [ textarea
