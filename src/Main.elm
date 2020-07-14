@@ -22,7 +22,8 @@
 
 See ../TODO.md for the full list.
 
-* Replace :<emoji>: with the <img> URL from the "GET custom_emojis" API request.
+* Replace :<emoji>: with the <img> URL from the "GET custom_emojis"
+  API request.
 
 * Settings dialog. Hide left column.
 
@@ -166,6 +167,7 @@ import Mastodon.Entity as Entity
         , AttachmentType(..)
         , Authorization
         , Datetime
+        , Emoji
         , Entity(..)
         , Field
         , FilterContext(..)
@@ -328,6 +330,7 @@ type alias RenderEnv =
     , columnWidth : Int --pixels
 
     -- not persistent
+    , emojis : Dict String Emoji
     , windowSize : ( Int, Int )
     , here : Zone
     }
@@ -340,6 +343,7 @@ emptyRenderEnv =
     , fontSizePct = 100
     , fontSize = "100"
     , columnWidth = 300
+    , emojis = Dict.empty
     , windowSize = ( 1024, 768 )
     , here = Time.utc
     }
@@ -1344,9 +1348,18 @@ handleGetModelInternal maybeValue model =
                         Just server ->
                             let
                                 ( mdl3, cmd3 ) =
-                                    getVerifyCredentials mdl2
+                                    sendCustomEmojisRequest mdl2
+
+                                ( mdl4, cmd4 ) =
+                                    getVerifyCredentials mdl3
                             in
-                            mdl3 |> withCmds [ cmd3, fetchFeatures server mdl2 ]
+                            mdl4 |> withCmds [ cmd3, cmd4, fetchFeatures server mdl3 ]
+
+
+sendCustomEmojisRequest : Model -> ( Model, Cmd Msg )
+sendCustomEmojisRequest model =
+    sendRequest (CustomEmojisRequest Request.GetCustomEmojis)
+        model
 
 
 handleGetFeedSetDefinition : Maybe Value -> Model -> ( Model, Cmd Msg )
@@ -2260,15 +2273,19 @@ globalMsg msg model =
                         accountId =
                             Types.accountToAccountId account
 
-                        ( mdl3, cmd2 ) =
+                        ( mdl3, cmd3 ) =
                             mergeAccountId accountId server mdl2
+
+                        ( mdl4, cmd4 ) =
+                            sendCustomEmojisRequest mdl3
                     in
-                    mdl3
+                    mdl4
                         |> withCmds
                             [ cmd
-                            , cmd2
-                            , checkAccountByUsername server mdl2
-                            , getAccountIdRelationships False mdl2
+                            , cmd3
+                            , cmd4
+                            , checkAccountByUsername server mdl4
+                            , getAccountIdRelationships False mdl4
                             , getFeedSetDefinition server
                             ]
 
@@ -2306,20 +2323,24 @@ globalMsg msg model =
                             }
                                 |> updatePatchCredentialsInputs
 
-                        ( mdl2, cmd ) =
+                        ( mdl2, cmd2 ) =
                             let
                                 accountId =
                                     Types.accountToAccountId account
                             in
                             mergeAccountId accountId loginServer mdl
+
+                        ( mdl3, cmd3 ) =
+                            sendCustomEmojisRequest mdl2
                     in
-                    mdl2
+                    mdl3
                         |> withCmds
-                            [ cmd
-                            , checkAccountByUsername loginServer mdl2
-                            , getAccountIdRelationships False mdl2
+                            [ cmd2
+                            , cmd3
+                            , checkAccountByUsername loginServer mdl3
+                            , getAccountIdRelationships False mdl3
                             , getFeedSetDefinition loginServer
-                            , fetchFeatures loginServer model
+                            , fetchFeatures loginServer mdl3
                             ]
 
         ReceiveInstance result ->
@@ -5963,6 +5984,29 @@ applyResponseSideEffects response model =
 
         AccountsRequest (Request.GetStatuses { paging }) ->
             statusSmartPaging response.entity paging model
+
+        CustomEmojisRequest Request.GetCustomEmojis ->
+            case response.entity of
+                EmojiListEntity emojis ->
+                    let
+                        names =
+                            Debug.log "emojis" <|
+                                List.map .shortcode (List.take 20 emojis)
+
+                        renderEnv =
+                            model.renderEnv
+
+                        dict =
+                            List.map (\emoji -> ( emoji.shortcode, emoji )) emojis
+                                |> Dict.fromList
+                    in
+                    { model
+                        | renderEnv =
+                            { renderEnv | emojis = dict }
+                    }
+
+                _ ->
+                    model
 
         FiltersRequest (Request.PostFilter _) ->
             case response.entity of
