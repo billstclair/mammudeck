@@ -8716,7 +8716,7 @@ renderColumns model =
                             , style "border" "2px solid"
                             , style "border-radius" "25px"
                             , style "background" scrollPillBackground
-                            , style "margin-top" "-2px"
+                            , style "margin-top" "-1px"
                             ]
                             [ a
                                 [ href <| "https://" ++ server
