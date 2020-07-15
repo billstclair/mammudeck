@@ -21,6 +21,7 @@ module Mammudeck.Types exposing
     , Fetcher
     , GangedNotification
     , NotificationFeedParams
+    , ProFeedFlags
     , PublicFeedFlags
     , PublicFeedParams
     , Renderer
@@ -33,6 +34,7 @@ module Mammudeck.Types exposing
     , defaultFeedSetDefinition
     , defaultGroupFeedType
     , defaultNotificationExclusions
+    , defaultProFeedFlags
     , defaultPublicFeedFlags
     , defaultUserFeedFlags
     , defaultUserFeedType
@@ -92,6 +94,17 @@ defaultPublicFeedFlags =
     }
 
 
+type alias ProFeedFlags =
+    { only_media : Bool
+    }
+
+
+defaultProFeedFlags : ProFeedFlags
+defaultProFeedFlags =
+    { only_media = False
+    }
+
+
 defaultNotificationExclusions : List NotificationType
 defaultNotificationExclusions =
     []
@@ -131,6 +144,10 @@ type alias PublicFeedParams =
     { flags : Maybe PublicFeedFlags }
 
 
+type alias ProFeedParams =
+    { flags : Maybe ProFeedFlags }
+
+
 type alias NotificationFeedParams =
     { accountId : Maybe String
     , exclusions : List NotificationType
@@ -140,6 +157,7 @@ type alias NotificationFeedParams =
 type FeedType
     = HomeFeed
     | UserFeed UserFeedParams
+    | ProFeed ProFeedParams
     | PublicFeed PublicFeedParams
     | HashtagFeed String
     | ListFeed String
@@ -174,6 +192,9 @@ feedID feedType =
 
         PublicFeed _ ->
             "public"
+
+        ProFeed _ ->
+            "pro"
 
         HashtagFeed hash ->
             "hashtag: " ++ hash
@@ -212,6 +233,9 @@ feedIdToType id =
 
     else if "public" == id then
         Just <| PublicFeed { flags = Nothing }
+
+    else if "pro" == id then
+        Just <| ProFeed { flags = Nothing }
 
     else if "group: " == String.left 7 id then
         Just <| GroupFeed (String.dropLeft 7 id)

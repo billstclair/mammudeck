@@ -25,6 +25,7 @@ import Mammudeck.Types as Types
         ( AccountId
         , FeedSetDefinition
         , FeedType(..)
+        , ProFeedFlags
         , PublicFeedFlags
         , UserFeedFlags
         )
@@ -48,6 +49,19 @@ userFeedFlagsDecoder =
         |> required "pinned" JD.bool
         |> required "replies" JD.bool
         |> required "reblogs" JD.bool
+
+
+encodeProFeedFlags : ProFeedFlags -> Value
+encodeProFeedFlags { only_media } =
+    JE.object
+        [ ( "only_media", JE.bool only_media )
+        ]
+
+
+proFeedFlagsDecoder : Decoder ProFeedFlags
+proFeedFlagsDecoder =
+    JD.succeed ProFeedFlags
+        |> required "only_media" JD.bool
 
 
 encodePublicFeedFlags : PublicFeedFlags -> Value
@@ -77,6 +91,12 @@ encodeFeedType feedType =
                 , ( "username", JE.string username )
                 , ( "server", JE.string server )
                 , ( "flags", ED.encodeMaybe encodeUserFeedFlags flags )
+                ]
+
+        ProFeed { flags } ->
+            JE.object
+                [ ( "feedType", JE.string "ProFeed" )
+                , ( "flags", ED.encodeMaybe encodeProFeedFlags flags )
                 ]
 
         PublicFeed { flags } ->
@@ -154,6 +174,13 @@ feedTypeDecoder =
                                 |> required "username" JD.string
                                 |> required "server" JD.string
                                 |> optional "flags" (JD.nullable userFeedFlagsDecoder) Nothing
+
+                        "ProFeed" ->
+                            JD.succeed
+                                (\flags ->
+                                    ProFeed { flags = flags }
+                                )
+                                |> optional "flags" (JD.nullable proFeedFlagsDecoder) Nothing
 
                         "PublicFeed" ->
                             JD.succeed

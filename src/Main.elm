@@ -599,7 +599,7 @@ type ReceiveFeedType
 type ColumnsSendMsg
     = ColumnsSendNoop
     | ReceiveAccountByUsername (Maybe Paging) FeedType (Result Error Response)
-    | ReceiveFeed (Maybe Paging) FeedType (Result Error Response)
+    | ReceiveFeed Request (Maybe Paging) FeedType (Result Error Response)
 
 
 type ExplorerUIMsg
@@ -787,6 +787,7 @@ type ExplorerSendMsg
     | SendPostStatus
     | SendGetHomeTimeline
     | SendGetConversations
+    | SendGetProTimeline
     | SendGetPublicTimeline
     | SendGetTagTimeline
     | SendGetListTimeline
@@ -2487,6 +2488,7 @@ checkAccountByUsername server model =
 featureNames =
     { groups = "groups"
     , quote = "quote"
+    , proFeed = "proFeed"
     }
 
 
@@ -3708,7 +3710,7 @@ continueReloadUserFeed paging feedType accounts model =
                         ( mdl2, cmd2 ) =
                             sendGeneralRequest
                                 (ColumnsSendMsg
-                                    << ReceiveFeed paging (UserFeed params)
+                                    << ReceiveFeed req paging (UserFeed params)
                                 )
                                 req
                                 mdl
@@ -3772,6 +3774,21 @@ reloadFeedPaging paging feed model =
                                 , paging = paging
                                 }
 
+                ProFeed { flags } ->
+                    Just <|
+                        TimelinesRequest <|
+                            Request.GetProTimeline <|
+                                case flags of
+                                    Nothing ->
+                                        { only_media = False
+                                        , paging = paging
+                                        }
+
+                                    Just { only_media } ->
+                                        { only_media = only_media
+                                        , paging = paging
+                                        }
+
                 PublicFeed { flags } ->
                     Just <|
                         TimelinesRequest <|
@@ -3831,7 +3848,7 @@ reloadFeedPaging paging feed model =
 
                         _ ->
                             ColumnsSendMsg
-                                << ReceiveFeed paging feedType
+                                << ReceiveFeed req paging feedType
 
                 ( mdl2, cmd2 ) =
                     sendGeneralRequest sendReq req mdl
@@ -3903,13 +3920,8 @@ columnsSendMsg msg model =
                         _ ->
                             model |> withNoCmd
 
-        ReceiveFeed paging feedType result ->
+        ReceiveFeed request paging feedType result ->
             let
-                -- Dummy request
-                request =
-                    TimelinesRequest <|
-                        Request.GetHomeTimeline { paging = Nothing }
-
                 renderEnv =
                     model.renderEnv
 
@@ -5350,6 +5362,16 @@ explorerSendMsg msg model =
                 )
                 model
 
+        SendGetProTimeline ->
+            sendRequest
+                (TimelinesRequest <|
+                    Request.GetProTimeline
+                        { only_media = False --not supported, yet
+                        , paging = pagingInputToPaging model.pagingInput
+                        }
+                )
+                model
+
         SendGetPublicTimeline ->
             sendRequest
                 (TimelinesRequest <|
@@ -5753,9 +5775,22 @@ receiveResponse request result model =
 
                     else
                         msg4
+
+                ( mdl6, cmd6, msg6 ) =
+                    case Debug.log "Error request" request of
+                        TimelinesRequest (Request.GetPublicTimeline _) ->
+                            ( { mdl5 | pagingInput = emptyPagingInput }
+                            , Task.perform ExplorerSendMsg <|
+                                Task.succeed <|
+                                    Debug.log "  " SendGetProTimeline
+                            , Nothing
+                            )
+
+                        _ ->
+                            ( mdl5, Cmd.none, msg5 )
             in
-            { mdl5
-                | msg = msg5
+            { mdl6
+                | msg = msg6
                 , response = response
                 , entity = entity
                 , metadata = metadata
@@ -5764,7 +5799,7 @@ receiveResponse request result model =
                 , supportsAccountByUsername = supportsAccountByUsername
             }
                 |> updateJsonTrees
-                |> withNoCmd
+                |> withCmd cmd6
 
         Ok response ->
             let
@@ -5929,6 +5964,82 @@ decodeErrorToString error =
         JD.Failure fail value ->
             -- TODO: encode some part of `value`.
             fail
+
+
+applyProTimelineSideEffects : Response -> Model -> Model
+applyProTimelineSideEffects response model =
+    let
+        loginServer =
+            model.renderEnv.loginServer
+
+        mdl =
+            if
+                serverHasFeature loginServer
+                    featureNames.proFeed
+                    model
+            then
+                model
+
+            else
+                setServerHasFeature loginServer
+                    featureNames.proFeed
+                    True
+                    model
+
+        feedSet =
+            mdl.feedSet
+
+        publicFeedType =
+            PublicFeed { flags = Nothing }
+
+        proFeedType =
+            ProFeed { flags = Nothing }
+    in
+    case findFeed proFeedType model.feedSet of
+        Just _ ->
+            mdl
+
+        Nothing ->
+            case findFeed publicFeedType model.feedSet of
+                Nothing ->
+                    mdl
+
+                Just feed ->
+                    case response.entity of
+                        StatusListEntity statuses ->
+                            let
+                                proFeed =
+                                    { feedType = proFeedType
+                                    , elements =
+                                        StatusElements statuses
+                                    }
+
+                                newFeedSet =
+                                    { feedSet
+                                        | feeds =
+                                            LE.setIf ((==) feed)
+                                                proFeed
+                                                feedSet.feeds
+                                    }
+
+                                feedSetDefinition =
+                                    model.feedSetDefinition
+
+                                newFeedSetDefinition =
+                                    { feedSetDefinition
+                                        | feedTypes =
+                                            LE.setIf ((==) publicFeedType)
+                                                proFeedType
+                                                feedSetDefinition.feedTypes
+                                    }
+                            in
+                            { mdl
+                                | feedSet = newFeedSet
+                                , feedSetDefinition = newFeedSetDefinition
+                            }
+
+                        _ ->
+                            mdl
 
 
 applyResponseSideEffects : Response -> Model -> Model
@@ -6153,6 +6264,13 @@ applyResponseSideEffects response model =
 
                         _ ->
                             model
+
+                Request.GetProTimeline { paging } ->
+                    let
+                        mdl2 =
+                            statusSmartPaging response.entity paging model
+                    in
+                    applyProTimelineSideEffects response mdl2
 
                 Request.GetPublicTimeline { paging } ->
                     statusSmartPaging response.entity paging model
@@ -7793,6 +7911,9 @@ feedTitle feedType =
 
         PublicFeed _ ->
             b "Public"
+
+        ProFeed _ ->
+            b "Pro"
 
         NotificationFeed _ ->
             b "Notifications"
@@ -9939,6 +10060,8 @@ timelinesSelectedUI model =
         , sendButton SendGetHomeTimeline model
         , text " "
         , sendButton SendGetConversations model
+        , text " "
+        , sendButton SendGetProTimeline model
         , br
         , checkBox (ExplorerUIMsg ToggleLocal) model.local "local "
         , checkBox (ExplorerUIMsg ToggleOnlyMedia) model.onlyMedia "media only "
@@ -10590,6 +10713,9 @@ editColumnDialogRows model =
                             PublicFeed _ ->
                                 True
 
+                            ProFeed _ ->
+                                True
+
                             _ ->
                                 False
                     )
@@ -10599,9 +10725,21 @@ editColumnDialogRows model =
                     []
 
                 Nothing ->
-                    [ row [ b "Public" ]
+                    let
+                        ( feedType, name ) =
+                            if
+                                serverHasFeature renderEnv.loginServer
+                                    featureNames.proFeed
+                                    model
+                            then
+                                ( ProFeed { flags = Nothing }, "Pro" )
+
+                            else
+                                ( PublicFeed { flags = Nothing }, "Public" )
+                    in
+                    [ row [ b name ]
                         (ColumnsUIMsg <|
-                            AddFeedColumn (PublicFeed { flags = Nothing })
+                            AddFeedColumn feedType
                         )
                     ]
             , [ row
@@ -11330,6 +11468,8 @@ If "smart paging" is checked, does its best to be smart about changing the pagin
 The "$GetHomeTimeline" button returns the statuses for those you follow.
 
 The "$GetConversations" button returns a list of conversations. I don't know what a conversation is, possibly the PM feature.
+
+The "$GetProTimeline" button returns the pro timeline (Gab only), with local posts only if "local" is checked, and with only posts containing media if "media only" is checked.
 
 The "$GetPublicTimeline" button returns the public timeline, with local posts only if "local" is checked, and with only posts containing media if "media only" is checked.
 
@@ -12234,6 +12374,7 @@ dollarButtonNameDict =
         , ( "PutMedia", SendPutMedia )
         , ( "PostStatus", SendPostStatus )
         , ( "GetConversations", SendGetConversations )
+        , ( "GetProTimeline", SendGetProTimeline )
         , ( "GetPublicTimeline", SendGetPublicTimeline )
         , ( "GetTagTimeline", SendGetTagTimeline )
         , ( "GetListTimeline", SendGetListTimeline )
@@ -12336,6 +12477,7 @@ buttonNameAlist =
     , ( SendPutMedia, ( "PutMedia", "PUT media" ) )
     , ( SendGetHomeTimeline, ( "GetHomeTimeline", "GET timelines/home" ) )
     , ( SendGetConversations, ( "GetConversations", "GET conversations" ) )
+    , ( SendGetProTimeline, ( "GetProTimeline", "GET timelines/pro" ) )
     , ( SendGetPublicTimeline, ( "GetPublicTimeline", "GET timelines/public" ) )
     , ( SendGetTagTimeline, ( "GetTagTimeline", "GET timelines/tag/:tag" ) )
     , ( SendGetListTimeline, ( "GetListTimeline", "GET timeslines/list/:id" ) )
