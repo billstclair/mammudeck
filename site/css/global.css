@@ -74,6 +74,12 @@ body {
     padding:0
 }
 
+.scroll-pill-server { text-decoration: none; }
+.scroll-pill-server:link { color: black; }
+.scroll-pill-server:visited { color: black; }
+.scroll-pill-server:hover { color: gray; }
+.scroll-pill-server:active { color: gray; }
+
 p, div, textarea, button, table {
     font-size : inherit;
 }

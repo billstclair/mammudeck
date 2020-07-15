@@ -8465,20 +8465,25 @@ triangleHeight width =
     width * sqrt 3 * 0.5
 
 
-floatingButtonColors : Button.Colors
-floatingButtonColors =
+scrollPillBackground : String
+scrollPillBackground =
+    "lightBlue"
+
+
+scrollPillColors : Button.Colors
+scrollPillColors =
     let
         colors =
             Button.defaultColors
     in
     { colors
-        | background = "lightBlue"
+        | background = scrollPillBackground
         , text = "black"
     }
 
 
-floatingButtons : Model -> Html Msg
-floatingButtons model =
+scrollPill : Model -> Html Msg
+scrollPill model =
     let
         ( _, sh ) =
             model.renderEnv.windowSize
@@ -8570,7 +8575,7 @@ floatingButtons model =
                 (\m -> ColumnsUIMsg (SimpleButtonMsg m cuiMsg))
                 (Button.simpleButton ( w, w ) ()
                     |> Button.setTouchAware model.isTouchAware
-                    |> Button.setColors floatingButtonColors
+                    |> Button.setColors scrollPillColors
                     |> addButtonTitle title
                 )
 
@@ -8581,7 +8586,7 @@ floatingButtons model =
                 (\m -> ColumnsUIMsg (SimpleButtonMsg m cuiMsg))
                 (Button.simpleButton ( l, w ) ()
                     |> Button.setTouchAware model.isTouchAware
-                    |> Button.setColors floatingButtonColors
+                    |> Button.setColors scrollPillColors
                     |> Button.setTriangularButtonRenderers direction
                     --rectangular hit region
                     |> Button.setRenderOverlay Button.renderOverlay
@@ -8699,7 +8704,26 @@ renderColumns model =
                 , style "bottom" <| (10 |> String.fromInt) ++ "px"
                 , style "right" <| (10 |> String.fromInt) ++ "px"
                 ]
-                [ floatingButtons model
+                [ scrollPill model
+                , case renderEnv.loginServer of
+                    Nothing ->
+                        text ""
+
+                    Just server ->
+                        div
+                            [ style "text-align" "center"
+                            , style "padding" "5px"
+                            , style "border" "2px solid"
+                            , style "border-radius" "25px"
+                            , style "background" scrollPillBackground
+                            , style "margin-top" "-2px"
+                            ]
+                            [ a
+                                [ href <| "https://" ++ server
+                                , class "scroll-pill-server"
+                                ]
+                                [ text server ]
+                            ]
 
                 --, br
                 --, text (model.bodyScroll.scrollLeft |> String.fromFloat)
