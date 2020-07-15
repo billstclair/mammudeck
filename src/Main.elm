@@ -8372,10 +8372,80 @@ floatingButtons model =
         l =
             w * sqrt 3 / 2
 
-        squareButton location label cuiMsg title =
+        squareButton location iClass cuiMsg title =
+            let
+                content =
+                    if iClass == "" then
+                        Button.NoContent
+
+                    else
+                        let
+                            fontSize =
+                                0.6 * w
+
+                            xDelta =
+                                fontSize / 4 * 0.8
+
+                            yDelta =
+                                fontSize / 8
+
+                            nominal =
+                                (w - fontSize) / 2
+
+                            x =
+                                nominal - xDelta
+
+                            y =
+                                nominal - yDelta
+
+                            fontSizeS =
+                                String.fromFloat fontSize
+
+                            xS =
+                                String.fromFloat x
+
+                            yS =
+                                String.fromFloat y
+
+                            wid =
+                                fontSize + 2 * xDelta
+
+                            widS =
+                                String.fromFloat wid
+
+                            hei =
+                                fontSize + 2 * yDelta
+
+                            heiS =
+                                String.fromFloat hei
+
+                            -- This stops icon-spin3 from getting cut off
+                            paddingS =
+                                String.fromFloat yDelta ++ "px"
+                        in
+                        Button.SvgContent <|
+                            Svg.foreignObject
+                                [ Svga.x xS
+                                , Svga.y yS
+                                , Svga.width widS
+                                , Svga.height heiS
+                                ]
+                                [ div
+                                    [ class "status-el"
+                                    , style "color" "black"
+                                    , style "padding-top" paddingS
+                                    ]
+                                    [ Html.i
+                                        [ class <| iClass
+                                        , style "font-size" <| fontSizeS ++ "px"
+                                        ]
+                                        []
+                                    ]
+                                ]
+            in
             Button.render
                 location
-                (Button.TextContent label)
+                content
                 (\m -> ColumnsUIMsg (SimpleButtonMsg m cuiMsg))
                 (Button.simpleButton ( w, w ) ()
                     |> Button.setTouchAware model.isTouchAware
@@ -8392,6 +8462,8 @@ floatingButtons model =
                     |> Button.setTouchAware model.isTouchAware
                     |> Button.setColors floatingButtonColors
                     |> Button.setTriangularButtonRenderers direction
+                    --rectangular hit region
+                    |> Button.setRenderOverlay Button.renderOverlay
                     |> addButtonTitle title
                 )
 
@@ -8409,15 +8481,15 @@ floatingButtons model =
     <|
         if model.showFullFloatingButtons then
             [ squareButton ( l, 0 )
-                "S"
+                "icon-cog"
                 ShowSettingsDialog
                 "Show Settings Dialog"
             , squareButton ( l, w - 1 )
-                "R"
+                "icon-spin3"
                 ReloadAllColumns
                 "Reload All Columns"
             , squareButton ( l, 2 * w - 2 )
-                "P"
+                "icon-pencil"
                 (ShowPostDialog Nothing)
                 "Show Post Dialog"
             , triangleButton LeftButton
