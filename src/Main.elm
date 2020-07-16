@@ -22,10 +22,16 @@
 
 See ../TODO.md for the full list.
 
-* Replace :<emoji>: with the <img> URL from the "GET custom_emojis"
-  API request.
-
 * Settings dialog. Hide left column.
+
+* Add reply-to as in Pleroma before message.
+  This requires keeping a table mapping server & id to acct (username@server) & url.
+  Accumulate this from Status.mentions, Notification.account, Status.account.
+  Look up separately when necessary.
+  All we get is Status.in_reply_to_id and Status.in_reply_to_account_id.
+  Need to be able to turn that into username@server and url
+  But to which server does in_reply_to_account_id refer.
+  Probably loginServer, but need to verify.
 
 * Configure location of the scroll pill (and call it that).
     Top, bottom or center. Left, middle, or right.
@@ -42,9 +48,10 @@ See ../TODO.md for the full list.
 
 * Multiple named feedsets per server.
 
-* Show quoted post. Option to show replied to post.
-
 * Ellipsis dialog: block, mute, (un)follow, delete, edit
+
+* Show quoted post. Option to show replied to post.
+  *DONE*: quoted post.
 
 * Update feed button at top of feed (first step in auto-update).
   Buttons are there, and they reload the feed.  Need to make them do
@@ -7876,6 +7883,11 @@ statusBody renderEnv status =
             ]
 
 
+smallTextFontSize : String
+smallTextFontSize =
+    "80%"
+
+
 renderNotificationBody : RenderEnv -> Notification -> Html Msg
 renderNotificationBody renderEnv notification =
     let
@@ -7910,7 +7922,7 @@ renderNotificationBody renderEnv notification =
                     ]
                   <|
                     List.concat
-                        [ [ p [ style "font-size" "80%" ] [ postLink ] ]
+                        [ [ p [ style "font-size" smallTextFontSize ] [ postLink ] ]
                         , body
                         ]
                 , renderMediaAttachments renderEnv status
@@ -8179,7 +8191,7 @@ renderStatusQuote renderEnv feedEnv status =
                         [ div
                             [ style "padding" "4px"
                             ]
-                            [ span [ style "font-size" "80%" ]
+                            [ span [ style "font-size" smallTextFontSize ]
                                 [ text "[quote]" ]
                             , br
                             , renderStatus
@@ -8229,7 +8241,7 @@ renderStatusCard renderEnv status =
                                 text ""
 
                             Just author_name ->
-                                span [ style "font-size" "80%" ]
+                                span [ style "font-size" smallTextFontSize ]
                                     [ br
                                     , text "by "
                                     , maybeLink author_name card.author_url
@@ -8466,6 +8478,32 @@ renderAttachment renderEnv attachment =
                     , style "width" "100%"
                     ]
                     []
+                ]
+
+        VideoAttachment ->
+            div []
+                [ span [ style "font-size" smallTextFontSize ]
+                    [ text "["
+                    , a [ href attachment.url ]
+                        [ text "video" ]
+                    , text "]"
+                    ]
+                , case attachment.preview_url of
+                    Nothing ->
+                        text ""
+
+                    Just preview_url ->
+                        span []
+                            [ br
+                            , a [ href attachment.url ]
+                                [ img
+                                    [ src preview_url
+                                    , alt "image"
+                                    , style "width" "100%"
+                                    ]
+                                    []
+                                ]
+                            ]
                 ]
 
         _ ->
@@ -11141,7 +11179,7 @@ postDialogContent hasQuoteFeature renderEnv dropZone postState =
                     postState.sensitive
                     "Mark attachments as sensitive"
                 , br
-                , span [ style "font-size" "80%" ]
+                , span [ style "font-size" smallTextFontSize ]
                     [ text "Click on image to remove it." ]
                 ]
         ]
