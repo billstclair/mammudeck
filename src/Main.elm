@@ -1,4 +1,4 @@
--------------------------------------------------------------------
+------------------------------------------------------------------
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
@@ -366,6 +366,17 @@ type alias Features =
     Dict String (Dict String Bool)
 
 
+type alias ScrollPillState =
+    { showServer : Bool
+    }
+
+
+initialScrollPillState : ScrollPillState
+initialScrollPillState =
+    { showServer = True
+    }
+
+
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -377,6 +388,7 @@ type alias Model =
     , supportsAccountByUsername : Dict String Bool
     , postState : PostState
     , features : Features
+    , scrollPillState : ScrollPillState
 
     -- API Explorer page state
     , prettify : Bool
@@ -429,7 +441,7 @@ type alias Model =
     , loadingFeeds : Set String --feed ids
     , groupDict : Dict String Group
     , feedEnvs : Dict String FeedEnv
-    , showFullFloatingButtons : Bool
+    , showFullScrollPill : Bool
     , isTouchAware : Bool
     , bodyScroll : ScrollNotification
     , lastScroll : ( ScrollDirection, Posix )
@@ -560,7 +572,7 @@ type ColumnsUIMsg
     | ShowEditColumnsDialog
     | ShowServerDialog
     | SimpleButtonMsg Button.Msg ColumnsUIMsg
-    | ShowFullFloatingButtons
+    | ShowFullScrollPill
     | TimestampedCmd (Posix -> ColumnsUIMsg) Posix
     | ScrollPage ScrollDirection
     | ScrollPageAtTime ScrollDirection Posix
@@ -836,7 +848,7 @@ subscriptions model =
         -- There currently aren't any calls.
         --, Time.every 250 (ColumnsUIMsg << Tick)
         , scrollNotify ScrollNotify
-        , if model.dialog /= NoDialog || model.showFullFloatingButtons then
+        , if model.dialog /= NoDialog || model.showFullScrollPill then
             Events.onKeyDown keyDecoder
 
           else
@@ -1016,6 +1028,7 @@ init value url key =
     , supportsAccountByUsername = Dict.empty
     , postState = initialPostState
     , features = Dict.empty
+    , scrollPillState = initialScrollPillState
     , prettify = True
     , selectedRequest = LoginSelected
     , username = ""
@@ -1066,7 +1079,7 @@ init value url key =
     , loadingFeeds = Set.empty
     , groupDict = Dict.empty
     , feedEnvs = Dict.empty
-    , showFullFloatingButtons = False
+    , showFullScrollPill = False
     , isTouchAware = False
     , bodyScroll = emptyScrollNotification
     , lastScroll = ( ScrollLeft, Time.millisToPosix 0 )
@@ -2058,7 +2071,7 @@ globalMsg msg model =
 
                 mdl =
                     if isEscape then
-                        { model | showFullFloatingButtons = False }
+                        { model | showFullScrollPill = False }
 
                     else
                         model
@@ -2883,8 +2896,8 @@ columnsUIMsg msg model =
         ScrollPageAtTime direction now ->
             scrollPage direction now model
 
-        ShowFullFloatingButtons ->
-            { model | showFullFloatingButtons = True } |> withNoCmd
+        ShowFullScrollPill ->
+            { model | showFullScrollPill = True } |> withNoCmd
 
         SimpleButtonMsg m cuiMsg ->
             let
@@ -2897,8 +2910,8 @@ columnsUIMsg msg model =
                     { model | isTouchAware = Button.isTouchAware but }
             in
             if isClick then
-                update (ColumnsUIMsg cuiMsg)
-                    { model | showFullFloatingButtons = False }
+                { model | showFullScrollPill = False }
+                    |> withCmd (Task.perform ColumnsUIMsg <| Task.succeed cuiMsg)
 
             else
                 model |> withNoCmd
@@ -8479,6 +8492,11 @@ scrollPillBackground =
     "lightBlue"
 
 
+scrollPillSelectedBackground : String
+scrollPillSelectedBackground =
+    "gray"
+
+
 scrollPillColors : Button.Colors
 scrollPillColors =
     let
@@ -8491,8 +8509,8 @@ scrollPillColors =
     }
 
 
-scrollPill : Model -> Html Msg
-scrollPill model =
+renderScrollPill : Model -> Html Msg
+renderScrollPill model =
     let
         ( _, sh ) =
             model.renderEnv.windowSize
@@ -8603,7 +8621,7 @@ scrollPill model =
                 )
 
         th =
-            if model.showFullFloatingButtons then
+            if model.showFullScrollPill then
                 3 * w - 2
 
             else
@@ -8614,7 +8632,7 @@ scrollPill model =
         , Svga.height <| String.fromFloat th
         ]
     <|
-        if model.showFullFloatingButtons then
+        if model.showFullScrollPill then
             [ squareButton ( l, 0 )
                 "icon-cog"
                 ShowSettingsDialog
@@ -8640,7 +8658,7 @@ scrollPill model =
         else
             [ squareButton ( l, 0 )
                 ""
-                ShowFullFloatingButtons
+                ShowFullScrollPill
                 "Expand Buttons, Click or Escape to Contract"
             , triangleButton LeftButton
                 ( 1, 0 )
@@ -8713,26 +8731,30 @@ renderColumns model =
                 , style "bottom" <| (10 |> String.fromInt) ++ "px"
                 , style "right" <| (10 |> String.fromInt) ++ "px"
                 ]
-                [ scrollPill model
-                , case renderEnv.loginServer of
-                    Nothing ->
-                        text ""
+                [ renderScrollPill model
+                , if not model.scrollPillState.showServer then
+                    text ""
 
-                    Just server ->
-                        div
-                            [ style "text-align" "center"
-                            , style "padding" "5px"
-                            , style "border" "2px solid"
-                            , style "border-radius" "25px"
-                            , style "background" scrollPillBackground
-                            , style "margin-top" "-1px"
-                            ]
-                            [ a
-                                [ href <| "https://" ++ server
-                                , class "scroll-pill-server"
+                  else
+                    case renderEnv.loginServer of
+                        Nothing ->
+                            text ""
+
+                        Just server ->
+                            div
+                                [ style "text-align" "center"
+                                , style "padding" "5px"
+                                , style "border" "2px solid"
+                                , style "border-radius" "25px"
+                                , style "background" scrollPillBackground
+                                , style "margin-top" "-1px"
                                 ]
-                                [ text server ]
-                            ]
+                                [ a
+                                    [ href <| "https://" ++ server
+                                    , class "scroll-pill-server"
+                                    ]
+                                    [ text server ]
+                                ]
 
                 --, br
                 --, text (model.bodyScroll.scrollLeft |> String.fromFloat)
@@ -11645,6 +11667,7 @@ type alias SavedModel =
     , supportsAccountByUsername : Dict String Bool
     , postState : PostState
     , features : Features
+    , scrollPillState : ScrollPillState
     , prettify : Bool
     , selectedRequest : SelectedRequest
     , username : String
@@ -11698,6 +11721,7 @@ modelToSavedModel model =
     , supportsAccountByUsername = model.supportsAccountByUsername
     , postState = model.postState
     , features = model.features
+    , scrollPillState = model.scrollPillState
     , prettify = model.prettify
     , selectedRequest = model.selectedRequest
     , username = model.username
@@ -11765,6 +11789,7 @@ savedModelToModel savedModel model =
         , supportsAccountByUsername = savedModel.supportsAccountByUsername
         , postState = savedModel.postState
         , features = savedModel.features
+        , scrollPillState = savedModel.scrollPillState
         , prettify = savedModel.prettify
         , selectedRequest = savedModel.selectedRequest
         , username = savedModel.username
@@ -12056,6 +12081,17 @@ fixDecodedPostState postState =
     }
 
 
+encodeScrollPillState : ScrollPillState -> Value
+encodeScrollPillState scrollPillState =
+    JE.object [ ( "showServer", JE.bool scrollPillState.showServer ) ]
+
+
+scrollPillStateDecoder : Decoder ScrollPillState
+scrollPillStateDecoder =
+    JD.succeed ScrollPillState
+        |> required "showServer" JD.bool
+
+
 encodeSavedModel : SavedModel -> Value
 encodeSavedModel savedModel =
     JE.object
@@ -12071,6 +12107,7 @@ encodeSavedModel savedModel =
           )
         , ( "postState", encodePostState savedModel.postState )
         , ( "features", encodeFeatures savedModel.features )
+        , ( "scrollPillState", encodeScrollPillState savedModel.scrollPillState )
         , ( "accountId", JE.string savedModel.accountId )
         , ( "accountIds", JE.string savedModel.accountIds )
         , ( "showMetadata", JE.bool savedModel.showMetadata )
@@ -12128,6 +12165,7 @@ savedModelDecoder =
         |> optional "supportsAccountByUsername" (JD.dict JD.bool) Dict.empty
         |> optional "postState" postStateDecoder initialPostState
         |> optional "features" featuresDecoder Dict.empty
+        |> optional "scrollPillState" scrollPillStateDecoder initialScrollPillState
         |> optional "prettify" JD.bool True
         |> optional "selectedRequest" selectedRequestDecoder LoginSelected
         |> optional "username" JD.string ""
