@@ -74,6 +74,7 @@ import Cmd.Extra exposing (addCmd, withCmd, withCmds, withNoCmd)
 import CustomElement.BodyColors as BodyColors
 import CustomElement.RenderNotify as RenderNotify
 import CustomElement.WriteClipboard as WriteClipboard
+import Delay
 import Dialog
 import Dict exposing (Dict)
 import DropZone
@@ -2911,7 +2912,11 @@ columnsUIMsg msg model =
             in
             if isClick then
                 { model | showFullScrollPill = False }
-                    |> withCmd (Task.perform ColumnsUIMsg <| Task.succeed cuiMsg)
+                    -- 1 millisecond to collapse the scroll pill
+                    |> withCmd
+                        (Delay.after 1 Delay.Millisecond <|
+                            ColumnsUIMsg cuiMsg
+                        )
 
             else
                 model |> withNoCmd

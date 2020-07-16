@@ -9,6 +9,7 @@
             "CoderDennis/elm-time-format": "1.0.0",
             "Janiczek/cmd-extra": "1.1.0",
             "NoRedInk/elm-json-decode-pipeline": "1.0.0",
+            "andrewMacmurray/elm-delay": "3.0.0",
             "billstclair/elm-dialog": "1.0.1",
             "billstclair/elm-localstorage": "7.2.0",
             "billstclair/elm-mastodon": "8.0.0",
