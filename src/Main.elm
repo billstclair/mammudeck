@@ -8432,9 +8432,18 @@ renderAttachment : RenderEnv -> Attachment -> Html Msg
 renderAttachment renderEnv attachment =
     case attachment.type_ of
         ImageAttachment ->
+            let
+                preview_url =
+                    case attachment.preview_url of
+                        Just url ->
+                            url
+
+                        Nothing ->
+                            attachment.url
+            in
             a [ href attachment.url ]
                 [ img
-                    [ src attachment.preview_url
+                    [ src preview_url
                     , alt "image"
                     , style "width" "100%"
                     ]
