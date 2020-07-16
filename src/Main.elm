@@ -575,7 +575,6 @@ type ColumnsUIMsg
     | ReloadAllColumns
     | RefreshFeed FeedType
     | FeedRendered Value
-    | DelayCmd Int (Cmd Msg)
     | Tick Posix
     | ShowEditColumnsDialog
     | ShowServerDialog
@@ -851,10 +850,6 @@ subscriptions model =
     Sub.batch
         [ PortFunnels.subscriptions (GlobalMsg << Process) model
         , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
-
-        -- This enables delayCmd. Without it, delayed commands never run.
-        -- There currently aren't any calls.
-        --, Time.every 250 (ColumnsUIMsg << Tick)
         , scrollNotify ScrollNotify
         , if model.dialog /= NoDialog || model.showFullScrollPill then
             Events.onKeyDown keyDecoder
@@ -2708,16 +2703,6 @@ makeScrollRequestWithId id enable =
         |> scrollRequest
 
 
-delayCmd : Int -> Cmd Msg -> Cmd Msg
-delayCmd millis cmd =
-    if millis <= 0 then
-        cmd
-
-    else
-        Task.perform ColumnsUIMsg <|
-            Task.succeed (DelayCmd millis cmd)
-
-
 {-| Process UI messages from the columns page.
 
 These change the Model, but don't send anything over the wire to any instances.
@@ -2849,21 +2834,6 @@ columnsUIMsg msg model =
 
                 Ok id ->
                     model |> withCmd (makeScrollRequestWithId id True)
-
-        DelayCmd millis cmd ->
-            if millis <= 0 then
-                model |> withCmd cmd
-
-            else
-                let
-                    now =
-                        Time.posixToMillis model.now
-                in
-                { model
-                    | cmdQueue =
-                        ( now + millis, cmd ) :: model.cmdQueue
-                }
-                    |> withNoCmd
 
         Tick now ->
             let
