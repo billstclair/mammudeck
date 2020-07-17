@@ -454,6 +454,7 @@ type alias Model =
     , bodyScroll : ScrollNotification
     , lastScroll : ( ScrollDirection, Posix )
     , featureProbeRequest : Maybe ( String, Request )
+    , movingColumn : Maybe FeedType
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -589,7 +590,7 @@ type ColumnsUIMsg
     | DismissDialog
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
-    | MoveFeedColumn FeedType Int
+    | MoveFeedColumn FeedType
     | UserNameInput String
     | GroupIdInput String
     | ToggleStatusRepeat Status
@@ -1087,6 +1088,7 @@ init value url key =
     , bodyScroll = emptyScrollNotification
     , lastScroll = ( ScrollLeft, Time.millisToPosix 0 )
     , featureProbeRequest = Nothing
+    , movingColumn = Nothing
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -2952,8 +2954,14 @@ columnsUIMsg msg model =
         DeleteFeedColumn feedType ->
             deleteFeedType feedType model
 
-        MoveFeedColumn feedType direction ->
-            moveFeedType feedType direction model
+        MoveFeedColumn feedType ->
+            case model.movingColumn of
+                Nothing ->
+                    { model | movingColumn = Just feedType }
+                        |> withNoCmd
+
+                Just movingFeedType ->
+                    moveFeedType movingFeedType feedType model
 
         UserNameInput userNameInput ->
             { model | userNameInput = userNameInput }
@@ -3396,9 +3404,13 @@ fillinFeedType feedType model =
             feedType
 
 
-moveFeedType : FeedType -> Int -> Model -> ( Model, Cmd Msg )
-moveFeedType feedType direction model =
+moveFeedType : FeedType -> FeedType -> Model -> ( Model, Cmd Msg )
+moveFeedType movingFeedType feedType model =
     let
+        -- temporary
+        direction =
+            1
+
         feedSetDefinition =
             model.feedSetDefinition
 
@@ -3413,67 +3425,55 @@ moveFeedType feedType direction model =
             model |> withNoCmd
 
         Just index ->
-            let
-                newFeedSetDefinition =
-                    { feedSetDefinition
-                        | feedTypes =
-                            moveElementAt index direction feedTypes
-                    }
+            case LE.findIndex ((==) movingFeedType) feedTypes of
+                Nothing ->
+                    model |> withNoCmd
 
-                newFeedSet =
-                    { feedSet
-                        | feeds =
-                            moveElementAt index direction feedSet.feeds
+                Just movingIndex ->
+                    let
+                        newFeedSetDefinition =
+                            { feedSetDefinition
+                                | feedTypes =
+                                    moveElementAt movingIndex index feedTypes
+                            }
+
+                        newFeedSet =
+                            { feedSet
+                                | feeds =
+                                    moveElementAt movingIndex index feedSet.feeds
+                            }
+                    in
+                    { model
+                        | feedSetDefinition = newFeedSetDefinition
+                        , feedSet = newFeedSet
+                        , movingColumn = Nothing
                     }
-            in
-            { model
-                | feedSetDefinition = newFeedSetDefinition
-                , feedSet = newFeedSet
-            }
-                |> withCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
+                        |> withCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
 
 
 moveElementAt : Int -> Int -> List a -> List a
-moveElementAt index direction list =
+moveElementAt fromIndex toIndex list =
     let
         length =
             List.length list
     in
-    if index == 0 && direction < 0 then
-        List.concat
-            [ List.drop 1 list
-            , List.take 1 list
-            ]
+    case LE.getAt fromIndex list of
+        Nothing ->
+            list
 
-    else if index >= length - 1 && direction >= 0 then
-        List.concat
-            [ List.drop (length - 1) list
-            , List.take (length - 1) list
-            ]
-
-    else if direction < 0 then
-        let
-            tail =
-                List.drop (index - 1) list
-        in
-        List.concat
-            [ List.take (index - 1) list
-            , List.take 1 <| List.drop 1 tail
-            , List.take 1 tail
-            , List.drop 2 tail
-            ]
-
-    else
-        let
-            tail =
-                List.drop index list
-        in
-        List.concat
-            [ List.take index list
-            , List.take 1 <| List.drop 1 tail
-            , List.take 1 tail
-            , List.drop 2 tail
-            ]
+        Just a ->
+            let
+                listMinus =
+                    List.concat
+                        [ List.take fromIndex list
+                        , List.drop (fromIndex + 1) list
+                        ]
+            in
+            List.concat
+                [ List.take toIndex listMinus
+                , [ a ]
+                , List.drop toIndex listMinus
+                ]
 
 
 deleteFeedType : FeedType -> Model -> ( Model, Cmd Msg )
@@ -10850,24 +10850,54 @@ editColumnDialogRows model =
                     smartFeedTitle feedType model
             in
             tr []
-                [ td [] [ title ]
+                [ td []
+                    [ div
+                        [ style "display" "flex"
+                        , style "flex" "1"
+                        ]
+                        [ if Just feedType == model.movingColumn then
+                            text ""
+
+                          else
+                            fontelloChar
+                                [ onClick (ColumnsUIMsg <| MoveFeedColumn feedType)
+                                , Html.Attributes.title <|
+                                    if model.movingColumn == Nothing then
+                                        "Click to move this column"
+
+                                    else
+                                        "Click to move selected column to here."
+                                ]
+                                "icon-menu"
+                                []
+                                model
+                        , span
+                            (case model.movingColumn of
+                                Nothing ->
+                                    []
+
+                                Just clickedFeedType ->
+                                    [ Html.Attributes.title <|
+                                        if feedType == clickedFeedType then
+                                            "Click to cancel move."
+
+                                        else
+                                            "Click to move selected column here"
+                                    , onClick
+                                        (ColumnsUIMsg <| MoveFeedColumn feedType)
+                                    ]
+                            )
+                            [ text special.nbsp
+                            , title
+                            , text special.nbsp
+                            ]
+                        ]
+                    ]
                 , td []
                     [ titledButton "Remove this column"
                         True
                         (ColumnsUIMsg <| DeleteFeedColumn feedType)
                         "x"
-                    ]
-                , td []
-                    [ titledButton "Move this column left"
-                        True
-                        (ColumnsUIMsg <| MoveFeedColumn feedType -1)
-                        "<"
-                    ]
-                , td []
-                    [ titledButton "Move this column right"
-                        True
-                        (ColumnsUIMsg <| MoveFeedColumn feedType 1)
-                        ">"
                     ]
                 ]
 
@@ -10885,6 +10915,15 @@ editColumnDialogRows model =
             List.map feedRow feedTypes
         ]
     ]
+
+
+fontelloChar : List (Attribute Msg) -> String -> List (Attribute Msg) -> Model -> Html Msg
+fontelloChar divAttributes iClass iAttributes model =
+    div
+        (class "status-el" :: divAttributes)
+        [ Html.i (class iClass :: iAttributes)
+            []
+        ]
 
 
 smartFeedTitle : FeedType -> Model -> Html Msg
