@@ -2070,26 +2070,17 @@ globalMsg msg model =
                     )
 
         OnKeyPress key ->
-            let
-                isEscape =
-                    key == "Escape"
+            ( if key == "Escape" then
+                { model
+                    | showFullScrollPill = False
+                    , dialog = NoDialog
+                    , movingColumn = Nothing
+                }
 
-                mdl =
-                    if isEscape then
-                        { model | showFullScrollPill = False }
-
-                    else
-                        model
-            in
-            { mdl
-                | dialog =
-                    if isEscape then
-                        NoDialog
-
-                    else
-                        model.dialog
-            }
-                |> withNoCmd
+              else
+                model
+            , Cmd.none
+            )
 
         OnAltKey isDown ->
             { model
@@ -2945,7 +2936,10 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
         DismissDialog ->
-            { model | dialog = NoDialog }
+            { model
+                | dialog = NoDialog
+                , movingColumn = Nothing
+            }
                 |> withNoCmd
 
         AddFeedColumn feedType ->
@@ -10548,7 +10542,7 @@ renderDialog model =
                 , content = [ text content ]
                 , actionBar =
                     [ Html.button
-                        [ onClick <| (GlobalMsg << SetDialog) NoDialog
+                        [ onClick (ColumnsUIMsg DismissDialog)
                         , id nodeIds.cancelButton
                         ]
                         [ b "OK" ]
