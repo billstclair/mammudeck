@@ -363,7 +363,7 @@ emptyRenderEnv =
 type alias FeedEnv =
     { group : Maybe Group
     , references : Dict String Reference
-    , missingReplyToIds : Set String
+    , missingReplyToAccountIds : Set String
     }
 
 
@@ -371,7 +371,7 @@ emptyFeedEnv : FeedEnv
 emptyFeedEnv =
     { group = Nothing
     , references = Dict.empty
-    , missingReplyToIds = Set.empty
+    , missingReplyToAccountIds = Set.empty
     }
 
 
@@ -3931,100 +3931,256 @@ columnsSendMsg msg model =
                             model |> withNoCmd
 
         ReceiveFeed request paging feedType result ->
+            receiveFeed request paging feedType result model
+
+
+fillinMissingReplyToAccountIds : Model -> Model
+fillinMissingReplyToAccountIds model =
+    let
+        references =
+            model.references
+
+        fillin1 : String -> ( Dict String Reference, Set String ) -> ( Dict String Reference, Set String )
+        fillin1 id ( feedRefs, missing ) =
+            case Dict.get id references of
+                Nothing ->
+                    ( feedRefs, missing )
+
+                Just ref ->
+                    ( Dict.insert id ref feedRefs, Set.remove id missing )
+
+        fillin : String -> FeedEnv -> FeedEnv
+        fillin k env =
             let
-                renderEnv =
-                    model.renderEnv
-
-                model2 =
-                    { model
-                        | loadingFeeds =
-                            Set.remove (Debug.log "ReceiveFeed" (Types.feedID feedType))
-                                model.loadingFeeds
-                    }
-
-                ( mdl, cmd ) =
-                    receiveResponse request result model2
+                ( refs, miss ) =
+                    List.foldl fillin1
+                        ( env.references, env.missingReplyToAccountIds )
+                        (Set.toList env.missingReplyToAccountIds)
             in
-            case mdl.msg of
-                Just _ ->
+            { env
+                | references = refs
+                , missingReplyToAccountIds = miss
+            }
+
+        feedEnvs =
+            Dict.map fillin model.feedEnvs
+                |> debugFeedEnvsMissing
+    in
+    { model | feedEnvs = feedEnvs }
+
+
+debugFeedEnvsMissing : Dict String FeedEnv -> Dict String FeedEnv
+debugFeedEnvsMissing feedEnvs =
+    let
+        missing =
+            Dict.foldl
+                (\k env miss ->
+                    Set.union env.missingReplyToAccountIds miss
+                )
+                Set.empty
+                feedEnvs
+
+        size =
+            Debug.log "Total missing replyToAccountIds" <|
+                Set.size missing
+    in
+    feedEnvs
+
+
+receiveFeed : Request -> Maybe Paging -> FeedType -> Result Error Response -> Model -> ( Model, Cmd Msg )
+receiveFeed request paging feedType result model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        feedId =
+            Types.feedID feedType
+
+        model2 =
+            { model
+                | loadingFeeds =
+                    Set.remove (Debug.log "ReceiveFeed" feedId)
+                        model.loadingFeeds
+            }
+
+        ( mdl, cmd ) =
+            receiveResponse request result model2
+    in
+    case mdl.msg of
+        Just _ ->
+            mdl |> withCmd cmd
+
+        Nothing ->
+            case mdl.entity of
+                Nothing ->
                     mdl |> withCmd cmd
 
-                Nothing ->
-                    case mdl.entity of
-                        Nothing ->
-                            mdl |> withCmd cmd
+                Just e ->
+                    let
+                        ( elements, references ) =
+                            case e of
+                                StatusListEntity statuses ->
+                                    ( Just <| StatusElements statuses
+                                    , addStatusesReferences statuses
+                                        model.references
+                                    )
 
-                        Just e ->
-                            let
-                                ( elements, references ) =
-                                    case e of
-                                        StatusListEntity statuses ->
-                                            ( Just <| StatusElements statuses
-                                            , addStatusesReferences statuses
-                                                model.references
-                                            )
+                                NotificationListEntity notifications ->
+                                    ( Just <| NotificationElements notifications
+                                    , addNotificationsReferences notifications
+                                        model.references
+                                    )
 
-                                        NotificationListEntity notifications ->
-                                            ( Just <| NotificationElements notifications
-                                            , addNotificationsReferences notifications
-                                                model.references
-                                            )
+                                AccountListEntity accounts ->
+                                    ( Just <| AccountElements accounts
+                                    , model.references
+                                    )
 
-                                        AccountListEntity accounts ->
-                                            ( Just <| AccountElements accounts
-                                            , model.references
+                                _ ->
+                                    ( Nothing, model.references )
+
+                        feedSet =
+                            mdl.feedSet
+
+                        feedEnvs =
+                            model.feedEnvs
+
+                        feedEnv =
+                            case Dict.get feedId model.feedEnvs of
+                                Nothing ->
+                                    emptyFeedEnv
+
+                                Just env ->
+                                    env
+
+                        ( feeds, ( mdl2, cmd2 ), feedEnv2 ) =
+                            case elements of
+                                Nothing ->
+                                    ( feedSet.feeds
+                                    , ( mdl, Cmd.none )
+                                    , feedEnv
+                                    )
+
+                                Just elem ->
+                                    case elem of
+                                        AccountElements accounts ->
+                                            ( feedSet.feeds
+                                            , continueReloadUserFeed
+                                                paging
+                                                feedType
+                                                accounts
+                                                mdl
+                                            , feedEnv
                                             )
 
                                         _ ->
-                                            ( Nothing, model.references )
+                                            let
+                                                receiveType =
+                                                    pagingToReceiveType paging
+                                            in
+                                            ( LE.updateIf
+                                                (\feed ->
+                                                    feedType == feed.feedType
+                                                )
+                                                (\feed ->
+                                                    updateReceivedFeed
+                                                        receiveType
+                                                        elem
+                                                        feed
+                                                )
+                                                feedSet.feeds
+                                            , ( mdl, Cmd.none )
+                                            , updateFeedEnvReferences
+                                                receiveType
+                                                elem
+                                                model.references
+                                                feedEnv
+                                            )
 
-                                feedSet =
-                                    mdl.feedSet
+                        missing =
+                            Debug.log "  missing replyToAccountIds"
+                                feedEnv2.missingReplyToAccountIds
 
-                                ( feeds, ( mdl2, cmd2 ) ) =
-                                    case elements of
-                                        Nothing ->
-                                            ( feedSet.feeds, ( mdl, Cmd.none ) )
+                        mdl3 =
+                            if Set.size mdl2.loadingFeeds > 0 then
+                                mdl2
 
-                                        Just elem ->
-                                            case elem of
-                                                AccountElements accounts ->
-                                                    ( feedSet.feeds
-                                                    , continueReloadUserFeed
-                                                        paging
-                                                        feedType
-                                                        accounts
-                                                        mdl
-                                                    )
+                            else
+                                fillinMissingReplyToAccountIds mdl2
+                    in
+                    { mdl3
+                        | feedSet =
+                            { feedSet | feeds = feeds }
+                        , references = references
+                        , feedEnvs =
+                            Dict.insert feedId feedEnv2 feedEnvs
+                    }
+                        |> withCmds
+                            [ cmd
+                            , cmd2
+                            ]
 
-                                                _ ->
-                                                    let
-                                                        receiveType =
-                                                            pagingToReceiveType paging
-                                                    in
-                                                    ( LE.updateIf
-                                                        (\feed ->
-                                                            feedType == feed.feedType
-                                                        )
-                                                        (\feed ->
-                                                            updateReceivedFeed
-                                                                receiveType
-                                                                elem
-                                                                feed
-                                                        )
-                                                        feedSet.feeds
-                                                    , ( mdl, Cmd.none )
-                                                    )
-                            in
-                            { mdl2
-                                | feedSet =
-                                    { feedSet | feeds = feeds }
-                                , references = references
-                            }
-                                |> withCmds
-                                    [ cmd
-                                    , cmd2
-                                    ]
+
+updateFeedEnvReferences : ReceiveFeedType -> FeedElements -> ReferenceDict -> FeedEnv -> FeedEnv
+updateFeedEnvReferences receiveType feedElements references feedEnv =
+    let
+        referencesAndMissing =
+            case receiveType of
+                ReceiveWholeFeed ->
+                    ( Dict.empty, Set.empty )
+
+                _ ->
+                    ( feedEnv.references, feedEnv.missingReplyToAccountIds )
+
+        processReplyTo maybeId ( refs, missing ) =
+            case maybeId of
+                Nothing ->
+                    ( refs, missing )
+
+                Just id ->
+                    case Dict.get id references of
+                        Just ref ->
+                            ( Dict.insert id ref refs, missing )
+
+                        Nothing ->
+                            ( refs, Set.insert id missing )
+
+        processStatus status refsMissing =
+            processReplyTo status.in_reply_to_account_id refsMissing
+                |> processWrappedStatus status.reblog
+                |> processWrappedStatus status.quote
+
+        processWrappedStatus wstat refsMissing =
+            case wstat of
+                Nothing ->
+                    refsMissing
+
+                Just (WrappedStatus stat) ->
+                    processStatus stat refsMissing
+
+        processNotification notification refsMissing =
+            case notification.status of
+                Nothing ->
+                    refsMissing
+
+                Just stat ->
+                    processStatus stat refsMissing
+
+        ( feedReferences, missingReplyToAccountIds ) =
+            case feedElements of
+                StatusElements statuses ->
+                    List.foldl processStatus referencesAndMissing statuses
+
+                NotificationElements notifications ->
+                    List.foldl processNotification referencesAndMissing notifications
+
+                _ ->
+                    referencesAndMissing
+    in
+    { feedEnv
+        | references = feedReferences
+        , missingReplyToAccountIds = missingReplyToAccountIds
+    }
 
 
 addStatusesReferences : List Status -> ReferenceDict -> ReferenceDict
@@ -6676,7 +6832,7 @@ smartPaging entities getid paging model =
                 model
 
             Just e ->
-                { model | pagingInput = Debug.log "pagingInput" { pagingInput | max_id = getid e } }
+                { model | pagingInput = { pagingInput | max_id = getid e } }
 
     else
         model
