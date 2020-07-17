@@ -10840,6 +10840,19 @@ editColumnDialogRows model =
                         (ColumnsUIMsg <| AddFeedColumn Types.defaultGroupFeedType)
               ]
             ]
+    , if [] == feedTypes then
+        text ""
+
+      else
+        div
+            [ style "display" "flex"
+            , style "flex" "1"
+            , style "margin-bottom" "0.5em"
+            ]
+            [ text "Click a "
+            , fontelloChar [] "icon-menu" [] model
+            , text " to move that column."
+            ]
     , hrpct 100
     , let
         feedRow feedType =
