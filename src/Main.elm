@@ -2060,7 +2060,10 @@ globalMsg msg model =
                 |> withNoCmd
 
         SetDialog dialog ->
-            { model | dialog = dialog }
+            { model
+                | dialog = dialog
+                , movingColumn = Nothing
+            }
                 |> withCmd
                     (if model.dialog == NoDialog then
                         Cmd.none
@@ -10881,8 +10884,7 @@ editColumnDialogRows model =
                                         (ColumnsUIMsg <| MoveFeedColumn feedType)
                                     ]
                             )
-                            [ text special.nbsp
-                            , title
+                            [ title
                             , text special.nbsp
                             ]
                         ]
