@@ -857,7 +857,7 @@ keyMsgDict =
     Dict.fromList
         [ ( "p", ColumnsUIMsg <| ShowPostDialog Nothing )
         , ( "r", ColumnsUIMsg <| ReloadAllColumns )
-        , ( "s", ColumnsUIMsg <| ShowSettingsDialog )
+        , ( ".", ColumnsUIMsg <| ShowSettingsDialog )
         , ( "j", ColumnsUIMsg <| ScrollPage ScrollLeft )
         , ( "s", ColumnsUIMsg <| ScrollPage ScrollLeft )
         , ( "l", ColumnsUIMsg <| ScrollPage ScrollRight )
@@ -8973,7 +8973,7 @@ renderScrollPill model =
             [ squareButton ( l, 0 )
                 "icon-cog"
                 ShowSettingsDialog
-                "Show Settings Dialog [s]"
+                "Show Settings Dialog [.]"
             , squareButton ( l, w - 1 )
                 "icon-spin3"
                 ReloadAllColumns
