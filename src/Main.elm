@@ -183,6 +183,7 @@ import Mastodon.Entity as Entity
         , FilterContext(..)
         , Focus
         , Group
+        , Mention
         , Notification
         , NotificationType(..)
         , Privacy(..)
@@ -361,12 +362,17 @@ emptyRenderEnv =
 
 type alias FeedEnv =
     { group : Maybe Group
+    , references : Dict String Reference
+    , missingReplyToIds : Set String
     }
 
 
 emptyFeedEnv : FeedEnv
 emptyFeedEnv =
-    { group = Nothing }
+    { group = Nothing
+    , references = Dict.empty
+    , missingReplyToIds = Set.empty
+    }
 
 
 {-| server -> (feature -> available-p)
@@ -384,6 +390,15 @@ initialScrollPillState : ScrollPillState
 initialScrollPillState =
     { showServer = True
     }
+
+
+type Reference
+    = ReferencedAccount Account
+    | ReferencedMention Mention
+
+
+type alias ReferenceDict =
+    Dict String Reference
 
 
 type alias Model =
@@ -456,6 +471,7 @@ type alias Model =
     , lastScroll : ( ScrollDirection, Posix )
     , featureProbeRequest : Maybe ( String, Request )
     , movingColumn : Maybe FeedType
+    , references : ReferenceDict
 
     -- API Explorer state
     , altKeyDown : Bool
@@ -1090,6 +1106,7 @@ init value url key =
     , lastScroll = ( ScrollLeft, Time.millisToPosix 0 )
     , featureProbeRequest = Nothing
     , movingColumn = Nothing
+    , references = Dict.empty
     , altKeyDown = False
     , request = Nothing
     , response = Nothing
@@ -3939,19 +3956,27 @@ columnsSendMsg msg model =
 
                         Just e ->
                             let
-                                elements =
+                                ( elements, references ) =
                                     case e of
                                         StatusListEntity statuses ->
-                                            Just <| StatusElements statuses
+                                            ( Just <| StatusElements statuses
+                                            , addStatusesReferences statuses
+                                                model.references
+                                            )
 
                                         NotificationListEntity notifications ->
-                                            Just <| NotificationElements notifications
+                                            ( Just <| NotificationElements notifications
+                                            , addNotificationsReferences notifications
+                                                model.references
+                                            )
 
                                         AccountListEntity accounts ->
-                                            Just <| AccountElements accounts
+                                            ( Just <| AccountElements accounts
+                                            , model.references
+                                            )
 
                                         _ ->
-                                            Nothing
+                                            ( Nothing, model.references )
 
                                 feedSet =
                                     mdl.feedSet
@@ -3994,11 +4019,69 @@ columnsSendMsg msg model =
                             { mdl2
                                 | feedSet =
                                     { feedSet | feeds = feeds }
+                                , references = references
                             }
                                 |> withCmds
                                     [ cmd
                                     , cmd2
                                     ]
+
+
+addStatusesReferences : List Status -> ReferenceDict -> ReferenceDict
+addStatusesReferences statuses references =
+    List.foldl addStatusReferences references statuses
+
+
+addStatusReferences : Status -> ReferenceDict -> ReferenceDict
+addStatusReferences status references =
+    addAccountReference status.account references
+        |> addWrappedStatusReferences status.reblog
+        |> addWrappedStatusReferences status.quote
+        |> (\refs ->
+                List.foldl addMentionReference refs status.mentions
+           )
+
+
+addAccountReference : Account -> ReferenceDict -> ReferenceDict
+addAccountReference account references =
+    Dict.insert account.id (ReferencedAccount account) references
+
+
+addWrappedStatusReferences : Maybe WrappedStatus -> ReferenceDict -> ReferenceDict
+addWrappedStatusReferences wrappedStatus references =
+    case wrappedStatus of
+        Nothing ->
+            references
+
+        Just (WrappedStatus status) ->
+            addStatusReferences status references
+
+
+addMentionReference : Mention -> ReferenceDict -> ReferenceDict
+addMentionReference mention references =
+    case Dict.get mention.id references of
+        Just (ReferencedAccount _) ->
+            references
+
+        _ ->
+            Dict.insert mention.id (ReferencedMention mention) references
+
+
+addNotificationsReferences : List Notification -> ReferenceDict -> ReferenceDict
+addNotificationsReferences notifications references =
+    List.foldl addNotificationReferences references notifications
+
+
+addNotificationReferences : Notification -> ReferenceDict -> ReferenceDict
+addNotificationReferences notification references =
+    addAccountReference notification.account references
+        |> (case notification.status of
+                Nothing ->
+                    identity
+
+                Just status ->
+                    addStatusReferences status
+           )
 
 
 updateReceivedFeed : ReceiveFeedType -> FeedElements -> Feed -> Feed
