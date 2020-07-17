@@ -858,6 +858,10 @@ keyMsgDict =
         [ ( "p", ColumnsUIMsg <| ShowPostDialog Nothing )
         , ( "r", ColumnsUIMsg <| ReloadAllColumns )
         , ( "s", ColumnsUIMsg <| ShowSettingsDialog )
+        , ( "j", ColumnsUIMsg <| ScrollPage ScrollLeft )
+        , ( "s", ColumnsUIMsg <| ScrollPage ScrollLeft )
+        , ( "l", ColumnsUIMsg <| ScrollPage ScrollRight )
+        , ( "f", ColumnsUIMsg <| ScrollPage ScrollRight )
         ]
 
 
