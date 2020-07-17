@@ -475,6 +475,7 @@ type alias Model =
 
     -- API Explorer state
     , altKeyDown : Bool
+    , controlKeyDown : Bool
     , request : Maybe RawRequest
     , response : Maybe Value
     , entity : Maybe Entity
@@ -565,6 +566,7 @@ type GlobalMsg
     | SelectTreeNode WhichJson JsonTree.KeyPath
     | SetDialog Dialog
     | OnKeyPress String
+    | OnControlKey Bool
     | OnAltKey Bool
     | SetServer String
     | Process Value
@@ -850,16 +852,36 @@ keyDecoder =
         |> JD.map (GlobalMsg << OnKeyPress)
 
 
-altKeyDecoder : Bool -> Decoder Msg
-altKeyDecoder down =
+keyMsgDict : Dict String Msg
+keyMsgDict =
+    Dict.fromList
+        [ ( "p", ColumnsUIMsg <| ShowPostDialog Nothing )
+        , ( "r", ColumnsUIMsg <| ReloadAllColumns )
+        , ( "s", ColumnsUIMsg <| ShowSettingsDialog )
+        ]
+
+
+altKeyDecoder : Model -> Bool -> Decoder Msg
+altKeyDecoder model down =
     JD.field "key" JD.string
         |> JD.andThen
             (\key ->
                 if key == "Alt" then
                     JD.succeed (GlobalMsg <| OnAltKey down)
 
+                else if key == "Control" then
+                    JD.succeed (GlobalMsg <| OnControlKey down)
+
+                else if down then
+                    case Dict.get key keyMsgDict of
+                        Nothing ->
+                            JD.fail <| "Unhandled key down: " ++ key
+
+                        Just msg ->
+                            JD.succeed msg
+
                 else
-                    JD.fail "Not Alt key"
+                    JD.fail <| "Unhandled key: " ++ key
             )
 
 
@@ -874,8 +896,8 @@ subscriptions model =
 
           else
             Sub.batch
-                [ Events.onKeyDown <| altKeyDecoder True
-                , Events.onKeyUp <| altKeyDecoder False
+                [ Events.onKeyDown <| altKeyDecoder model True
+                , Events.onKeyUp <| altKeyDecoder model False
                 ]
         ]
 
@@ -1108,6 +1130,7 @@ init value url key =
     , movingColumn = Nothing
     , references = Dict.empty
     , altKeyDown = False
+    , controlKeyDown = False
     , request = Nothing
     , response = Nothing
     , entity = Nothing
@@ -2102,6 +2125,12 @@ globalMsg msg model =
                 model
             , Cmd.none
             )
+
+        OnControlKey isDown ->
+            { model
+                | controlKeyDown = isDown
+            }
+                |> withNoCmd
 
         OnAltKey isDown ->
             { model
@@ -8940,15 +8969,15 @@ renderScrollPill model =
             [ squareButton ( l, 0 )
                 "icon-cog"
                 ShowSettingsDialog
-                "Show Settings Dialog"
+                "Show Settings Dialog [s]"
             , squareButton ( l, w - 1 )
                 "icon-spin3"
                 ReloadAllColumns
-                "Reload All Columns"
+                "Reload All Columns [r]"
             , squareButton ( l, 2 * w - 2 )
                 "icon-pencil"
                 (ShowPostDialog Nothing)
-                "Show Post Dialog"
+                "Show Post Dialog [p]"
             , triangleButton LeftButton
                 ( 1, 2 * w - 2 )
                 (ScrollPage ScrollLeft)
