@@ -117,6 +117,7 @@ import Html.Attributes
         , checked
         , class
         , cols
+        , colspan
         , disabled
         , draggable
         , height
@@ -10847,46 +10848,59 @@ editColumnDialogRows model =
                     smartFeedTitle feedType model
             in
             tr []
-                [ td []
-                    [ div
-                        [ style "display" "flex"
-                        , style "flex" "1"
-                        ]
-                        [ if Just feedType == model.movingColumn then
-                            text ""
+                [ if Just feedType == model.movingColumn then
+                    text ""
 
-                          else
-                            fontelloChar
-                                [ onClick (ColumnsUIMsg <| MoveFeedColumn feedType)
-                                , Html.Attributes.title <|
-                                    if model.movingColumn == Nothing then
-                                        "Click to move this column"
+                  else
+                    td []
+                        [ div
+                            [ style "display" "flex"
+                            , style "flex" "1"
+                            ]
+                            [ if Just feedType == model.movingColumn then
+                                text ""
 
-                                    else
-                                        "Click to move selected column to here."
-                                ]
-                                "icon-menu"
-                                []
-                                model
-                        , span
-                            (case model.movingColumn of
-                                Nothing ->
-                                    []
-
-                                Just clickedFeedType ->
-                                    [ Html.Attributes.title <|
-                                        if feedType == clickedFeedType then
-                                            "Click to cancel move."
+                              else
+                                fontelloChar
+                                    [ onClick (ColumnsUIMsg <| MoveFeedColumn feedType)
+                                    , Html.Attributes.title <|
+                                        if model.movingColumn == Nothing then
+                                            "Click to move this column"
 
                                         else
-                                            "Click to move selected column here"
-                                    , onClick
-                                        (ColumnsUIMsg <| MoveFeedColumn feedType)
+                                            "Click to move selected column to here."
                                     ]
-                            )
-                            [ title
-                            , text special.nbsp
+                                    "icon-menu"
+                                    []
+                                    model
                             ]
+                        ]
+                , td
+                    [ colspan <|
+                        if Just feedType == model.movingColumn then
+                            2
+
+                        else
+                            1
+                    ]
+                    [ span
+                        (case model.movingColumn of
+                            Nothing ->
+                                []
+
+                            Just clickedFeedType ->
+                                [ Html.Attributes.title <|
+                                    if feedType == clickedFeedType then
+                                        "Click to cancel move."
+
+                                    else
+                                        "Click to move selected column here"
+                                , onClick
+                                    (ColumnsUIMsg <| MoveFeedColumn feedType)
+                                ]
+                        )
+                        [ title
+                        , text special.nbsp
                         ]
                     ]
                 , td []
