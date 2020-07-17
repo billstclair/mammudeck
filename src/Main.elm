@@ -3953,14 +3953,19 @@ fillinMissingReplyToAccountIds model =
         fillin k env =
             let
                 ( refs, miss ) =
-                    List.foldl fillin1
+                    Set.foldl fillin1
                         ( env.references, env.missingReplyToAccountIds )
-                        (Set.toList env.missingReplyToAccountIds)
+                        env.missingReplyToAccountIds
             in
-            { env
-                | references = refs
-                , missingReplyToAccountIds = miss
-            }
+            if refs == env.references && miss == env.missingReplyToAccountIds then
+                -- Preserve EQ
+                env
+
+            else
+                { env
+                    | references = refs
+                    , missingReplyToAccountIds = miss
+                }
 
         feedEnvs =
             Dict.map fillin model.feedEnvs
@@ -4102,18 +4107,22 @@ receiveFeed request paging feedType result model =
                                 feedEnv2.missingReplyToAccountIds
 
                         mdl3 =
-                            if Set.size mdl2.loadingFeeds > 0 then
-                                mdl2
+                            { mdl2
+                                | feedEnvs =
+                                    Dict.insert feedId feedEnv2 feedEnvs
+                            }
+
+                        mdl4 =
+                            if Set.size mdl3.loadingFeeds > 0 then
+                                mdl3
 
                             else
-                                fillinMissingReplyToAccountIds mdl2
+                                fillinMissingReplyToAccountIds mdl3
                     in
-                    { mdl3
+                    { mdl4
                         | feedSet =
                             { feedSet | feeds = feeds }
                         , references = references
-                        , feedEnvs =
-                            Dict.insert feedId feedEnv2 feedEnvs
                     }
                         |> withCmds
                             [ cmd
@@ -8318,6 +8327,29 @@ renderStatus renderEnv feedEnv statusIn =
                 Just (WrappedStatus reblog) ->
                     ( reblog, reblog.account, Just statusIn.account )
 
+        replyToInfo =
+            case reblogAccount of
+                Just _ ->
+                    Nothing
+
+                Nothing ->
+                    case status.in_reply_to_account_id of
+                        Nothing ->
+                            Nothing
+
+                        Just account_id ->
+                            case Dict.get account_id feedEnv.references of
+                                Nothing ->
+                                    Just ( account_id, "" )
+
+                                Just reference ->
+                                    case reference of
+                                        ReferencedAccount acct ->
+                                            Just ( acct.acct, acct.url )
+
+                                        ReferencedMention mention ->
+                                            Just ( mention.acct, mention.url )
+
         { color } =
             getStyle renderEnv.style
 
@@ -8339,6 +8371,29 @@ renderStatus renderEnv feedEnv statusIn =
                         span []
                             [ link acct.display_name acct.url
                             , text " reblogged:"
+                            ]
+                , case replyToInfo of
+                    Nothing ->
+                        text ""
+
+                    Just ( acct, url ) ->
+                        div
+                            [ class "status-el media-body"
+                            , class "reply-to-and-account-name"
+                            , style "margin-top" "0.2em"
+                            ]
+                            [ Html.i [ class "icon-reply" ]
+                                []
+                            , text " Reply to "
+                            , if url == "" then
+                                text acct
+
+                              else
+                                a
+                                    [ href url
+                                    , style "margin-left" "0.4em"
+                                    ]
+                                    [ text acct ]
                             ]
                 , renderAccount renderEnv.fontSizePct
                     color
@@ -8834,8 +8889,7 @@ renderScrollPill model =
                                 , Svga.height heiS
                                 ]
                                 [ div
-                                    [ class "status-el"
-                                    , style "color" "black"
+                                    [ style "color" "black"
                                     , style "padding-top" paddingS
                                     ]
                                     [ Html.i

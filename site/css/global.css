@@ -49,7 +49,8 @@ body {
 
 .button-icon.icon-reply.button-icon-active,.button-icon.icon-reply:not(.button-icon-disabled):hover{
     color:#0095ff;
-    color:var(--cBlue,#0095ff);cursor:pointer
+    color:var(--cBlue,#0095ff);
+    cursor:pointer;
 }
 
 .status-actions {
@@ -59,21 +60,30 @@ body {
 }
 
 .status-actions {
-    width:100%;
-    display:flex;
-    margin-top:.75em
+    width: 100%;
+    display: flex;
+    margin-top: .75em;
 }
 
 .status-actions div,.status-actions favorite-button {
-    max-width:4em;
-    flex:1
+    max-width: 4em;
+    flex: 1;
 }
 
 .status-el .media-body {
-    flex:1;
-    padding:0
+    flex: 1;
+    padding: 0;
 }
 
+.reply-to-and-account-name {
+    display: flex;
+}
+
+.reply-to-and-account-name .icon-reply {
+    transform: scaleX(-1);
+}
+
+/* No longer Pleroma */
 .scroll-pill-server { text-decoration: none; }
 .scroll-pill-server:link { color: black; }
 .scroll-pill-server:visited { color: black; }
