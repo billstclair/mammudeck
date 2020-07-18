@@ -2883,8 +2883,14 @@ columnsUIMsg msg model =
                             reloadFeed feed mdl
                     in
                     ( mdl2, Cmd.batch [ cmd, cmds ] )
+
+                ( mdl3, cmd3 ) =
+                    dismissDialog model
+
+                ( mdl4, cmd4 ) =
+                    List.foldl getFeed ( mdl3, Cmd.none ) mdl3.feedSet.feeds
             in
-            List.foldl getFeed ( model, Cmd.none ) model.feedSet.feeds
+            mdl4 |> withCmds [ cmd3, cmd4 ]
 
         RefreshFeed feedType ->
             -- TODO : Change this to do an update, not a total refresh
@@ -3015,12 +3021,7 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
         DismissDialog ->
-            { model
-                | dialog = NoDialog
-                , movingColumn = Nothing
-                , showFullScrollPill = False
-            }
-                |> withNoCmd
+            dismissDialog model
 
         AddFeedColumn feedType ->
             addFeedType (fillinFeedType feedType model) model
@@ -3310,6 +3311,16 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+
+dismissDialog : Model -> ( Model, Cmd Msg )
+dismissDialog model =
+    { model
+        | dialog = NoDialog
+        , movingColumn = Nothing
+        , showFullScrollPill = False
+    }
+        |> withNoCmd
 
 
 probeGroupsFeature : String -> Model -> ( Model, Cmd Msg )
