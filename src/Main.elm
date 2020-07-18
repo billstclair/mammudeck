@@ -278,6 +278,8 @@ type Dialog
     | EditColumnsDialog
     | ServerDialog
     | PostDialog
+    | SettingsDialog
+    | KeyboardShortcutsDialog
 
 
 type alias FocusInput =
@@ -382,13 +384,15 @@ type alias Features =
 
 
 type alias ScrollPillState =
-    { showServer : Bool
+    { showScrollPill : Bool
+    , showServer : Bool
     }
 
 
 initialScrollPillState : ScrollPillState
 initialScrollPillState =
-    { showServer = True
+    { showScrollPill = True
+    , showServer = True
     }
 
 
@@ -413,6 +417,7 @@ type alias Model =
     , postState : PostState
     , features : Features
     , scrollPillState : ScrollPillState
+    , showLeftColumn : Bool
 
     -- API Explorer page state
     , prettify : Bool
@@ -606,6 +611,7 @@ type ColumnsUIMsg
     | ClearFeatures
     | ShowPostDialog (Maybe Status)
     | ShowSettingsDialog
+    | ShowKeyboardShortcutsDialog
     | DismissDialog
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
@@ -627,6 +633,9 @@ type ColumnsUIMsg
     | ClearPostStateReplyTo
     | Post
     | ProbeGroupsFeature String
+    | ToggleShowLeftColumn
+    | ToggleShowScrollPill
+    | ToggleShowScrollPillServer
 
 
 type ReceiveFeedType
@@ -856,8 +865,10 @@ keyMsgDict : Dict String Msg
 keyMsgDict =
     Dict.fromList
         [ ( "p", ColumnsUIMsg <| ShowPostDialog Nothing )
-        , ( "r", ColumnsUIMsg <| ReloadAllColumns )
-        , ( ".", ColumnsUIMsg <| ShowSettingsDialog )
+        , ( "r", ColumnsUIMsg ReloadAllColumns )
+        , ( ".", ColumnsUIMsg ShowSettingsDialog )
+        , ( ",", ColumnsUIMsg ShowSettingsDialog )
+        , ( "?", ColumnsUIMsg ShowKeyboardShortcutsDialog )
         , ( "j", ColumnsUIMsg <| ScrollPage ScrollLeft )
         , ( "s", ColumnsUIMsg <| ScrollPage ScrollLeft )
         , ( "l", ColumnsUIMsg <| ScrollPage ScrollRight )
@@ -1076,6 +1087,7 @@ init value url key =
     , postState = initialPostState
     , features = Dict.empty
     , scrollPillState = initialScrollPillState
+    , showLeftColumn = True
     , prettify = True
     , selectedRequest = LoginSelected
     , username = ""
@@ -2986,7 +2998,11 @@ columnsUIMsg msg model =
                     (focusId PostDialogTextId)
 
         ShowSettingsDialog ->
-            { model | dialog = AlertDialog "Settings Dialog not yet implemented." }
+            { model | dialog = SettingsDialog }
+                |> withNoCmd
+
+        ShowKeyboardShortcutsDialog ->
+            { model | dialog = KeyboardShortcutsDialog }
                 |> withNoCmd
 
         DismissDialog ->
@@ -3255,6 +3271,36 @@ columnsUIMsg msg model =
         ProbeGroupsFeature server ->
             probeGroupsFeature server model
 
+        ToggleShowLeftColumn ->
+            { model | showLeftColumn = not model.showLeftColumn }
+                |> withNoCmd
+
+        ToggleShowScrollPill ->
+            let
+                scrollPillState =
+                    model.scrollPillState
+            in
+            { model
+                | scrollPillState =
+                    { scrollPillState
+                        | showScrollPill = not scrollPillState.showScrollPill
+                    }
+            }
+                |> withNoCmd
+
+        ToggleShowScrollPillServer ->
+            let
+                scrollPillState =
+                    model.scrollPillState
+            in
+            { model
+                | scrollPillState =
+                    { scrollPillState
+                        | showServer = not scrollPillState.showServer
+                    }
+            }
+                |> withNoCmd
+
 
 probeGroupsFeature : String -> Model -> ( Model, Cmd Msg )
 probeGroupsFeature server model =
@@ -3298,7 +3344,11 @@ scrollPage direction now model =
             model.bodyScroll.scrollLeft |> round
 
         col0Left =
-            leftColumnWidth + 5
+            if model.showLeftColumn then
+                leftColumnWidth + 5
+
+            else
+                5
 
         columnCnt =
             model.feedSet.feeds |> List.length
@@ -7617,12 +7667,9 @@ renderLeftColumn renderEnv =
                 (ColumnsUIMsg <| FontSize Down)
                 labels.down
             ]
-        , let
-            cbTitle =
-                "If the box is not checked, resize excluding the left column's width."
-          in
-          p []
-            [ span [ title cbTitle ] [ text "width" ]
+        , p
+            []
+            [ text "width"
             , br
             , titledButton "Increase the column width."
                 True
@@ -7640,7 +7687,9 @@ renderLeftColumn renderEnv =
         , p []
             [ button (ColumnsUIMsg <| ShowPostDialog Nothing) "post" ]
         , p []
-            [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
+            [ button (ColumnsUIMsg ShowSettingsDialog) "settings" ]
+        , p []
+            [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
         , p []
             [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
         ]
@@ -7651,6 +7700,136 @@ labels =
     , down = special.nbsp ++ "v" ++ special.nbsp
     , x = special.nbsp ++ "X" ++ special.nbsp
     }
+
+
+{-| This is here to be close to the `renderLeftColumn` code, which it subsumes.
+-}
+settingsDialog : Model -> Html Msg
+settingsDialog model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
+    dialogRender
+        renderEnv
+        { styles =
+            [ ( "font-size", fspct model.renderEnv )
+            ]
+        , title = "Settings"
+        , content =
+            settingsDialogContent model
+        , actionBar =
+            [ button (ColumnsUIMsg DismissDialog) "OK"
+            ]
+        }
+        True
+
+
+settingsDialogContent : Model -> List (Html Msg)
+settingsDialogContent model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        { inputBackground, color } =
+            getStyle renderEnv.style
+    in
+    [ p []
+        [ primaryServerLine model ]
+    , p []
+        [ loginSelectedUI True model ]
+    , p [] [ pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage ]
+    , p [] [ b "Appearance:" ]
+    , table []
+        [ tr []
+            [ td [ style "padding-right" "0.5em" ]
+                [ text "font"
+                , text " "
+                , titledButton "Restore the font size to the default."
+                    True
+                    (ColumnsUIMsg <| ResetFontSize)
+                    labels.x
+                , br
+                , titledButton "Increase the font size by 5% of the default."
+                    True
+                    (ColumnsUIMsg <| FontSize Up)
+                    labels.up
+                , text special.nbsp
+                , titledButton "Decrease the font size by 5% of the default."
+                    True
+                    (ColumnsUIMsg <| FontSize Down)
+                    labels.down
+                ]
+            , td [ style "padding-right" "0.5em" ]
+                [ text "column width"
+                , br
+                , titledButton "Increase the column width."
+                    True
+                    (ColumnsUIMsg <| ColumnWidth Up)
+                    labels.up
+                , text special.nbsp
+                , titledButton "Decrease the column width."
+                    True
+                    (ColumnsUIMsg <| ColumnWidth Down)
+                    labels.down
+                ]
+            , td []
+                [ checkBox (ExplorerUIMsg ToggleStyle)
+                    (renderEnv.style == DarkStyle)
+                    "dark"
+                ]
+            ]
+        ]
+    , br
+    , p []
+        [ text "If you hide both the left column and the scroll pill, "
+        , br
+        , text "you will need to remember keyboard shortcuts."
+        , br
+        , text "? shows them."
+        ]
+    , let
+        columnText =
+            if model.showLeftColumn then
+                "Hide Left Column"
+
+            else
+                "Show Left Column"
+
+        pillText =
+            if model.scrollPillState.showScrollPill then
+                "Hide Scroll Pill"
+
+            else
+                "Show Scroll Pill"
+
+        serverText =
+            if model.scrollPillState.showServer then
+                "Hide Server under Scroll Pill"
+
+            else
+                "Show Server under Scroll Pill"
+      in
+      p []
+        [ button (ColumnsUIMsg ToggleShowLeftColumn) columnText
+        , text " "
+        , button (ColumnsUIMsg ToggleShowScrollPill) pillText
+        , br
+        , button (ColumnsUIMsg ToggleShowScrollPillServer) serverText
+        ]
+    , p [] [ b "Help:" ]
+    , p []
+        [ titledButton "Keyboard Shortcuts"
+            True
+            (ColumnsUIMsg ShowKeyboardShortcutsDialog)
+            "keyboard"
+        ]
+    , p [] [ b "Advanced:" ]
+    , p []
+        [ button (ColumnsUIMsg <| ClearFeatures) "clear"
+        , text " saved server features."
+        ]
+    ]
 
 
 renderFeed : Bool -> RenderEnv -> FeedEnv -> Feed -> Html Msg
@@ -8973,7 +9152,7 @@ renderScrollPill model =
             [ squareButton ( l, 0 )
                 "icon-cog"
                 ShowSettingsDialog
-                "Show Settings Dialog [.]"
+                "Show Settings Dialog [,]"
             , squareButton ( l, w - 1 )
                 "icon-spin3"
                 ReloadAllColumns
@@ -9059,7 +9238,7 @@ renderColumns model =
             Just msg ->
                 p [ style "color" "red" ]
                     [ text msg ]
-        , if model.dialog /= NoDialog then
+        , if model.dialog /= NoDialog || not model.scrollPillState.showScrollPill then
             text ""
 
           else
@@ -9102,12 +9281,16 @@ renderColumns model =
             ]
             [ tr [] <|
                 List.concat
-                    [ [ td
+                    [ if model.showLeftColumn then
+                        [ td
                             [ style "vertical-align" "top"
                             , style "padding" "0"
                             ]
                             [ Lazy.lazy renderLeftColumn renderEnv ]
-                      ]
+                        ]
+
+                      else
+                        []
                     , List.map
                         (\feed ->
                             let
@@ -10861,6 +11044,12 @@ renderDialog model =
         PostDialog ->
             postDialog model
 
+        SettingsDialog ->
+            settingsDialog model
+
+        KeyboardShortcutsDialog ->
+            keyboardShortcutsDialog model
+
         AlertDialog content ->
             dialogRender
                 model.renderEnv
@@ -11262,6 +11451,62 @@ editColumnDialogRows model =
         ]
         [ table [] <|
             List.map feedRow feedTypes
+        ]
+    ]
+
+
+keyboardShortcutsDialog : Model -> Html Msg
+keyboardShortcutsDialog model =
+    dialogRender
+        model.renderEnv
+        { styles =
+            [ ( "font-size", fspct model.renderEnv )
+            ]
+        , title = "Keyboard Shortcuts"
+        , content = keyboardShortcutsDialogRows model
+        , actionBar =
+            [ button (ColumnsUIMsg DismissDialog) "OK" ]
+        }
+        True
+
+
+keyboardShortcutsDialogRows : Model -> List (Html Msg)
+keyboardShortcutsDialogRows model =
+    [ p [] [ text "Active when no dialog is up (except <esc>)." ]
+    , table []
+        [ tr []
+            [ td [ style "padding-right" "1em" ]
+                [ text "p" ]
+            , td [] [ text "Show Post dialog" ]
+            ]
+        , tr []
+            [ td [ style "padding-right" "1em" ] [ text "r" ]
+            , td [] [ text "Reload all columns" ]
+            ]
+        , tr []
+            [ td [ style "padding-right" "1em" ] [ text "," ]
+            , td [] [ text "Show Settings dialog" ]
+            ]
+        , tr []
+            [ td [ style "padding-right" "1em" ] [ text "?" ]
+            , td [] [ text "Show Keyboard Shortcuts dialog" ]
+            ]
+        , tr []
+            [ td [ style "padding-right" "1em" ] [ text "j / l" ]
+            , td []
+                [ text "Scroll one page left/right"
+                , br
+                , text "(all the way on two keystrokes quickly)"
+                ]
+            ]
+        , tr []
+            [ td [ style "padding-right" "1em" ] [ text "s / f" ]
+            , td [] [ text "Scroll one page left/right (likewise)" ]
+            ]
+        , tr []
+            [ td [ style "padding-right" "1em" ] [ text "esc" ]
+            , td [] [ text "Dismiss dialog, collapse scroll pill" ]
+            ]
         ]
     ]
 
@@ -12069,6 +12314,7 @@ type alias SavedModel =
     , postState : PostState
     , features : Features
     , scrollPillState : ScrollPillState
+    , showLeftColumn : Bool
     , prettify : Bool
     , selectedRequest : SelectedRequest
     , username : String
@@ -12123,6 +12369,7 @@ modelToSavedModel model =
     , postState = model.postState
     , features = model.features
     , scrollPillState = model.scrollPillState
+    , showLeftColumn = model.showLeftColumn
     , prettify = model.prettify
     , selectedRequest = model.selectedRequest
     , username = model.username
@@ -12191,6 +12438,7 @@ savedModelToModel savedModel model =
         , postState = savedModel.postState
         , features = savedModel.features
         , scrollPillState = savedModel.scrollPillState
+        , showLeftColumn = savedModel.showLeftColumn
         , prettify = savedModel.prettify
         , selectedRequest = savedModel.selectedRequest
         , username = savedModel.username
@@ -12484,12 +12732,16 @@ fixDecodedPostState postState =
 
 encodeScrollPillState : ScrollPillState -> Value
 encodeScrollPillState scrollPillState =
-    JE.object [ ( "showServer", JE.bool scrollPillState.showServer ) ]
+    JE.object
+        [ ( "showScrollPill", JE.bool scrollPillState.showScrollPill )
+        , ( "showServer", JE.bool scrollPillState.showServer )
+        ]
 
 
 scrollPillStateDecoder : Decoder ScrollPillState
 scrollPillStateDecoder =
     JD.succeed ScrollPillState
+        |> optional "showScrollPill" JD.bool True
         |> required "showServer" JD.bool
 
 
@@ -12509,6 +12761,7 @@ encodeSavedModel savedModel =
         , ( "postState", encodePostState savedModel.postState )
         , ( "features", encodeFeatures savedModel.features )
         , ( "scrollPillState", encodeScrollPillState savedModel.scrollPillState )
+        , ( "showLeftColumn", JE.bool savedModel.showLeftColumn )
         , ( "accountId", JE.string savedModel.accountId )
         , ( "accountIds", JE.string savedModel.accountIds )
         , ( "showMetadata", JE.bool savedModel.showMetadata )
@@ -12567,6 +12820,7 @@ savedModelDecoder =
         |> optional "postState" postStateDecoder initialPostState
         |> optional "features" featuresDecoder Dict.empty
         |> optional "scrollPillState" scrollPillStateDecoder initialScrollPillState
+        |> optional "showLeftColumn" JD.bool True
         |> optional "prettify" JD.bool True
         |> optional "selectedRequest" selectedRequestDecoder LoginSelected
         |> optional "username" JD.string ""
