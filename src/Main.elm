@@ -2144,10 +2144,10 @@ globalMsg msg model =
                     { model
                         | keysDown =
                             if isDown then
-                                Set.insert (Debug.log "key down" key) model.keysDown
+                                Set.insert key model.keysDown
 
                             else
-                                Set.remove (Debug.log "key up" key) model.keysDown
+                                Set.remove key model.keysDown
                     }
             in
             mdl
