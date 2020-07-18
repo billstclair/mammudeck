@@ -892,8 +892,7 @@ isSpecialKeyDown : Model -> Bool
 isSpecialKeyDown model =
     let
         keysDown =
-            Debug.log "isSpecialKeyDown" <|
-                model.keysDown
+            model.keysDown
     in
     Set.member keyboard.control keysDown
         || Set.member keyboard.alt keysDown
@@ -7696,13 +7695,15 @@ renderLeftColumn renderEnv =
         --, p []
         --  [ button (ColumnsUIMsg <| ClearFeatures) "clear" ]
         , p []
-            [ button (ColumnsUIMsg <| ShowPostDialog Nothing) "post" ]
+            [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
         , p []
             [ button (ColumnsUIMsg ShowSettingsDialog) "settings" ]
         , p []
-            [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
+            [ button (ColumnsUIMsg ShowKeyboardShortcutsDialog) "keyboard" ]
         , p []
             [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
+        , p []
+            [ button (ColumnsUIMsg <| ShowPostDialog Nothing) "post" ]
         ]
 
 
@@ -7753,13 +7754,20 @@ settingsDialogContent model =
         [ primaryServerLine model ]
     , p []
         [ loginSelectedUI True model ]
-    , p [] [ pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage ]
-    , p [] [ b "Help:" ]
+    , p [] [ pageSelector True (renderEnv.loginServer /= Nothing) ColumnsPage ]
+    , p [] [ b "Actions:" ]
     , p []
-        [ titledButton "Keyboard Shortcuts"
-            True
-            (ColumnsUIMsg ShowKeyboardShortcutsDialog)
-            "keyboard"
+        [ button (ColumnsUIMsg ShowEditColumnsDialog)
+            "Edit Columns Dialog"
+        , br
+        , button (ColumnsUIMsg ShowKeyboardShortcutsDialog)
+            "Keyboard Shortcuts Dialog"
+        , br
+        , button (ColumnsUIMsg ReloadAllColumns)
+            "Reload All Columns"
+        , br
+        , button (ColumnsUIMsg <| ShowPostDialog Nothing)
+            "Post Dialog"
         ]
     , p [] [ b "Appearance:" ]
     , table []
