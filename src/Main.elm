@@ -248,6 +248,13 @@ JSON: {id: <string>, scrollX: <int>, scrollY: <int>}
 port scrollNotify : (Value -> msg) -> Sub msg
 
 
+
+{- When the window is focused, this gets True, when blurred, False. -}
+
+
+port focusNotify : (Bool -> msg) -> Sub msg
+
+
 type Started
     = NotStarted
     | StartedReadingModel
@@ -479,8 +486,7 @@ type alias Model =
     , references : ReferenceDict
 
     -- API Explorer state
-    , altKeyDown : Bool
-    , controlKeyDown : Bool
+    , keysDown : Set String
     , request : Maybe RawRequest
     , response : Maybe Value
     , entity : Maybe Entity
@@ -558,6 +564,7 @@ type Msg
     | ExplorerUIMsg ExplorerUIMsg
     | ExplorerSendMsg ExplorerSendMsg
     | ScrollNotify JE.Value
+    | FocusNotify Bool
 
 
 type GlobalMsg
@@ -570,9 +577,7 @@ type GlobalMsg
     | CollapseAll WhichJson
     | SelectTreeNode WhichJson JsonTree.KeyPath
     | SetDialog Dialog
-    | OnKeyPress String
-    | OnControlKey Bool
-    | OnAltKey Bool
+    | OnKeyPress Bool String
     | SetServer String
     | Process Value
     | SetLoginServer
@@ -855,49 +860,50 @@ main =
         }
 
 
-keyDecoder : Decoder Msg
-keyDecoder =
-    JD.field "key" JD.string
-        |> JD.map (GlobalMsg << OnKeyPress)
-
-
-keyMsgDict : Dict String Msg
+keyMsgDict : Dict String ColumnsUIMsg
 keyMsgDict =
     Dict.fromList
-        [ ( "p", ColumnsUIMsg <| ShowPostDialog Nothing )
-        , ( "r", ColumnsUIMsg ReloadAllColumns )
-        , ( ".", ColumnsUIMsg ShowSettingsDialog )
-        , ( ",", ColumnsUIMsg ShowSettingsDialog )
-        , ( "?", ColumnsUIMsg ShowKeyboardShortcutsDialog )
-        , ( "j", ColumnsUIMsg <| ScrollPage ScrollLeft )
-        , ( "s", ColumnsUIMsg <| ScrollPage ScrollLeft )
-        , ( "l", ColumnsUIMsg <| ScrollPage ScrollRight )
-        , ( "f", ColumnsUIMsg <| ScrollPage ScrollRight )
+        [ ( "p", ShowPostDialog Nothing )
+        , ( "r", ReloadAllColumns )
+        , ( ".", ShowSettingsDialog )
+        , ( ",", ShowSettingsDialog )
+        , ( "?", ShowKeyboardShortcutsDialog )
+        , ( "j", ScrollPage ScrollLeft )
+        , ( "s", ScrollPage ScrollLeft )
+        , ( "l", ScrollPage ScrollRight )
+        , ( "f", ScrollPage ScrollRight )
+        , ( "Escape", DismissDialog )
         ]
 
 
-altKeyDecoder : Model -> Bool -> Decoder Msg
-altKeyDecoder model down =
+keyboard =
+    { control = "Control"
+    , alt = "Alt"
+    , meta = "Meta"
+    }
+
+
+isKeyDown : String -> Model -> Bool
+isKeyDown key model =
+    Set.member key model.keysDown
+
+
+isSpecialKeyDown : Model -> Bool
+isSpecialKeyDown model =
+    let
+        keysDown =
+            Debug.log "isSpecialKeyDown" <|
+                model.keysDown
+    in
+    Set.member keyboard.control keysDown
+        || Set.member keyboard.alt keysDown
+        || Set.member keyboard.meta keysDown
+
+
+keyDecoder : Bool -> Decoder Msg
+keyDecoder keyDown =
     JD.field "key" JD.string
-        |> JD.andThen
-            (\key ->
-                if key == "Alt" then
-                    JD.succeed (GlobalMsg <| OnAltKey down)
-
-                else if key == "Control" then
-                    JD.succeed (GlobalMsg <| OnControlKey down)
-
-                else if down then
-                    case Dict.get key keyMsgDict of
-                        Nothing ->
-                            JD.fail <| "Unhandled key down: " ++ key
-
-                        Just msg ->
-                            JD.succeed msg
-
-                else
-                    JD.fail <| "Unhandled key: " ++ key
-            )
+        |> JD.map (GlobalMsg << OnKeyPress keyDown)
 
 
 subscriptions : Model -> Sub Msg
@@ -906,14 +912,9 @@ subscriptions model =
         [ PortFunnels.subscriptions (GlobalMsg << Process) model
         , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
         , scrollNotify ScrollNotify
-        , if model.dialog /= NoDialog || model.showFullScrollPill then
-            Events.onKeyDown keyDecoder
-
-          else
-            Sub.batch
-                [ Events.onKeyDown <| altKeyDecoder model True
-                , Events.onKeyUp <| altKeyDecoder model False
-                ]
+        , focusNotify FocusNotify
+        , Events.onKeyDown <| keyDecoder True
+        , Events.onKeyUp <| keyDecoder False
         ]
 
 
@@ -1145,8 +1146,7 @@ init value url key =
     , featureProbeRequest = Nothing
     , movingColumn = Nothing
     , references = Dict.empty
-    , altKeyDown = False
-    , controlKeyDown = False
+    , keysDown = Set.empty
     , request = Nothing
     , response = Nothing
     , entity = Nothing
@@ -1926,6 +1926,15 @@ updateInternal msg model =
         ScrollNotify value ->
             processScroll value model
 
+        FocusNotify focused ->
+            (if focused then
+                { model | keysDown = Set.empty }
+
+             else
+                model
+            )
+                |> withNoCmd
+
 
 scrollNotificationDecoder : Decoder ScrollNotification
 scrollNotificationDecoder =
@@ -2129,30 +2138,31 @@ globalMsg msg model =
                         focusId CancelButtonId
                     )
 
-        OnKeyPress key ->
-            ( if key == "Escape" then
-                { model
-                    | showFullScrollPill = False
-                    , dialog = NoDialog
-                    , movingColumn = Nothing
-                }
+        OnKeyPress isDown key ->
+            let
+                mdl =
+                    { model
+                        | keysDown =
+                            if isDown then
+                                Set.insert (Debug.log "key down" key) model.keysDown
 
-              else
-                model
-            , Cmd.none
-            )
+                            else
+                                Set.remove (Debug.log "key up" key) model.keysDown
+                    }
+            in
+            mdl
+                |> withCmd
+                    (if isSpecialKeyDown mdl then
+                        Cmd.none
 
-        OnControlKey isDown ->
-            { model
-                | controlKeyDown = isDown
-            }
-                |> withNoCmd
+                     else
+                        case Dict.get key keyMsgDict of
+                            Nothing ->
+                                Cmd.none
 
-        OnAltKey isDown ->
-            { model
-                | altKeyDown = isDown
-            }
-                |> withNoCmd
+                            Just cmd ->
+                                Task.perform ColumnsUIMsg <| Task.succeed cmd
+                    )
 
         SetServer server ->
             let
@@ -3009,6 +3019,7 @@ columnsUIMsg msg model =
             { model
                 | dialog = NoDialog
                 , movingColumn = Nothing
+                , showFullScrollPill = False
             }
                 |> withNoCmd
 
@@ -7713,7 +7724,8 @@ settingsDialog model =
     dialogRender
         renderEnv
         { styles =
-            [ ( "max-width", "95%" )
+            [ ( "width", "40em" )
+            , ( "max-width", "95%" )
             , ( "max-height", "90%" )
             , ( "overflow", "auto" )
             , ( "font-size", fspct model.renderEnv )
@@ -7793,14 +7805,10 @@ settingsDialogContent model =
     , br
     , p []
         [ text "If you hide both the left column and the scroll pill, "
-        , br
-        , text "you will need to remember keyboard shortcuts."
-        , br
-        , text "? shows them."
-        , br
-        , text "On mobile, the Post Dialog will save you."
-        , br
-        , text "Reply to a post."
+        , text "you will need to remember keyboard shortcuts. "
+        , text "? shows them. "
+        , text "On mobile, the Post Dialog will save you. "
+        , text "Reply to a post. "
         ]
     , let
         columnText =
@@ -9368,7 +9376,7 @@ primaryServerLine model =
                             , text "@"
                             ]
                 , link server <| "https://" ++ server
-                , br
+                , text " "
                 , button (GlobalMsg Logout) "Logout"
                 ]
 
@@ -9500,7 +9508,7 @@ renderExplorer model =
                 , WriteClipboard.writeClipboard
                     [ WriteClipboard.write
                         { id =
-                            if model.altKeyDown then
+                            if isKeyDown keyboard.alt model then
                                 ""
 
                             else

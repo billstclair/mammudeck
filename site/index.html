@@ -67,6 +67,13 @@
         });
       }
 
+      // Focus monitoring
+      var focusNotify = app.ports.focusNotify;
+      if (focusNotify) {
+        window.addEventListener('focus', function() { focusNotify.send(true); });
+        window.addEventListener('blur', function() { focusNotify.send(false); });
+      }
+
       // Scroll monitoring
       // https://developer.mozilla.org/en-US/docs/Web/API/Document/scroll_event
       //
