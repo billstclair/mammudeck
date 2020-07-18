@@ -8028,7 +8028,7 @@ renderMultiNotification renderEnv account others notification =
             account.display_name ++ " and " ++ String.fromInt othersCount ++ " others "
 
         description =
-            notificationDescriptionWithDisplayName display_name notification
+            notificationDescriptionWithDisplayName display_name notification renderEnv
 
         timeString =
             formatIso8601 renderEnv.here notification.created_at
@@ -8120,14 +8120,34 @@ gangNotifications notifications =
     loop notifications []
 
 
-notificationDescription : Notification -> Html Msg
-notificationDescription notification =
+notificationDescription : Notification -> RenderEnv -> Html Msg
+notificationDescription notification renderEnv =
     notificationDescriptionWithDisplayName notification.account.display_name
         notification
+        renderEnv
 
 
-notificationDescriptionWithDisplayName : String -> Notification -> Html Msg
-notificationDescriptionWithDisplayName display_name notification =
+renderDisplayName : String -> RenderEnv -> Html Msg
+renderDisplayName display_name renderEnv =
+    case parseEmojiString display_name of
+        [ TextString _ ] ->
+            b display_name
+
+        emojisAndStrings ->
+            let
+                size =
+                    18 * renderEnv.fontSizePct // 100
+
+                sizeStr =
+                    String.fromInt size ++ "px"
+            in
+            List.map (emojiStringToImg sizeStr renderEnv.emojis) emojisAndStrings
+                |> Util.toVirtualDom
+                |> Html.b []
+
+
+notificationDescriptionWithDisplayName : String -> Notification -> RenderEnv -> Html Msg
+notificationDescriptionWithDisplayName display_name notification renderEnv =
     let
         postName =
             if notification.type_ == PollNotification then
@@ -8135,22 +8155,25 @@ notificationDescriptionWithDisplayName display_name notification =
 
             else
                 text "your post"
+
+        displayHtml =
+            renderDisplayName display_name renderEnv
     in
     case notification.type_ of
         FollowNotification ->
-            span [] [ b display_name, text " followed you" ]
+            span [] [ displayHtml, text " followed you" ]
 
         MentionNotification ->
-            span [] [ b display_name, text " mentioned you" ]
+            span [] [ displayHtml, text " mentioned you" ]
 
         ReblogNotification ->
-            span [] [ b display_name, text " reblogged ", postName ]
+            span [] [ displayHtml, text " reblogged ", postName ]
 
         FavouriteNotification ->
-            span [] [ b display_name, text " favorited ", postName ]
+            span [] [ displayHtml, text " favorited ", postName ]
 
         PollNotification ->
-            span [] [ b display_name, text "'s ", postName, text " is closed" ]
+            span [] [ displayHtml, text "'s ", postName, text " is closed" ]
 
 
 headerFontSize : String
@@ -8167,7 +8190,7 @@ renderNotification : RenderEnv -> Notification -> Html Msg
 renderNotification renderEnv notification =
     let
         description =
-            notificationDescription notification
+            notificationDescription notification renderEnv
 
         { color } =
             getStyle renderEnv.style
@@ -8650,7 +8673,7 @@ renderStatus renderEnv feedEnv statusIn =
                     color
                     renderEnv.here
                     account
-                    (b account.display_name)
+                    (renderDisplayName account.display_name renderEnv)
                     status.created_at
                     status.url
                 ]
