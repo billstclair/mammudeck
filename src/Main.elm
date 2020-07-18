@@ -8650,7 +8650,9 @@ renderStatus renderEnv feedEnv statusIn =
                     Just acct ->
                         span []
                             [ a [ href acct.url ]
-                                [ displayNameHtml ]
+                                [ renderDisplayName acct.display_name
+                                    renderEnv
+                                ]
                             , text " reblogged:"
                             ]
                 , case replyToInfo of
