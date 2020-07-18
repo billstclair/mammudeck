@@ -7713,7 +7713,10 @@ settingsDialog model =
     dialogRender
         renderEnv
         { styles =
-            [ ( "font-size", fspct model.renderEnv )
+            [ ( "max-width", "95%" )
+            , ( "max-height", "90%" )
+            , ( "overflow", "auto" )
+            , ( "font-size", fspct model.renderEnv )
             ]
         , title = "Settings"
         , content =
