@@ -7742,6 +7742,13 @@ settingsDialogContent model =
     , p []
         [ loginSelectedUI True model ]
     , p [] [ pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage ]
+    , p [] [ b "Help:" ]
+    , p []
+        [ titledButton "Keyboard Shortcuts"
+            True
+            (ColumnsUIMsg ShowKeyboardShortcutsDialog)
+            "keyboard"
+        ]
     , p [] [ b "Appearance:" ]
     , table []
         [ tr []
@@ -7790,6 +7797,10 @@ settingsDialogContent model =
         , text "you will need to remember keyboard shortcuts."
         , br
         , text "? shows them."
+        , br
+        , text "On mobile, the Post Dialog will save you."
+        , br
+        , text "Reply to a post."
         ]
     , let
         columnText =
@@ -7819,13 +7830,6 @@ settingsDialogContent model =
         , button (ColumnsUIMsg ToggleShowScrollPill) pillText
         , br
         , button (ColumnsUIMsg ToggleShowScrollPillServer) serverText
-        ]
-    , p [] [ b "Help:" ]
-    , p []
-        [ titledButton "Keyboard Shortcuts"
-            True
-            (ColumnsUIMsg ShowKeyboardShortcutsDialog)
-            "keyboard"
         ]
     , p [] [ b "Advanced:" ]
     , p []
@@ -9364,7 +9368,7 @@ primaryServerLine model =
                             , text "@"
                             ]
                 , link server <| "https://" ++ server
-                , text " "
+                , br
                 , button (GlobalMsg Logout) "Logout"
                 ]
 
@@ -11609,6 +11613,11 @@ postDialog model =
                 )
                 (ColumnsUIMsg Post)
                 "Post"
+            , if model.showLeftColumn || model.scrollPillState.showScrollPill then
+                text ""
+
+              else
+                button (ColumnsUIMsg ToggleShowScrollPill) "Show Scroll Pill"
             , button (ColumnsUIMsg DismissDialog) "Cancel"
             ]
         }
