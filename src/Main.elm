@@ -880,6 +880,7 @@ keyboard =
     { control = "Control"
     , alt = "Alt"
     , meta = "Meta"
+    , escape = "Escape"
     }
 
 
@@ -2151,7 +2152,11 @@ globalMsg msg model =
             in
             mdl
                 |> withCmd
-                    (if isSpecialKeyDown mdl then
+                    (if
+                        (isSpecialKeyDown mdl || model.dialog /= NoDialog)
+                            && key
+                            /= keyboard.escape
+                     then
                         Cmd.none
 
                      else
