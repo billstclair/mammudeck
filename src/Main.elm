@@ -2153,9 +2153,12 @@ globalMsg msg model =
             mdl
                 |> withCmd
                     (if
-                        (isSpecialKeyDown mdl || model.dialog /= NoDialog)
-                            && key
-                            /= keyboard.escape
+                        not isDown
+                            || ((key /= keyboard.escape)
+                                    && (isSpecialKeyDown mdl
+                                            || (model.dialog /= NoDialog)
+                                       )
+                               )
                      then
                         Cmd.none
 
