@@ -8627,6 +8627,9 @@ renderStatus renderEnv feedEnv statusIn =
         { color } =
             getStyle renderEnv.style
 
+        displayNameHtml =
+            renderDisplayName account.display_name renderEnv
+
         body =
             statusBody renderEnv status
     in
@@ -8643,7 +8646,8 @@ renderStatus renderEnv feedEnv statusIn =
 
                     Just acct ->
                         span []
-                            [ link acct.display_name acct.url
+                            [ a [ href acct.url ]
+                                [ displayNameHtml ]
                             , text " reblogged:"
                             ]
                 , case replyToInfo of
@@ -8673,7 +8677,7 @@ renderStatus renderEnv feedEnv statusIn =
                     color
                     renderEnv.here
                     account
-                    (renderDisplayName account.display_name renderEnv)
+                    displayNameHtml
                     status.created_at
                     status.url
                 ]
@@ -11769,7 +11773,7 @@ postDialogContent hasQuoteFeature renderEnv dropZone postState =
             in
             p []
                 [ text preposition
-                , text replyTo.account.display_name
+                , renderDisplayName replyTo.account.display_name renderEnv
                 , br
                 , case replyTo.url of
                     Nothing ->
