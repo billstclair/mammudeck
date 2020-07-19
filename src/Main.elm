@@ -482,7 +482,7 @@ type alias Model =
     , isTouchAware : Bool
     , bodyScroll : ScrollNotification
     , lastScroll : ( ScrollDirection, Posix )
-    , featureProbeRequest : Maybe ( String, Request )
+    , featureProbeRequests : List ( String, Request )
     , movingColumn : Maybe FeedType
     , references : ReferenceDict
 
@@ -1145,7 +1145,7 @@ init value url key =
     , isTouchAware = False
     , bodyScroll = emptyScrollNotification
     , lastScroll = ( ScrollLeft, Time.millisToPosix 0 )
-    , featureProbeRequest = Nothing
+    , featureProbeRequests = []
     , movingColumn = Nothing
     , references = Dict.empty
     , keysDown = Set.empty
@@ -1568,7 +1568,7 @@ handleGetToken key value model =
                         tokenStorageKeyServer key
             in
             { model | tokens = Dict.insert server token tokens }
-                |> withNoCmd
+                |> withCmd (fetchFeatures server model)
 
 
 pkAccountIdsLength : Int
@@ -2383,6 +2383,7 @@ globalMsg msg model =
                             , checkAccountByUsername server mdl4
                             , getAccountIdRelationships False mdl4
                             , getFeedSetDefinition server
+                            , fetchFeatures server mdl4
                             ]
 
         ReceiveFetchAccount result ->
@@ -2593,33 +2594,21 @@ Currently, the only feature is the existence of groups.
 -}
 fetchFeatures : String -> Model -> Cmd Msg
 fetchFeatures server model =
-    if model.featureProbeRequest /= Nothing then
-        Cmd.none
-
-    else
-        let
-            groupsName =
-                featureNames.groups
-
-            groupsKnown =
-                case Dict.get server model.features of
-                    Nothing ->
-                        False
-
-                    Just dict ->
-                        case Dict.get groupsName dict of
-                            Nothing ->
-                                False
-
-                            _ ->
-                                True
-        in
-        if groupsKnown then
+    case LE.find (\( s, _ ) -> s == server) model.featureProbeRequests of
+        Just _ ->
             Cmd.none
 
-        else
-            Task.perform ColumnsUIMsg <|
-                (Task.succeed <| ProbeGroupsFeature (Debug.log "ProbeGroupsFeature" server))
+        Nothing ->
+            case serverKnowsFeature (Just server) featureNames.groups model of
+                Just _ ->
+                    Cmd.none
+
+                Nothing ->
+                    Task.perform ColumnsUIMsg <|
+                        (Task.succeed <|
+                            ProbeGroupsFeature
+                                (Debug.log "ProbeGroupsFeature" server)
+                        )
 
 
 {-| Merge account into server's accountIdDict entry.
@@ -3349,25 +3338,35 @@ dismissDialog model =
 
 probeGroupsFeature : String -> Model -> ( Model, Cmd Msg )
 probeGroupsFeature server model =
-    let
-        renderEnv =
-            model.renderEnv
+    case Dict.get server model.tokens of
+        Nothing ->
+            model |> withNoCmd
 
-        mdl =
+        justToken ->
+            let
+                renderEnv =
+                    model.renderEnv
+
+                mdl =
+                    { model
+                        | renderEnv =
+                            { renderEnv | loginServer = Just server }
+                        , token = justToken
+                    }
+
+                request =
+                    GroupsRequest <|
+                        Request.GetGroups { tab = Request.AdminGroups }
+
+                ( _, cmd ) =
+                    sendRequest request mdl
+            in
             { model
-                | renderEnv =
-                    { renderEnv | loginServer = Just server }
+                | featureProbeRequests =
+                    ( Debug.log "probeGroupsFeature" server, request )
+                        :: model.featureProbeRequests
             }
-
-        request =
-            GroupsRequest <|
-                Request.GetGroups { tab = Request.AdminGroups }
-
-        ( _, cmd ) =
-            sendRequest request mdl
-    in
-    { model | featureProbeRequest = Just ( Debug.log "probeGroupsFeature" server, request ) }
-        |> withCmd cmd
+                |> withCmd cmd
 
 
 timestampCmd : (Posix -> ColumnsUIMsg) -> Cmd Msg
@@ -5991,25 +5990,30 @@ getAccountId model =
 
 handleFeatureProbeError : Request -> Error -> Model -> ( Model, Bool )
 handleFeatureProbeError request error model =
-    case model.featureProbeRequest of
+    case LE.find (\( _, r ) -> r == request) model.featureProbeRequests of
         Nothing ->
             ( model, False )
 
-        Just ( server, sentRequest ) ->
-            if request == sentRequest then
-                let
-                    mdl =
-                        setServerHasFeature (Just server)
-                            featureNames.groups
-                            False
-                            model
-                in
-                ( { mdl | featureProbeRequest = Nothing }
-                , True
-                )
+        Just pair ->
+            let
+                ( server, _ ) =
+                    pair
 
-            else
-                ( model, False )
+                mdl =
+                    setServerHasFeature
+                        (Debug.log "Server does NOT support groups" <|
+                            Just server
+                        )
+                        featureNames.groups
+                        False
+                        model
+            in
+            ( { mdl
+                | featureProbeRequests =
+                    LE.remove pair mdl.featureProbeRequests
+              }
+            , True
+            )
 
 
 {-| Here when we get a response back from sending a Request.
@@ -6480,7 +6484,8 @@ applyResponseSideEffects response model =
                     model
 
         GroupsRequest (Request.GetGroups _) ->
-            setServerHasFeature model.renderEnv.loginServer
+            setServerHasFeature
+                (Debug.log "Server supports groups" model.renderEnv.loginServer)
                 featureNames.groups
                 True
                 model
@@ -6870,14 +6875,15 @@ updateQuoteFeature statuses model =
     in
     case statuses of
         status :: _ ->
-            if serverKnowsFeature maybeServer featureNames.quote model then
-                model
-
-            else
-                setServerHasFeature maybeServer
-                    featureNames.quote
-                    (quoteFieldExists status)
+            case serverKnowsFeature maybeServer featureNames.quote model of
+                Just _ ->
                     model
+
+                Nothing ->
+                    setServerHasFeature maybeServer
+                        featureNames.quote
+                        (quoteFieldExists status)
+                        model
 
         _ ->
             model
@@ -6994,14 +7000,20 @@ saveAuthorization server authorization model =
     let
         tokens =
             model.tokens
+
+        mdl =
+            { model
+                | tokens =
+                    Dict.insert server
+                        authorization.token
+                        tokens
+            }
     in
-    { model
-        | tokens =
-            Dict.insert server
-                authorization.token
-                tokens
-    }
-        |> withCmd (putToken server <| Just authorization.token)
+    mdl
+        |> withCmds
+            [ putToken server <| Just authorization.token
+            , fetchFeatures server mdl
+            ]
 
 
 serverOption : String -> String -> Html Msg
@@ -7555,12 +7567,12 @@ renderHome model =
         , pageSelector True (model.renderEnv.loginServer /= Nothing) model.page
         , if model.renderEnv.loginServer == Nothing then
             p []
-                [ text "Enter a 'server' name and click 'Login' or 'Set Server'."
+                [ text "Enter a 'server' name and click 'Login'."
                 ]
 
           else
             primaryServerLine model
-        , loginSelectedUI True model
+        , loginSelectedUI False model
         , Markdown.toHtml []
             """
 Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a work in progress. Keep an eye on the "Columns" page for new features. Use the "API Explorer" page to do low-level API hacking.
@@ -7770,7 +7782,7 @@ settingsDialogContent model =
     [ p []
         [ primaryServerLine model ]
     , p []
-        [ loginSelectedUI True model ]
+        [ loginSelectedUI False model ]
     , p [] [ pageSelector True (renderEnv.loginServer /= Nothing) ColumnsPage ]
     , p [] [ b "Actions:" ]
     , p []
@@ -10989,7 +11001,7 @@ onKeyUp tagger =
 
 
 loginSelectedUI : Bool -> Model -> Html Msg
-loginSelectedUI showLoginButton model =
+loginSelectedUI showSetServerButton model =
     p []
         [ pspace
         , b "Server: "
@@ -11013,15 +11025,15 @@ loginSelectedUI showLoginButton model =
             ]
             []
         , br
-        , if showLoginButton then
+        , renderLoginButton model
+        , if showSetServerButton then
             span []
-                [ renderLoginButton model
-                , text " "
+                [ text " "
+                , button (GlobalMsg SetLoginServer) "Set Server"
                 ]
 
           else
             text ""
-        , button (GlobalMsg SetLoginServer) "Set Server"
         ]
 
 
@@ -11202,7 +11214,7 @@ serverDialogContent model =
         [ p []
             [ primaryServerLine model ]
         , p []
-            [ loginSelectedUI True model ]
+            [ loginSelectedUI False model ]
         ]
     ]
 
@@ -11237,26 +11249,6 @@ plus =
     "+"
 
 
-serverKnowsFeature : Maybe String -> String -> Model -> Bool
-serverKnowsFeature maybeServer featureName model =
-    case maybeServer of
-        Nothing ->
-            False
-
-        Just server ->
-            case Dict.get server model.features of
-                Nothing ->
-                    False
-
-                Just dict ->
-                    case Dict.get featureName dict of
-                        Nothing ->
-                            False
-
-                        _ ->
-                            True
-
-
 setServerHasFeature : Maybe String -> String -> Bool -> Model -> Model
 setServerHasFeature maybeServer featureName hasFeature model =
     case maybeServer of
@@ -11288,22 +11280,32 @@ setServerHasFeature maybeServer featureName hasFeature model =
 
 serverHasFeature : Maybe String -> String -> Model -> Bool
 serverHasFeature maybeServer featureName model =
-    case maybeServer of
+    case serverKnowsFeature maybeServer featureName model of
         Nothing ->
             False
+
+        Just has ->
+            has
+
+
+serverKnowsFeature : Maybe String -> String -> Model -> Maybe Bool
+serverKnowsFeature maybeServer featureName model =
+    case maybeServer of
+        Nothing ->
+            Nothing
 
         Just server ->
             case Dict.get server model.features of
                 Nothing ->
-                    False
+                    Nothing
 
                 Just dict ->
                     case Dict.get featureName dict of
                         Nothing ->
-                            False
+                            Nothing
 
                         Just hasFeature ->
-                            hasFeature
+                            Just hasFeature
 
 
 editColumnDialogRows : Model -> List (Html Msg)
