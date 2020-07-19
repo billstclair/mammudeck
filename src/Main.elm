@@ -70,7 +70,7 @@ The 'GET statuses/:id/context' API call is used to navigate in the reply tree. P
 --}
 
 
-port module Main exposing (main, parseEmojiString)
+port module Main exposing (main)
 
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Dom as Dom exposing (Viewport)
@@ -205,6 +205,7 @@ import Mastodon.Request as Request
         , WhichGroups
         , emptyPaging
         )
+import PopupPicker exposing (PopupPicker)
 import PortFunnel.LocalStorage as LocalStorage
 import PortFunnel.WebSocket as WebSocket
 import PortFunnels exposing (FunnelDict, Handler(..), State)
@@ -602,6 +603,7 @@ type ColumnsUIMsg
     | ResetFontSize
     | FontSize VerticalDirection
     | ColumnWidth VerticalDirection
+    | ToggleStyle
     | ReloadAllColumns
     | RefreshFeed FeedType
     | FeedRendered Value
@@ -662,7 +664,6 @@ type ExplorerUIMsg
     | ToggleShowMetadata
     | ToggleShowReceived
     | ToggleShowEntity
-    | ToggleStyle
     | SetQ String
     | ToggleResolve
     | ToggleFollowing
@@ -866,6 +867,7 @@ keyMsgDict =
         [ ( "p", ShowPostDialog Nothing )
         , ( "r", ReloadAllColumns )
         , ( ".", ShowSettingsDialog )
+        , ( "d", ToggleStyle )
         , ( ",", ShowSettingsDialog )
         , ( "?", ShowKeyboardShortcutsDialog )
         , ( "j", ScrollPage ScrollLeft )
@@ -2882,6 +2884,20 @@ columnsUIMsg msg model =
             }
                 |> withNoCmd
 
+        ToggleStyle ->
+            { model
+                | renderEnv =
+                    { renderEnv
+                        | style =
+                            if renderEnv.style == LightStyle then
+                                DarkStyle
+
+                            else
+                                LightStyle
+                    }
+            }
+                |> withNoCmd
+
         ReloadAllColumns ->
             let
                 getFeed : Feed -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
@@ -4473,24 +4489,6 @@ explorerUIMsg msg model =
 
         ToggleShowEntity ->
             { model | showEntity = not model.showEntity }
-                |> withNoCmd
-
-        ToggleStyle ->
-            let
-                renderEnv =
-                    model.renderEnv
-            in
-            { model
-                | renderEnv =
-                    { renderEnv
-                        | style =
-                            if renderEnv.style == LightStyle then
-                                DarkStyle
-
-                            else
-                                LightStyle
-                    }
-            }
                 |> withNoCmd
 
         SetQ q ->
@@ -7590,7 +7588,7 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
 Mammudeck is a labor of love, but I wouldn't at all mind it becoming a full-time job. That can only happen if you, my customers, support me. If you use it, and like it, please donate at [paypal.me/billstclair](https://www.paypal.me/billstclair).
             """
         , p [ style "text-align" "center" ]
-            [ checkBox (ExplorerUIMsg ToggleStyle)
+            [ checkBox (ColumnsUIMsg ToggleStyle)
                 (model.renderEnv.style == DarkStyle)
                 "Dark Mode"
             , br
@@ -7674,7 +7672,7 @@ renderLeftColumn renderEnv =
             ]
         , p [] [ pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage ]
         , p []
-            [ checkBox (ExplorerUIMsg ToggleStyle)
+            [ checkBox (ColumnsUIMsg ToggleStyle)
                 (renderEnv.style == DarkStyle)
                 "dark"
             ]
@@ -7823,7 +7821,7 @@ settingsDialogContent model =
                     labels.down
                 ]
             , td []
-                [ checkBox (ExplorerUIMsg ToggleStyle)
+                [ checkBox (ColumnsUIMsg ToggleStyle)
                     (renderEnv.style == DarkStyle)
                     "dark"
                 ]
@@ -9682,7 +9680,7 @@ renderExplorer model =
                 ]
             , br
             , p
-                [ onClick (ExplorerUIMsg ToggleStyle)
+                [ onClick (ColumnsUIMsg ToggleStyle)
                 , style "cursor" "default"
                 ]
                 [ input
