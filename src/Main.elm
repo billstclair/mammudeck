@@ -11541,41 +11541,33 @@ keyboardShortcutsDialog model =
 
 keyboardShortcutsDialogRows : Model -> List (Html Msg)
 keyboardShortcutsDialogRows model =
+    let
+        row key line1 line2 =
+            tr []
+                [ td [ style "padding-right" "1em" ]
+                    [ text key ]
+                , td [] <|
+                    text line1
+                        :: (case line2 of
+                                Nothing ->
+                                    []
+
+                                Just l2 ->
+                                    [ br, text l2 ]
+                           )
+                ]
+    in
     [ p [] [ text "Active when no dialog is up (except <esc>)." ]
     , table []
-        [ tr []
-            [ td [ style "padding-right" "1em" ]
-                [ text "p" ]
-            , td [] [ text "Show Post dialog" ]
-            ]
-        , tr []
-            [ td [ style "padding-right" "1em" ] [ text "r" ]
-            , td [] [ text "Reload all columns" ]
-            ]
-        , tr []
-            [ td [ style "padding-right" "1em" ] [ text "," ]
-            , td [] [ text "Show Settings dialog" ]
-            ]
-        , tr []
-            [ td [ style "padding-right" "1em" ] [ text "?" ]
-            , td [] [ text "Show Keyboard Shortcuts dialog" ]
-            ]
-        , tr []
-            [ td [ style "padding-right" "1em" ] [ text "j / l" ]
-            , td []
-                [ text "Scroll one page left/right"
-                , br
-                , text "(all the way on two keystrokes quickly)"
-                ]
-            ]
-        , tr []
-            [ td [ style "padding-right" "1em" ] [ text "s / f" ]
-            , td [] [ text "Scroll one page left/right (likewise)" ]
-            ]
-        , tr []
-            [ td [ style "padding-right" "1em" ] [ text "esc" ]
-            , td [] [ text "Dismiss dialog, collapse scroll pill" ]
-            ]
+        [ row "p" "Show Post dialog" Nothing
+        , row "r" "Reload all columns" Nothing
+        , row "," "Show Settings dialog" Nothing
+        , row "d" "Toggle Dark Mode" Nothing
+        , row "?" "Show Keyboard Shortcuts dialog" Nothing
+        , row "j / l" "Scroll one page left/right" <|
+            Just "(all the way on two keystrokes quickly)"
+        , row "s / f" "Scroll one page left/right (likewise)" Nothing
+        , row "esc" "Dismiss dialog, collapse scroll pill" Nothing
         ]
     ]
 
