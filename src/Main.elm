@@ -11379,7 +11379,7 @@ popupPositionAttributes renderEnv element =
             element.element
 
         x =
-            el.x + 20
+            max 0 <| el.x - 150
 
         y =
             el.y + el.height + 20
