@@ -11388,7 +11388,7 @@ renderPopupChoice : RenderEnv -> PopupChoice -> Html Msg
 renderPopupChoice renderEnv choice =
     case choice.details of
         AccountDetails account ->
-            span []
+            span [ title <| "@" ++ account.username ]
                 [ imageFromSpec
                     { imageUrl = account.avatar
                     , linkUrl = ""
