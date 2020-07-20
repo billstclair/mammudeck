@@ -8771,6 +8771,11 @@ feedTitle feedType =
             text ""
 
 
+autocapitalize : String -> Attribute msg
+autocapitalize =
+    Html.Attributes.attribute "autocapitalize"
+
+
 ariaLabel : String -> Attribute msg
 ariaLabel =
     Html.Attributes.attribute "aria-label"
@@ -11680,11 +11685,6 @@ serverDialogContent model =
             [ loginSelectedUI False model ]
         ]
     ]
-
-
-autocapitalize : String -> Attribute msg
-autocapitalize =
-    Html.Attributes.attribute "autocapitalize"
 
 
 editColumnsDialog : Model -> Html Msg

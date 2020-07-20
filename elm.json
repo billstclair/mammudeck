@@ -14,6 +14,7 @@
             "billstclair/elm-dialog": "1.0.1",
             "billstclair/elm-localstorage": "7.2.0",
             "billstclair/elm-mastodon": "9.0.0",
+            "billstclair/elm-popup-picker": "1.1.0",
             "billstclair/elm-port-funnel": "1.2.0",
             "billstclair/elm-svg-button": "4.0.0",
             "billstclair/elm-websocket-client": "4.1.0",
