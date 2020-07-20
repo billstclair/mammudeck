@@ -510,6 +510,7 @@ type alias Model =
     , movingColumn : Maybe FeedType
     , references : ReferenceDict
     , accountInput : Maybe Account
+    , editColumnsMessage : Maybe String
 
     -- API Explorer state
     , keysDown : Set String
@@ -1183,6 +1184,7 @@ init value url key =
     , movingColumn = Nothing
     , references = Dict.empty
     , accountInput = Nothing
+    , editColumnsMessage = Nothing
     , keysDown = Set.empty
     , request = Nothing
     , response = Nothing
@@ -2335,6 +2337,7 @@ globalMsg msg model =
                 mdl =
                     { model
                         | dialog = NoDialog
+                        , editColumnsMessage = Nothing
                         , tokens = Dict.empty
                         , server = ""
                         , renderEnv =
@@ -3080,7 +3083,10 @@ columnsUIMsg msg model =
         MoveFeedColumn feedType ->
             case model.movingColumn of
                 Nothing ->
-                    { model | movingColumn = Just feedType }
+                    { model
+                        | movingColumn = Just feedType
+                        , editColumnsMessage = Nothing
+                    }
                         |> withNoCmd
 
                 Just movingFeedType ->
@@ -3512,6 +3518,7 @@ dismissDialog : Model -> ( Model, Cmd Msg )
 dismissDialog model =
     { model
         | dialog = NoDialog
+        , editColumnsMessage = Nothing
         , movingColumn = Nothing
         , showFullScrollPill = False
         , popupChoices = []
@@ -3831,6 +3838,7 @@ deleteFeedType feedType model =
     { mdl2
         | feedSetDefinition = newFeedSetDefinition
         , feedSet = newFeedSet
+        , editColumnsMessage = Nothing
     }
         |> withCmds
             [ maybePutFeedSetDefinition model newFeedSetDefinition
@@ -3846,78 +3854,87 @@ addFeedType feedType model =
 
         feedTypes =
             feedSetDefinition.feedTypes
-
-        newFeedSetDefinition =
-            { feedSetDefinition
-                | feedTypes = List.append feedTypes [ feedType ]
-            }
-
-        feedSet =
-            model.feedSet
-
-        newFeed =
-            { feedType = Debug.log "addFeedType" feedType
-            , elements = Types.feedTypeToElements feedType
-            }
-
-        newFeedSet =
-            { feedSet
-                | feeds =
-                    List.append feedSet.feeds [ newFeed ]
-            }
-
-        userNameInput =
-            case feedType of
-                UserFeed _ ->
-                    ""
-
-                _ ->
-                    model.userNameInput
-
-        ( groupIdInput, mdl, loadGroupCmd ) =
-            case feedType of
-                GroupFeed group_id ->
-                    let
-                        ( mdl2, cmd ) =
-                            maybeLoadGroup group_id model
-                    in
-                    ( "", mdl2, cmd )
-
-                _ ->
-                    ( model.groupIdInput, model, Cmd.none )
-
-        ( mdl3, cmd3 ) =
-            case feedType of
-                UserFeed _ ->
-                    case model.accountInput of
-                        Nothing ->
-                            ( mdl, Cmd.none )
-
-                        Just account ->
-                            let
-                                accountId =
-                                    Types.accountToAccountId account
-                            in
-                            mergeAccountId accountId
-                                mdl.server
-                                { mdl | accountInput = Nothing }
-
-                _ ->
-                    ( mdl, Cmd.none )
-
-        mdl4 =
-            addFeedEnv feedType mdl3
     in
-    { mdl4
-        | feedSetDefinition = newFeedSetDefinition
-        , feedSet = newFeedSet
-        , userNameInput = userNameInput
-        , groupIdInput = groupIdInput
-    }
-        |> reloadFeed newFeed
-        |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
-        |> addCmd loadGroupCmd
-        |> addCmd cmd3
+    if List.member feedType feedTypes then
+        -- feedType must be unique in the list.
+        -- It might be nice to inform the user of the mistake.
+        { model | editColumnsMessage = Just "Duplicate feed." }
+            |> withNoCmd
+
+    else
+        let
+            newFeedSetDefinition =
+                { feedSetDefinition
+                    | feedTypes = List.append feedTypes [ feedType ]
+                }
+
+            feedSet =
+                model.feedSet
+
+            newFeed =
+                { feedType = Debug.log "addFeedType" feedType
+                , elements = Types.feedTypeToElements feedType
+                }
+
+            newFeedSet =
+                { feedSet
+                    | feeds =
+                        List.append feedSet.feeds [ newFeed ]
+                }
+
+            userNameInput =
+                case feedType of
+                    UserFeed _ ->
+                        ""
+
+                    _ ->
+                        model.userNameInput
+
+            ( groupIdInput, mdl, loadGroupCmd ) =
+                case feedType of
+                    GroupFeed group_id ->
+                        let
+                            ( mdl2, cmd ) =
+                                maybeLoadGroup group_id model
+                        in
+                        ( "", mdl2, cmd )
+
+                    _ ->
+                        ( model.groupIdInput, model, Cmd.none )
+
+            ( mdl3, cmd3 ) =
+                case feedType of
+                    UserFeed _ ->
+                        case model.accountInput of
+                            Nothing ->
+                                ( mdl, Cmd.none )
+
+                            Just account ->
+                                let
+                                    accountId =
+                                        Types.accountToAccountId account
+                                in
+                                mergeAccountId accountId
+                                    mdl.server
+                                    { mdl | accountInput = Nothing }
+
+                    _ ->
+                        ( mdl, Cmd.none )
+
+            mdl4 =
+                addFeedEnv feedType mdl3
+        in
+        { mdl4
+            | feedSetDefinition = newFeedSetDefinition
+            , feedSet = newFeedSet
+            , userNameInput = userNameInput
+            , groupIdInput = groupIdInput
+            , editColumnsMessage = Nothing
+        }
+            |> reloadFeed newFeed
+            |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
+            |> addCmd loadGroupCmd
+            |> addCmd cmd3
 
 
 maybeLoadGroup : String -> Model -> ( Model, Cmd Msg )
@@ -6679,7 +6696,7 @@ applyResponseSideEffects response model =
             statusSmartPaging response.entity paging model
 
         AccountsRequest (Request.GetSearchAccounts _) ->
-            -- Similar to `SearchRequest (Request.GetSearch)` below
+            -- Similar to `SearchRequest (Request.GetSearch)` below.
             case response.entity of
                 AccountListEntity results ->
                     let
@@ -11778,7 +11795,15 @@ editColumnDialogRows model =
     -- This will change quite a bit when I add multiple-server support
     [ table [] <|
         List.concat
-            [ if List.member HomeFeed feedTypes then
+            [ case model.editColumnsMessage of
+                Nothing ->
+                    []
+
+                Just message ->
+                    [ span [ style "color" "red" ]
+                        [ text message ]
+                    ]
+            , if List.member HomeFeed feedTypes then
                 []
 
               else
