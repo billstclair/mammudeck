@@ -11379,7 +11379,7 @@ popupPositionAttributes renderEnv element =
             element.element
 
         x =
-            max 0 <| el.x - 150
+            max 5 <| el.x - 150
 
         y =
             el.y + el.height + 20
@@ -11388,7 +11388,7 @@ popupPositionAttributes renderEnv element =
             renderEnv.windowSize
 
         maxw =
-            w - ceiling x - 20
+            w - ceiling x - 10
 
         maxh =
             h - ceiling y - 20
@@ -11590,6 +11590,11 @@ serverDialogContent model =
     ]
 
 
+autocapitalize : String -> Attribute msg
+autocapitalize =
+    Html.Attributes.attribute "autocapitalize"
+
+
 editColumnsDialog : Model -> Html Msg
 editColumnsDialog model =
     let
@@ -11769,6 +11774,7 @@ editColumnDialogRows model =
                     [ b "User: "
                     , input
                         [ id nodeIds.userNameInput
+                        , autocapitalize "off"
                         , size 30
                         , onInput (ColumnsUIMsg << UserNameInput)
                         , value model.userNameInput
@@ -11788,6 +11794,7 @@ editColumnDialogRows model =
                         [ b "Group: "
                         , input
                             [ size 30
+                            , autocapitalize "off"
                             , onInput (ColumnsUIMsg << GroupIdInput)
                             , value model.groupIdInput
                             , placeholder <|
