@@ -492,6 +492,9 @@ type alias Model =
     , popup : Popup
     , popupElement : Maybe Dom.Element
     , popupChoices : List PopupChoice
+    , searchActive : Bool
+    , nextSearch : Cmd Msg
+    , sideEffectCmd : Cmd Msg
     , feedSet : FeedSet
     , accountIdDict : Dict String (List AccountId)
     , dropZone : DropZone.Model
@@ -647,6 +650,7 @@ type ColumnsUIMsg
     | UserNameInput String
     | GroupIdInput String
     | ReceivePopupElement (Result Dom.Error Dom.Element)
+    | PopupChoose PopupChoice
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
     | StatusEllipsisDialog Status
@@ -1160,6 +1164,9 @@ init value url key =
     , popup = NoPopup
     , popupElement = Nothing
     , popupChoices = []
+    , searchActive = False
+    , nextSearch = Cmd.none
+    , sideEffectCmd = Cmd.none
     , feedSet = Types.emptyFeedSet
     , accountIdDict = Dict.empty
     , dropZone = DropZone.init
@@ -3081,6 +3088,12 @@ columnsUIMsg msg model =
             { model
                 | userNameInput = userNameInput
                 , userIdInput = Nothing
+                , popupChoices =
+                    if userNameInput == "" then
+                        []
+
+                    else
+                        model.popupChoices
             }
                 |> initializePopup UserNamePopup userNameInput
 
@@ -3096,6 +3109,9 @@ columnsUIMsg msg model =
                 Ok element ->
                     { model | popupElement = Just element }
                         |> withNoCmd
+
+        PopupChoose choice ->
+            popupChoose choice model
 
         ToggleStatusRepeat status ->
             let
@@ -3364,6 +3380,25 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
 
+popupChoose : PopupChoice -> Model -> ( Model, Cmd Msg )
+popupChoose choice model =
+    let
+        mdl =
+            { model | popupChoices = [] }
+    in
+    case choice.details of
+        AccountDetails account ->
+            { mdl
+                | userNameInput = account.username
+                , userIdInput = Just account.id
+            }
+                |> withNoCmd
+
+        GroupDetails account ->
+            -- TODO
+            mdl |> withNoCmd
+
+
 popupToNodeId : Popup -> String
 popupToNodeId popup =
     case popup of
@@ -3396,7 +3431,7 @@ initializePopup popup input model =
                     Task.attempt (ColumnsUIMsg << ReceivePopupElement)
                         (Dom.getElement <| popupToNodeId popup)
 
-            ( mdl2, cmd2 ) =
+            ( _, searchCmd ) =
                 sendRequest
                     (SearchRequest <|
                         Request.GetSearch
@@ -3408,6 +3443,17 @@ initializePopup popup input model =
                             }
                     )
                     model
+
+            ( mdl2, cmd2 ) =
+                if model.searchActive then
+                    { model | nextSearch = searchCmd } |> withNoCmd
+
+                else
+                    { model
+                        | searchActive = True
+                        , nextSearch = Cmd.none
+                    }
+                        |> withCmd searchCmd
         in
         { mdl2 | popup = popup }
             |> withCmds [ cmd, cmd2 ]
@@ -3419,6 +3465,7 @@ dismissDialog model =
         | dialog = NoDialog
         , movingColumn = Nothing
         , showFullScrollPill = False
+        , popupChoices = []
     }
         |> withNoCmd
 
@@ -6228,6 +6275,19 @@ receiveResponse request result model =
                             , Nothing
                             )
 
+                        SearchRequest (Request.GetSearch _) ->
+                            if mdl5.popup /= NoPopup then
+                                ( { mdl5
+                                    | nextSearch = Cmd.none
+                                    , searchActive = mdl5.nextSearch /= Cmd.none
+                                  }
+                                , mdl5.nextSearch
+                                , Nothing
+                                )
+
+                            else
+                                ( mdl5, Cmd.none, msg5 )
+
                         _ ->
                             ( mdl5, Cmd.none, msg5 )
             in
@@ -6247,15 +6307,19 @@ receiveResponse request result model =
             let
                 mdl =
                     applyResponseSideEffects response model
+
+                cmd =
+                    mdl.sideEffectCmd
             in
             { mdl
                 | msg = Nothing
                 , metadata = Just response.metadata
                 , response = Just <| ED.entityValue response.entity
                 , entity = Just response.entity
+                , sideEffectCmd = Cmd.none
             }
                 |> updateJsonTrees
-                |> withNoCmd
+                |> withCmd cmd
 
 
 fixPostStateMedia : Request -> Model -> Maybe Model
@@ -6626,6 +6690,13 @@ applyResponseSideEffects response model =
             case response.entity of
                 ResultsEntity results ->
                     let
+                        mdl =
+                            { model
+                                | sideEffectCmd = model.nextSearch
+                                , nextSearch = Cmd.none
+                                , searchActive = model.nextSearch /= Cmd.none
+                            }
+
                         accountToChoice account =
                             { id = account.id
                             , details = AccountDetails account
@@ -6636,23 +6707,23 @@ applyResponseSideEffects response model =
                             , details = GroupDetails group
                             }
                     in
-                    case model.popup of
+                    case mdl.popup of
                         NoPopup ->
-                            model
+                            mdl
 
                         UserNamePopup ->
                             let
                                 choices =
                                     List.map accountToChoice results.accounts
                             in
-                            { model | popupChoices = choices }
+                            { mdl | popupChoices = choices }
 
                         GroupNamePopup ->
                             let
                                 choices =
                                     List.map groupToChoice results.groups
                             in
-                            { model | popupChoices = choices }
+                            { mdl | popupChoices = choices }
 
                 _ ->
                     model
@@ -7516,26 +7587,30 @@ type alias ImageSpec =
 
 
 imageLink : ImageSpec -> Html Msg
-imageLink { imageUrl, linkUrl, altText, borderColor, h } =
+imageLink spec =
     a
-        [ href linkUrl
+        [ href spec.linkUrl
         , blankTarget
         ]
-        [ img
-            [ src imageUrl
-            , alt altText
-            , style "height" h
-            , title altText
-            , style "border" <|
-                case borderColor of
-                    Just color ->
-                        "3px solid " ++ color
+        [ imageFromSpec spec ]
 
-                    Nothing ->
-                        "none"
-            ]
-            []
+
+imageFromSpec : ImageSpec -> Html Msg
+imageFromSpec { imageUrl, altText, borderColor, h } =
+    img
+        [ src imageUrl
+        , alt altText
+        , style "height" h
+        , title altText
+        , style "border" <|
+            case borderColor of
+                Just color ->
+                    "3px solid " ++ color
+
+                Nothing ->
+                    "none"
         ]
+        []
 
 
 link : String -> String -> Html Msg
@@ -9121,6 +9196,19 @@ hrpct pct =
 hr : Html msg
 hr =
     hrpct 95
+
+
+iso8601ToMonthYear : Zone -> String -> String
+iso8601ToMonthYear zone iso8601 =
+    case Iso8601.toTime iso8601 of
+        Err _ ->
+            iso8601
+
+        Ok posix ->
+            Format.format (Configs.getConfig "en_us")
+                "%b %Y"
+                zone
+                posix
 
 
 formatIso8601 : Zone -> String -> String
@@ -11235,10 +11323,136 @@ nodeIds =
     }
 
 
+popupPicker : RenderEnv -> PopupPicker PopupChoice Msg
+popupPicker renderEnv =
+    let
+        picker =
+            PopupPicker.makePopupPicker (renderPopupChoice renderEnv)
+                (ColumnsUIMsg << PopupChoose)
+
+        { backgroundColor, color } =
+            getStyle renderEnv.style
+    in
+    { picker
+        | divAttributes =
+            [ style "border" <| "2px solid " ++ scrollPillBackground
+            , style "color" color
+            , style "background-color" backgroundColor
+            , style "min-width" "5em"
+            , style "z-index" "10"
+            , style "overflow" "auto"
+            ]
+        , choiceAttributes =
+            [ style "width" "100%"
+            , style "padding" "0.25em 0.5em"
+            ]
+    }
+
+
+popupPositionAttributes : RenderEnv -> Dom.Element -> List (Attribute msg)
+popupPositionAttributes renderEnv element =
+    let
+        el =
+            element.element
+
+        x =
+            el.x + 20
+
+        y =
+            el.y + el.height + 20
+
+        ( w, h ) =
+            renderEnv.windowSize
+
+        maxw =
+            w - ceiling x - 20
+
+        maxh =
+            h - ceiling y - 20
+
+        xs =
+            String.fromFloat x ++ "px"
+
+        ys =
+            String.fromFloat y ++ "px"
+    in
+    List.concat
+        [ [ style "max-width" <| px maxw
+          , style "max-height" <| px maxh
+          ]
+        , PopupPicker.position ( xs, ys )
+        ]
+
+
+renderPopupChoice : RenderEnv -> PopupChoice -> Html Msg
+renderPopupChoice renderEnv choice =
+    case choice.details of
+        AccountDetails account ->
+            span []
+                [ imageFromSpec
+                    { imageUrl = account.avatar
+                    , linkUrl = ""
+                    , altText = account.username
+                    , borderColor =
+                        if account.is_pro then
+                            Just "gold"
+
+                        else
+                            Nothing
+                    , h = "1.5em"
+                    }
+                , text " "
+                , renderDisplayName account.display_name renderEnv
+                , text " @"
+                , text account.username
+                , if not account.is_verified then
+                    text ""
+
+                  else
+                    span []
+                        -- style "padding-left" "0.25em" ]
+                        [ blueCheck 100 ]
+                , text <| special.nbsp ++ special.nbsp
+                , text <| iso8601ToMonthYear renderEnv.here account.created_at
+                , text " ("
+                , text <| String.fromInt account.following_count
+                , text " / "
+                , text <| String.fromInt account.followers_count
+                , text ")"
+                ]
+
+        GroupDetails group ->
+            span []
+                [ text group.title
+                , text " ("
+                , text <| String.fromInt group.member_count
+                , text " members)"
+                ]
+
+
 renderPopup : Model -> Html Msg
 renderPopup model =
-    -- TODO
-    text ""
+    case model.popupChoices of
+        [] ->
+            text ""
+
+        choices ->
+            case model.popupElement of
+                Nothing ->
+                    text ""
+
+                Just element ->
+                    let
+                        positionAttributes =
+                            popupPositionAttributes model.renderEnv element
+
+                        picker =
+                            popupPicker model.renderEnv
+
+                        picker2 =
+                            { picker | positionAttributes = positionAttributes }
+                    in
+                    PopupPicker.view Nothing choices picker2
 
 
 renderDialog : Model -> Html Msg
