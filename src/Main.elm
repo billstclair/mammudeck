@@ -593,6 +593,7 @@ type Msg
     | ExplorerSendMsg ExplorerSendMsg
     | ScrollNotify JE.Value
     | FocusNotify Bool
+    | ApplyToModel (Model -> ( Model, Cmd Msg ))
 
 
 type GlobalMsg
@@ -1975,6 +1976,9 @@ updateInternal msg model =
                 model
             )
                 |> withNoCmd
+
+        ApplyToModel f ->
+            f model
 
 
 scrollNotificationDecoder : Decoder ScrollNotification
@@ -3584,6 +3588,22 @@ timestampCmd wrapper =
     Task.perform (ColumnsUIMsg << TimestampedCmd wrapper) Time.now
 
 
+scrollPageNow : Bool -> ScrollDirection -> Model -> ( Model, Cmd Msg )
+scrollPageNow goAllTheWay direction model =
+    let
+        now =
+            Time.millisToPosix 1000
+
+        lastNow =
+            if goAllTheWay then
+                now
+
+            else
+                Time.millisToPosix 0
+    in
+    scrollPage direction now { model | lastScroll = ( direction, lastNow ) }
+
+
 scrollPage : ScrollDirection -> Posix -> Model -> ( Model, Cmd Msg )
 scrollPage direction now model =
     let
@@ -3952,6 +3972,10 @@ addFeedType feedType model =
 
             mdl4 =
                 addFeedEnv feedType mdl3
+
+            cmd5 =
+                Delay.after 100 Delay.Millisecond <|
+                    (ApplyToModel <| scrollPageNow True ScrollRight)
         in
         { mdl4
             | feedSetDefinition = newFeedSetDefinition
@@ -3965,6 +3989,7 @@ addFeedType feedType model =
             |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
             |> addCmd loadGroupCmd
             |> addCmd cmd3
+            |> addCmd cmd5
 
 
 maybeLoadGroup : String -> Model -> ( Model, Cmd Msg )
