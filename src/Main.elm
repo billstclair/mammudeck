@@ -38,6 +38,7 @@ See ../TODO.md for the full list.
     Assuming the CSS works for center and middle.
 
 * Group feeds
+    ** Delay after typing in User ID or Group before asking server.
     ** Incremental search for the group name in the "Edit Columns"
        dialog, instead of entering the ID.
     ** Post to a group.
@@ -649,6 +650,7 @@ type ColumnsUIMsg
     | MoveFeedColumn FeedType
     | UserNameInput String
     | GroupIdInput String
+    | SendDelayedPopupRequest Popup String Request
     | ReceivePopupElement (Result Dom.Error Dom.Element)
     | PopupChoose PopupChoice
     | ToggleStatusRepeat Status
@@ -3101,6 +3103,9 @@ columnsUIMsg msg model =
             { model | groupIdInput = groupIdInput }
                 |> withNoCmd
 
+        SendDelayedPopupRequest popup input request ->
+            sendDelayedPopupRequest popup input request model
+
         ReceivePopupElement result ->
             case result of
                 Err _ ->
@@ -3431,32 +3436,76 @@ initializePopup popup input model =
                     Task.attempt (ColumnsUIMsg << ReceivePopupElement)
                         (Dom.getElement <| popupToNodeId popup)
 
-            ( _, searchCmd ) =
-                sendRequest
-                    (SearchRequest <|
-                        Request.GetSearch
-                            { q = input
-                            , resolve = False
-                            , limit = Nothing
-                            , offset = Nothing
-                            , following = False
-                            }
+            searchRequest =
+                case popup of
+                    UserNamePopup ->
+                        AccountsRequest <|
+                            Request.GetSearchAccounts
+                                { q = input
+                                , limit = Nothing
+                                , resolve = True
+                                , following = False
+                                }
+
+                    _ ->
+                        SearchRequest <|
+                            Request.GetSearch
+                                { q = input
+                                , resolve = True
+                                , limit = Nothing
+                                , offset = Nothing
+                                , following = False
+                                }
+
+            delayedCmd =
+                Delay.after 500 Delay.Millisecond <|
+                    (ColumnsUIMsg <|
+                        SendDelayedPopupRequest popup input searchRequest
                     )
-                    model
-
-            ( mdl2, cmd2 ) =
-                if model.searchActive then
-                    { model | nextSearch = searchCmd } |> withNoCmd
-
-                else
-                    { model
-                        | searchActive = True
-                        , nextSearch = Cmd.none
-                    }
-                        |> withCmd searchCmd
         in
-        { mdl2 | popup = popup }
-            |> withCmds [ cmd, cmd2 ]
+        { model | popup = popup }
+            |> withCmds [ cmd, delayedCmd ]
+
+
+sendDelayedPopupRequest : Popup -> String -> Request -> Model -> ( Model, Cmd Msg )
+sendDelayedPopupRequest popup input request model =
+    if popup /= model.popup then
+        model |> withNoCmd
+
+    else
+        let
+            curInput =
+                case popup of
+                    NoPopup ->
+                        ""
+
+                    UserNamePopup ->
+                        model.userNameInput
+
+                    GroupNamePopup ->
+                        -- Will change to groupNameInput
+                        model.groupIdInput
+        in
+        if input /= curInput then
+            model |> withNoCmd
+
+        else
+            let
+                ( _, searchCmd ) =
+                    sendRequest request model
+
+                ( mdl, cmd ) =
+                    if model.searchActive then
+                        { model | nextSearch = searchCmd } |> withNoCmd
+
+                    else
+                        { model
+                            | searchActive = True
+                            , nextSearch = Cmd.none
+                        }
+                            |> withCmd searchCmd
+            in
+            mdl |> withCmd cmd
 
 
 dismissDialog : Model -> ( Model, Cmd Msg )
@@ -6285,7 +6334,20 @@ receiveResponse request result model =
                     else
                         msg4
 
-                ( mdl6, cmd6, msg6 ) =
+                handleFailedSearch mdl6 msg6 =
+                    if mdl6.popup /= NoPopup then
+                        ( { mdl6
+                            | nextSearch = Cmd.none
+                            , searchActive = mdl6.nextSearch /= Cmd.none
+                          }
+                        , mdl6.nextSearch
+                        , Nothing
+                        )
+
+                    else
+                        ( mdl6, Cmd.none, msg6 )
+
+                ( mdl7, cmd7, msg7 ) =
                     case Debug.log "Error request" request of
                         TimelinesRequest (Request.GetPublicTimeline _) ->
                             ( { mdl5 | pagingInput = emptyPagingInput }
@@ -6296,23 +6358,16 @@ receiveResponse request result model =
                             )
 
                         SearchRequest (Request.GetSearch _) ->
-                            if mdl5.popup /= NoPopup then
-                                ( { mdl5
-                                    | nextSearch = Cmd.none
-                                    , searchActive = mdl5.nextSearch /= Cmd.none
-                                  }
-                                , mdl5.nextSearch
-                                , Nothing
-                                )
+                            handleFailedSearch mdl5 msg5
 
-                            else
-                                ( mdl5, Cmd.none, msg5 )
+                        AccountsRequest (Request.GetSearchAccounts _) ->
+                            handleFailedSearch mdl5 msg5
 
                         _ ->
                             ( mdl5, Cmd.none, msg5 )
             in
-            { mdl6
-                | msg = msg6
+            { mdl7
+                | msg = msg7
                 , response = response
                 , entity = entity
                 , metadata = metadata
@@ -6321,7 +6376,7 @@ receiveResponse request result model =
                 , supportsAccountByUsername = supportsAccountByUsername
             }
                 |> updateJsonTrees
-                |> withCmd cmd6
+                |> withCmd cmd7
 
         Ok response ->
             let
@@ -6623,6 +6678,37 @@ applyResponseSideEffects response model =
         AccountsRequest (Request.GetStatuses { paging }) ->
             statusSmartPaging response.entity paging model
 
+        AccountsRequest (Request.GetSearchAccounts _) ->
+            -- Similar to `SearchRequest (Request.GetSearch)` below
+            case response.entity of
+                AccountListEntity results ->
+                    let
+                        mdl =
+                            { model
+                                | sideEffectCmd = model.nextSearch
+                                , nextSearch = Cmd.none
+                                , searchActive = model.nextSearch /= Cmd.none
+                            }
+
+                        accountToChoice account =
+                            { id = account.id
+                            , details = AccountDetails account
+                            }
+                    in
+                    case mdl.popup of
+                        UserNamePopup ->
+                            let
+                                choices =
+                                    List.map accountToChoice results
+                            in
+                            { mdl | popupChoices = choices }
+
+                        _ ->
+                            mdl
+
+                _ ->
+                    model
+
         CustomEmojisRequest Request.GetCustomEmojis ->
             case response.entity of
                 EmojiListEntity emojis ->
@@ -6707,6 +6793,7 @@ applyResponseSideEffects response model =
             notificationsSmartPaging response.entity paging model
 
         SearchRequest (Request.GetSearch _) ->
+            -- Similar to `AccountsRequest (Request.GetSearchAccounts)` above.
             case response.entity of
                 ResultsEntity results ->
                     let
@@ -6717,33 +6804,21 @@ applyResponseSideEffects response model =
                                 , searchActive = model.nextSearch /= Cmd.none
                             }
 
-                        accountToChoice account =
-                            { id = account.id
-                            , details = AccountDetails account
-                            }
-
                         groupToChoice group =
                             { id = group.id
                             , details = GroupDetails group
                             }
                     in
                     case mdl.popup of
-                        NoPopup ->
-                            mdl
-
-                        UserNamePopup ->
-                            let
-                                choices =
-                                    List.map accountToChoice results.accounts
-                            in
-                            { mdl | popupChoices = choices }
-
                         GroupNamePopup ->
                             let
                                 choices =
                                     List.map groupToChoice results.groups
                             in
                             { mdl | popupChoices = choices }
+
+                        _ ->
+                            mdl
 
                 _ ->
                     model
