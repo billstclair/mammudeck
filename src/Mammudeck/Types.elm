@@ -223,10 +223,20 @@ feedIdToType id =
     else if "user: " == String.left 6 id then
         case String.split "/" <| String.dropLeft 6 id of
             [ username ] ->
-                Just <| UserFeed { username = username, server = "", flags = Nothing }
+                Just <|
+                    UserFeed
+                        { username = username
+                        , server = ""
+                        , flags = Nothing
+                        }
 
             [ username, server ] ->
-                Just <| UserFeed { username = username, server = server, flags = Nothing }
+                Just <|
+                    UserFeed
+                        { username = username
+                        , server = server
+                        , flags = Nothing
+                        }
 
             _ ->
                 Nothing

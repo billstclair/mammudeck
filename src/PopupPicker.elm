@@ -126,7 +126,9 @@ view : Maybe String -> List choice -> PopupPicker choice msg -> Html msg
 view input choices picker =
     div
         (List.concat
-            [ [ style "position" "absolute" ]
+            [ [ style "position" "absolute"
+              , style "cursor" "default"
+              ]
             , picker.divAttributes
             , picker.positionAttributes
             ]

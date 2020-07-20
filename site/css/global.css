@@ -90,6 +90,9 @@ body {
 .scroll-pill-server:hover { color: gray; }
 .scroll-pill-server:active { color: gray; }
 
+.popup-choice-dark:hover { background-color: #55f; }
+.popup-choice-light:hover { background-color: #aaf; }
+
 p, div, textarea, button, table {
     font-size : inherit;
 }

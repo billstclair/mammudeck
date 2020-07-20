@@ -508,7 +508,7 @@ type alias Model =
     , featureProbeRequests : List ( String, Request )
     , movingColumn : Maybe FeedType
     , references : ReferenceDict
-    , userIdInput : Maybe String
+    , accountInput : Maybe Account
 
     -- API Explorer state
     , keysDown : Set String
@@ -1180,7 +1180,7 @@ init value url key =
     , featureProbeRequests = []
     , movingColumn = Nothing
     , references = Dict.empty
-    , userIdInput = Nothing
+    , accountInput = Nothing
     , keysDown = Set.empty
     , request = Nothing
     , response = Nothing
@@ -3087,7 +3087,7 @@ columnsUIMsg msg model =
         UserNameInput userNameInput ->
             { model
                 | userNameInput = userNameInput
-                , userIdInput = Nothing
+                , accountInput = Nothing
                 , popupChoices =
                     if userNameInput == "" then
                         []
@@ -3390,7 +3390,7 @@ popupChoose choice model =
         AccountDetails account ->
             { mdl
                 | userNameInput = account.username
-                , userIdInput = Just account.id
+                , accountInput = Just account
             }
                 |> withNoCmd
 
@@ -3837,10 +3837,29 @@ addFeedType feedType model =
                 _ ->
                     ( model.groupIdInput, model, Cmd.none )
 
-        mdl3 =
-            addFeedEnv feedType mdl
+        ( mdl3, cmd3 ) =
+            case feedType of
+                UserFeed _ ->
+                    case model.accountInput of
+                        Nothing ->
+                            ( mdl, Cmd.none )
+
+                        Just account ->
+                            let
+                                accountId =
+                                    Types.accountToAccountId account
+                            in
+                            mergeAccountId accountId
+                                mdl.server
+                                { mdl | accountInput = Nothing }
+
+                _ ->
+                    ( mdl, Cmd.none )
+
+        mdl4 =
+            addFeedEnv feedType mdl3
     in
-    { mdl3
+    { mdl4
         | feedSetDefinition = newFeedSetDefinition
         , feedSet = newFeedSet
         , userNameInput = userNameInput
@@ -3849,6 +3868,7 @@ addFeedType feedType model =
         |> reloadFeed newFeed
         |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
         |> addCmd loadGroupCmd
+        |> addCmd cmd3
 
 
 maybeLoadGroup : String -> Model -> ( Model, Cmd Msg )
@@ -7275,6 +7295,7 @@ type alias StyleProperties =
     { backgroundColor : String
     , inputBackground : String
     , color : String
+    , popupChoiceClass : String
     }
 
 
@@ -7292,11 +7313,13 @@ styles =
         { backgroundColor = "#222"
         , inputBackground = "#333"
         , color = "#eee"
+        , popupChoiceClass = "popup-choice-dark"
         }
     , light =
         { backgroundColor = "white"
         , inputBackground = "white"
         , color = "black"
+        , popupChoiceClass = "popup-choice-light"
         }
     }
 
@@ -11388,7 +11411,10 @@ renderPopupChoice : RenderEnv -> PopupChoice -> Html Msg
 renderPopupChoice renderEnv choice =
     case choice.details of
         AccountDetails account ->
-            span [ title <| "@" ++ account.username ]
+            span
+                [ title <| "@" ++ account.username
+                , class (getStyle renderEnv.style |> .popupChoiceClass)
+                ]
                 [ imageFromSpec
                     { imageUrl = account.avatar
                     , linkUrl = ""
