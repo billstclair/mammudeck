@@ -53,7 +53,7 @@ Bill St. Clair, 2 July 2020
   Pop up replied-to post on hover over "in reply to"
   Pop up user profile on hover over user
 * Show quoted post inline, with hide/show
-* Ellipsis dialog: block, mute, (un)follow or delete, edit
+* Ellipsis dialog: block, mute, (un)follow or delete, edit, (un)mute status
 * Replace :<emoji>: with the URL from the "GET custom_emojis" API request.
 * Image view popup (currently, clicking on image opens the full-res version in a new tab)
 * Display Polls

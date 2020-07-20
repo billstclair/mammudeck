@@ -48,7 +48,7 @@ See ../TODO.md for the full list.
 
 * Multiple named feedsets per server.
 
-* Ellipsis dialog: block, mute, (un)follow, delete, edit
+* Ellipsis dialog: block, mute, (un)follow, delete, edit, (un)mute status
 
 * Show quoted post. Option to show replied to post.
   *DONE*: quoted post.
@@ -290,6 +290,12 @@ type Dialog
     | KeyboardShortcutsDialog
 
 
+type Popup
+    = NoPopup
+    | UserNamePopup
+    | GroupNamePopup
+
+
 type alias FocusInput =
     { x : String, y : String }
 
@@ -413,6 +419,13 @@ type alias ReferenceDict =
     Dict String Reference
 
 
+type alias PopupChoice =
+    { name : String
+    , description : String
+    , id : String
+    }
+
+
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -472,6 +485,9 @@ type alias Model =
     -- Non-persistent below here
     , initialPage : InitialPage
     , dialog : Dialog
+    , popup : Popup
+    , popupElement : Maybe Dom.Element
+    , popupChoices : List PopupChoice
     , feedSet : FeedSet
     , accountIdDict : Dict String (List AccountId)
     , dropZone : DropZone.Model
@@ -485,6 +501,7 @@ type alias Model =
     , featureProbeRequests : List ( String, Request )
     , movingColumn : Maybe FeedType
     , references : ReferenceDict
+    , userIdInput : Maybe String
 
     -- API Explorer state
     , keysDown : Set String
@@ -625,6 +642,7 @@ type ColumnsUIMsg
     | MoveFeedColumn FeedType
     | UserNameInput String
     | GroupIdInput String
+    | ReceivePopupElement (Result Dom.Error Dom.Element)
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
     | StatusEllipsisDialog Status
@@ -1135,6 +1153,9 @@ init value url key =
     -- Non-persistent below here
     , initialPage = initialPage
     , dialog = NoDialog
+    , popup = NoPopup
+    , popupElement = Nothing
+    , popupChoices = []
     , feedSet = Types.emptyFeedSet
     , accountIdDict = Dict.empty
     , dropZone = DropZone.init
@@ -1148,6 +1169,7 @@ init value url key =
     , featureProbeRequests = []
     , movingColumn = Nothing
     , references = Dict.empty
+    , userIdInput = Nothing
     , keysDown = Set.empty
     , request = Nothing
     , response = Nothing
@@ -3052,12 +3074,24 @@ columnsUIMsg msg model =
                     moveFeedType movingFeedType feedType model
 
         UserNameInput userNameInput ->
-            { model | userNameInput = userNameInput }
-                |> withNoCmd
+            { model
+                | userNameInput = userNameInput
+                , userIdInput = Nothing
+            }
+                |> initializePopup UserNamePopup userNameInput
 
         GroupIdInput groupIdInput ->
             { model | groupIdInput = groupIdInput }
                 |> withNoCmd
+
+        ReceivePopupElement result ->
+            case result of
+                Err _ ->
+                    model |> withNoCmd
+
+                Ok element ->
+                    { model | popupElement = Just element }
+                        |> withNoCmd
 
         ToggleStatusRepeat status ->
             let
@@ -3324,6 +3358,55 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+
+popupToNodeId : Popup -> String
+popupToNodeId popup =
+    case popup of
+        UserNamePopup ->
+            nodeIds.userNameInput
+
+        GroupNamePopup ->
+            nodeIds.groupNameInput
+
+        _ ->
+            "thereIsNoNodeWithThisIdAtLeastFnordThereHadBetterNotBe"
+
+
+initializePopup : Popup -> String -> Model -> ( Model, Cmd Msg )
+initializePopup popup input model =
+    if input == "" then
+        { model
+            | popup = NoPopup
+            , popupElement = Nothing
+        }
+            |> withNoCmd
+
+    else
+        let
+            cmd =
+                if popup == model.popup then
+                    Cmd.none
+
+                else
+                    Task.attempt (ColumnsUIMsg << ReceivePopupElement)
+                        (Dom.getElement <| popupToNodeId popup)
+
+            ( mdl2, cmd2 ) =
+                sendRequest
+                    (SearchRequest <|
+                        Request.GetSearch
+                            { q = input
+                            , resolve = False
+                            , limit = Nothing
+                            , offset = Nothing
+                            , following = False
+                            }
+                    )
+                    model
+        in
+        { mdl2 | popup = popup }
+            |> withCmds [ cmd, cmd2 ]
 
 
 dismissDialog : Model -> ( Model, Cmd Msg )
@@ -6535,6 +6618,43 @@ applyResponseSideEffects response model =
         NotificationsRequest (Request.GetNotifications { paging }) ->
             notificationsSmartPaging response.entity paging model
 
+        SearchRequest (Request.GetSearch _) ->
+            case response.entity of
+                ResultsEntity results ->
+                    let
+                        accountToChoice account =
+                            { name = account.username
+                            , description = account.note
+                            , id = account.id
+                            }
+
+                        groupToChoice group =
+                            { name = group.title
+                            , description = group.description
+                            , id = group.id
+                            }
+                    in
+                    case model.popup of
+                        NoPopup ->
+                            model
+
+                        UserNamePopup ->
+                            let
+                                choices =
+                                    List.map accountToChoice results.accounts
+                            in
+                            { model | popupChoices = choices }
+
+                        GroupNamePopup ->
+                            let
+                                choices =
+                                    List.map groupToChoice results.groups
+                            in
+                            { model | popupChoices = choices }
+
+                _ ->
+                    model
+
         StatusesRequest (Request.PostStatus _) ->
             case response.entity of
                 StatusEntity status ->
@@ -7474,6 +7594,7 @@ view model =
             ]
             []
         , renderDialog model
+        , renderPopup model
         , div [ id "body" ]
             [ case model.page of
                 HomePage ->
@@ -11107,7 +11228,15 @@ nodeIds =
     { cancelButton = "cancelButton"
     , postDialogText = "postDialogText"
     , loginServer = "loginServer"
+    , userNameInput = "userNameInput"
+    , groupNameInput = "groupNameInput"
     }
+
+
+renderPopup : Model -> Html Msg
+renderPopup model =
+    -- TODO
+    text ""
 
 
 renderDialog : Model -> Html Msg
@@ -11397,7 +11526,8 @@ editColumnDialogRows model =
             , [ row
                     [ b "User: "
                     , input
-                        [ size 30
+                        [ id nodeIds.userNameInput
+                        , size 30
                         , onInput (ColumnsUIMsg << UserNameInput)
                         , value model.userNameInput
                         , placeholder <|
