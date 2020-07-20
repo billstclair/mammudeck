@@ -485,7 +485,9 @@ type alias Model =
     , filterInput : FilterInput
     , scheduledStatusId : String
     , userNameInput : String
-    , groupIdInput : String
+    , accountInput : Maybe Account
+    , groupNameInput : String
+    , groupInput : Maybe Group
 
     -- Non-persistent below here
     , initialPage : InitialPage
@@ -509,7 +511,6 @@ type alias Model =
     , featureProbeRequests : List ( String, Request )
     , movingColumn : Maybe FeedType
     , references : ReferenceDict
-    , accountInput : Maybe Account
     , editColumnsMessage : Maybe String
 
     -- API Explorer state
@@ -650,7 +651,7 @@ type ColumnsUIMsg
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType
     | UserNameInput String
-    | GroupIdInput String
+    | GroupNameInput String
     | SendDelayedPopupRequest Popup String Request
     | ReceivePopupElement (Result Dom.Error Dom.Element)
     | PopupChoose PopupChoice
@@ -1159,7 +1160,9 @@ init value url key =
     , filterInput = emptyFilterInput
     , scheduledStatusId = ""
     , userNameInput = ""
-    , groupIdInput = ""
+    , accountInput = Nothing
+    , groupNameInput = ""
+    , groupInput = Nothing
 
     -- Non-persistent below here
     , initialPage = initialPage
@@ -1183,7 +1186,6 @@ init value url key =
     , featureProbeRequests = []
     , movingColumn = Nothing
     , references = Dict.empty
-    , accountInput = Nothing
     , editColumnsMessage = Nothing
     , keysDown = Set.empty
     , request = Nothing
@@ -3105,9 +3107,18 @@ columnsUIMsg msg model =
             }
                 |> initializePopup UserNamePopup userNameInput
 
-        GroupIdInput groupIdInput ->
-            { model | groupIdInput = groupIdInput }
-                |> withNoCmd
+        GroupNameInput groupNameInput ->
+            { model
+                | groupNameInput = groupNameInput
+                , groupInput = Nothing
+                , popupChoices =
+                    if groupNameInput == "" then
+                        []
+
+                    else
+                        model.popupChoices
+            }
+                |> initializePopup GroupNamePopup groupNameInput
 
         SendDelayedPopupRequest popup input request ->
             sendDelayedPopupRequest popup input request model
@@ -3396,18 +3407,28 @@ popupChoose choice model =
     let
         mdl =
             { model | popupChoices = [] }
-    in
-    case choice.details of
-        AccountDetails account ->
-            { mdl
-                | userNameInput = account.username
-                , accountInput = Just account
-            }
-                |> withNoCmd
 
-        GroupDetails account ->
-            -- TODO
-            mdl |> withNoCmd
+        ( mdl2, feedType ) =
+            case choice.details of
+                AccountDetails account ->
+                    ( { mdl
+                        | userNameInput = account.username
+                        , accountInput = Just account
+                      }
+                    , Types.defaultUserFeedType
+                    )
+
+                GroupDetails group ->
+                    ( { mdl
+                        | groupNameInput = group.title
+                        , groupInput = Just group
+                        , groupDict =
+                            Dict.insert group.id group model.groupDict
+                      }
+                    , Types.defaultGroupFeedType
+                    )
+    in
+    addFeedType (fillinFeedType feedType mdl2) mdl2
 
 
 popupToNodeId : Popup -> String
@@ -3489,8 +3510,7 @@ sendDelayedPopupRequest popup input request model =
                         model.userNameInput
 
                     GroupNamePopup ->
-                        -- Will change to groupNameInput
-                        model.groupIdInput
+                        model.groupNameInput
         in
         if input /= curInput then
             model |> withNoCmd
@@ -3729,8 +3749,13 @@ fillinFeedType feedType model =
                 }
 
         GroupFeed _ ->
-            Debug.log "fillinFeedType" <|
-                GroupFeed model.groupIdInput
+            GroupFeed <|
+                case model.groupInput of
+                    Nothing ->
+                        model.groupNameInput
+
+                    Just group ->
+                        group.id
 
         _ ->
             feedType
@@ -3890,7 +3915,7 @@ addFeedType feedType model =
                     _ ->
                         model.userNameInput
 
-            ( groupIdInput, mdl, loadGroupCmd ) =
+            ( groupNameInput, mdl, loadGroupCmd ) =
                 case feedType of
                     GroupFeed group_id ->
                         let
@@ -3900,7 +3925,7 @@ addFeedType feedType model =
                         ( "", mdl2, cmd )
 
                     _ ->
-                        ( model.groupIdInput, model, Cmd.none )
+                        ( model.groupNameInput, model, Cmd.none )
 
             ( mdl3, cmd3 ) =
                 case feedType of
@@ -3918,8 +3943,12 @@ addFeedType feedType model =
                                     mdl.server
                                     { mdl | accountInput = Nothing }
 
+                    GroupFeed _ ->
+                        { mdl | groupInput = Nothing }
+                            |> withNoCmd
+
                     _ ->
-                        ( mdl, Cmd.none )
+                        mdl |> withNoCmd
 
             mdl4 =
                 addFeedEnv feedType mdl3
@@ -3928,8 +3957,9 @@ addFeedType feedType model =
             | feedSetDefinition = newFeedSetDefinition
             , feedSet = newFeedSet
             , userNameInput = userNameInput
-            , groupIdInput = groupIdInput
+            , groupNameInput = groupNameInput
             , editColumnsMessage = Nothing
+            , popupChoices = []
         }
             |> reloadFeed newFeed
             |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
@@ -11545,8 +11575,19 @@ renderPopupChoice renderEnv choice =
                 ]
 
         GroupDetails group ->
-            span []
-                [ text group.title
+            span
+                [ title group.description
+                , class (getStyle renderEnv.style |> .popupChoiceClass)
+                ]
+                [ imageFromSpec
+                    { imageUrl = group.cover_image_url
+                    , linkUrl = ""
+                    , altText = group.title
+                    , borderColor = Nothing
+                    , h = "1.5em"
+                    }
+                , text " "
+                , text group.title
                 , text " ("
                 , text <| String.fromInt group.member_count
                 , text " members)"
@@ -11893,10 +11934,11 @@ editColumnDialogRows model =
                     row
                         [ b "Group: "
                         , input
-                            [ size 30
+                            [ id nodeIds.groupNameInput
+                            , size 30
                             , autocapitalize "off"
-                            , onInput (ColumnsUIMsg << GroupIdInput)
-                            , value model.groupIdInput
+                            , onInput (ColumnsUIMsg << GroupNameInput)
+                            , value model.groupNameInput
                             , placeholder <|
                                 "Group ID (search coming)"
                             ]
@@ -12901,7 +12943,9 @@ type alias SavedModel =
     , filterInput : FilterInput
     , scheduledStatusId : String
     , userNameInput : String
-    , groupIdInput : String
+    , accountInput : Maybe Account
+    , groupNameInput : String
+    , groupInput : Maybe Group
     }
 
 
@@ -12956,7 +13000,9 @@ modelToSavedModel model =
     , filterInput = model.filterInput
     , scheduledStatusId = model.scheduledStatusId
     , userNameInput = model.userNameInput
-    , groupIdInput = model.groupIdInput
+    , accountInput = model.accountInput
+    , groupNameInput = model.groupNameInput
+    , groupInput = model.groupInput
     }
 
 
@@ -13025,7 +13071,9 @@ savedModelToModel savedModel model =
         , filterInput = savedModel.filterInput
         , scheduledStatusId = savedModel.scheduledStatusId
         , userNameInput = savedModel.userNameInput
-        , groupIdInput = savedModel.groupIdInput
+        , accountInput = savedModel.accountInput
+        , groupNameInput = savedModel.groupNameInput
+        , groupInput = savedModel.groupInput
     }
 
 
@@ -13349,7 +13397,9 @@ encodeSavedModel savedModel =
         , ( "filterInput", encodeFilterInput savedModel.filterInput )
         , ( "scheduledStatusId", JE.string savedModel.scheduledStatusId )
         , ( "userNameInput", JE.string savedModel.userNameInput )
-        , ( "groupIdInput", JE.string savedModel.groupIdInput )
+        , ( "accountInput", ED.encodeMaybe ED.encodeAccount savedModel.accountInput )
+        , ( "groupNameInput", JE.string savedModel.groupNameInput )
+        , ( "groupInput", ED.encodeMaybe ED.encodeGroup savedModel.groupInput )
         ]
 
 
@@ -13407,7 +13457,9 @@ savedModelDecoder =
         |> optional "filterInput" filterInputDecoder emptyFilterInput
         |> optional "scheduledStatusId" JD.string ""
         |> optional "userNameInput" JD.string ""
-        |> optional "groupIdInput" JD.string ""
+        |> optional "accountInput" (JD.nullable ED.accountDecoder) Nothing
+        |> optional "groupNameInput" JD.string ""
+        |> optional "groupInput" (JD.nullable ED.groupDecoder) Nothing
 
 
 put : String -> Maybe Value -> Cmd Msg
