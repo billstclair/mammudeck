@@ -1,0 +1,5 @@
+# Compress JavaScript
+# https://betterexplained.com/articles/how-to-optimize-your-site-with-gzip-compression/
+
+AddOutputFilterByType DEFLATE application/javascript
+AddOutputFilterByType DEFLATE application/x-javascript

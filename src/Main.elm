@@ -419,10 +419,14 @@ type alias ReferenceDict =
     Dict String Reference
 
 
+type PopupChoiceDetails
+    = AccountDetails Account
+    | GroupDetails Group
+
+
 type alias PopupChoice =
-    { name : String
-    , description : String
-    , id : String
+    { id : String
+    , details : PopupChoiceDetails
     }
 
 
@@ -6623,15 +6627,13 @@ applyResponseSideEffects response model =
                 ResultsEntity results ->
                     let
                         accountToChoice account =
-                            { name = account.username
-                            , description = account.note
-                            , id = account.id
+                            { id = account.id
+                            , details = AccountDetails account
                             }
 
                         groupToChoice group =
-                            { name = group.title
-                            , description = group.description
-                            , id = group.id
+                            { id = group.id
+                            , details = GroupDetails group
                             }
                     in
                     case model.popup of
