@@ -3979,6 +3979,14 @@ addFeedType feedType model =
                     _ ->
                         ( model.groupNameInput, model, Cmd.none )
 
+            hashtagInput =
+                case feedType of
+                    HashtagFeed _ ->
+                        ""
+
+                    _ ->
+                        model.hashtagInput
+
             ( mdl3, cmd3 ) =
                 case feedType of
                     UserFeed _ ->
@@ -4014,6 +4022,7 @@ addFeedType feedType model =
             , feedSet = newFeedSet
             , userNameInput = userNameInput
             , groupNameInput = groupNameInput
+            , hashtagInput = hashtagInput
             , editColumnsMessage = Nothing
             , popup = NoPopup
             , popupChoices = []
