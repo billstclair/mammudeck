@@ -295,6 +295,7 @@ type Popup
     = NoPopup
     | UserNamePopup
     | GroupNamePopup
+    | HashtagPopup
 
 
 type alias FocusInput =
@@ -420,15 +421,10 @@ type alias ReferenceDict =
     Dict String Reference
 
 
-type PopupChoiceDetails
-    = AccountDetails Account
-    | GroupDetails Group
-
-
-type alias PopupChoice =
-    { id : String
-    , details : PopupChoiceDetails
-    }
+type PopupChoice
+    = AccountChoice Account
+    | GroupChoice Group
+    | HashtagChoice String
 
 
 type alias Model =
@@ -488,6 +484,7 @@ type alias Model =
     , accountInput : Maybe Account
     , groupNameInput : String
     , groupInput : Maybe Group
+    , hashtagInput : String
 
     -- Non-persistent below here
     , initialPage : InitialPage
@@ -653,6 +650,7 @@ type ColumnsUIMsg
     | MoveFeedColumn FeedType
     | UserNameInput String
     | GroupNameInput String
+    | HashtagInput String
     | SendDelayedPopupRequest Popup String Request
     | ReceivePopupElement (Result Dom.Error Dom.Element)
     | PopupChoose PopupChoice
@@ -1164,6 +1162,7 @@ init value url key =
     , accountInput = Nothing
     , groupNameInput = ""
     , groupInput = Nothing
+    , hashtagInput = ""
 
     -- Non-persistent below here
     , initialPage = initialPage
@@ -3125,6 +3124,18 @@ columnsUIMsg msg model =
             }
                 |> initializePopup GroupNamePopup groupNameInput
 
+        HashtagInput hashtagInput ->
+            { model
+                | hashtagInput = hashtagInput
+                , popupChoices =
+                    if hashtagInput == "" then
+                        []
+
+                    else
+                        model.popupChoices
+            }
+                |> initializePopup HashtagPopup hashtagInput
+
         SendDelayedPopupRequest popup input request ->
             sendDelayedPopupRequest popup input request model
 
@@ -3417,8 +3428,8 @@ popupChoose choice model =
             }
 
         ( mdl2, feedType ) =
-            case choice.details of
-                AccountDetails account ->
+            case choice of
+                AccountChoice account ->
                     ( { mdl
                         | userNameInput = account.username
                         , accountInput = Just account
@@ -3426,7 +3437,7 @@ popupChoose choice model =
                     , Types.defaultUserFeedType
                     )
 
-                GroupDetails group ->
+                GroupChoice group ->
                     ( { mdl
                         | groupNameInput = group.title
                         , groupInput = Just group
@@ -3434,6 +3445,13 @@ popupChoose choice model =
                             Dict.insert group.id group model.groupDict
                       }
                     , Types.defaultGroupFeedType
+                    )
+
+                HashtagChoice hashtag ->
+                    ( { mdl
+                        | hashtagInput = hashtag
+                      }
+                    , Types.defaultHashtagFeedType
                     )
     in
     addFeedType (fillinFeedType feedType mdl2) mdl2
@@ -3447,6 +3465,9 @@ popupToNodeId popup =
 
         GroupNamePopup ->
             nodeIds.groupNameInput
+
+        HashtagPopup ->
+            nodeIds.hashtagInput
 
         _ ->
             "thereIsNoNodeWithThisIdAtLeastFnordThereHadBetterNotBe"
@@ -3519,6 +3540,9 @@ sendDelayedPopupRequest popup input request model =
 
                     GroupNamePopup ->
                         model.groupNameInput
+
+                    HashtagPopup ->
+                        model.hashtagInput
         in
         if input /= curInput then
             model |> withNoCmd
@@ -3781,6 +3805,9 @@ fillinFeedType feedType model =
 
                     Just group ->
                         group.id
+
+        HashtagFeed _ ->
+            HashtagFeed model.hashtagInput
 
         _ ->
             feedType
@@ -4189,6 +4216,16 @@ reloadFeedPaging paging feed model =
                         TimelinesRequest <|
                             Request.GetGroupTimeline
                                 { group_id = group_id
+                                , paging = paging
+                                }
+
+                HashtagFeed hashtag ->
+                    Just <|
+                        TimelinesRequest <|
+                            Request.GetTagTimeline
+                                { hashtag = hashtag
+                                , local = False
+                                , only_media = False
                                 , paging = paging
                                 }
 
@@ -6769,9 +6806,7 @@ applyResponseSideEffects response model =
                             }
 
                         accountToChoice account =
-                            { id = account.id
-                            , details = AccountDetails account
-                            }
+                            AccountChoice account
                     in
                     case mdl.popup of
                         UserNamePopup ->
@@ -6891,15 +6926,28 @@ applyResponseSideEffects response model =
                             }
 
                         groupToChoice group =
-                            { id = group.id
-                            , details = GroupDetails group
-                            }
+                            GroupChoice group
                     in
                     case mdl.popup of
                         GroupNamePopup ->
                             let
                                 choices =
                                     List.map groupToChoice results.groups
+                            in
+                            { mdl
+                                | popupChoices = choices
+                                , popup =
+                                    if choices == [] then
+                                        NoPopup
+
+                                    else
+                                        mdl.popup
+                            }
+
+                        HashtagPopup ->
+                            let
+                                choices =
+                                    List.map HashtagChoice results.hashtags
                             in
                             { mdl
                                 | popupChoices = choices
@@ -8843,6 +8891,12 @@ feedTitle feedType =
 
         GroupFeed group_id ->
             b <| "Group ID " ++ group_id
+
+        ListFeed list_id ->
+            b <| "List ID " ++ list_id
+
+        HashtagFeed tag ->
+            b <| "#" ++ tag
 
         _ ->
             text ""
@@ -11517,6 +11571,8 @@ nodeIds =
     , loginServer = "loginServer"
     , userNameInput = "userNameInput"
     , groupNameInput = "groupNameInput"
+    , hashtagInput = "hashtagInput"
+    , showListsButton = "showListsButton"
     }
 
 
@@ -11583,8 +11639,8 @@ popupPositionAttributes renderEnv element =
 
 renderPopupChoice : RenderEnv -> PopupChoice -> Html Msg
 renderPopupChoice renderEnv choice =
-    case choice.details of
-        AccountDetails account ->
+    case choice of
+        AccountChoice account ->
             span
                 [ title <| "@" ++ account.username
                 , class (getStyle renderEnv.style |> .popupChoiceClass)
@@ -11621,7 +11677,7 @@ renderPopupChoice renderEnv choice =
                 , text ")"
                 ]
 
-        GroupDetails group ->
+        GroupChoice group ->
             span
                 [ title group.description
                 , class (getStyle renderEnv.style |> .popupChoiceClass)
@@ -11639,6 +11695,9 @@ renderPopupChoice renderEnv choice =
                 , text <| String.fromInt group.member_count
                 , text " members)"
                 ]
+
+        HashtagChoice hashtag ->
+            text hashtag
 
 
 renderPopup : Model -> Html Msg
@@ -11986,12 +12045,25 @@ editColumnDialogRows model =
                             , autocapitalize "off"
                             , onInput (ColumnsUIMsg << GroupNameInput)
                             , value model.groupNameInput
-                            , placeholder <|
-                                "Group ID (search coming)"
+                            , placeholder "Group name"
                             ]
                             []
                         ]
                         (ColumnsUIMsg <| AddFeedColumn Types.defaultGroupFeedType)
+              ]
+            , [ row
+                    [ b "Hashtag: "
+                    , input
+                        [ id nodeIds.hashtagInput
+                        , size 30
+                        , autocapitalize "off"
+                        , onInput (ColumnsUIMsg << HashtagInput)
+                        , value model.hashtagInput
+                        , placeholder "hashtag"
+                        ]
+                        []
+                    ]
+                    (ColumnsUIMsg <| AddFeedColumn Types.defaultHashtagFeedType)
               ]
             ]
     , if [] == feedTypes then
@@ -12993,6 +13065,7 @@ type alias SavedModel =
     , accountInput : Maybe Account
     , groupNameInput : String
     , groupInput : Maybe Group
+    , hashtagInput : String
     }
 
 
@@ -13050,6 +13123,7 @@ modelToSavedModel model =
     , accountInput = model.accountInput
     , groupNameInput = model.groupNameInput
     , groupInput = model.groupInput
+    , hashtagInput = model.hashtagInput
     }
 
 
@@ -13121,6 +13195,7 @@ savedModelToModel savedModel model =
         , accountInput = savedModel.accountInput
         , groupNameInput = savedModel.groupNameInput
         , groupInput = savedModel.groupInput
+        , hashtagInput = savedModel.hashtagInput
     }
 
 
@@ -13447,6 +13522,7 @@ encodeSavedModel savedModel =
         , ( "accountInput", ED.encodeMaybe ED.encodeAccount savedModel.accountInput )
         , ( "groupNameInput", JE.string savedModel.groupNameInput )
         , ( "groupInput", ED.encodeMaybe ED.encodeGroup savedModel.groupInput )
+        , ( "hashtagInput", JE.string savedModel.hashtagInput )
         ]
 
 
@@ -13507,6 +13583,7 @@ savedModelDecoder =
         |> optional "accountInput" (JD.nullable ED.accountDecoder) Nothing
         |> optional "groupNameInput" JD.string ""
         |> optional "groupInput" (JD.nullable ED.groupDecoder) Nothing
+        |> optional "hashtagInput" JD.string ""
 
 
 put : String -> Maybe Value -> Cmd Msg
