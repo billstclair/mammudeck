@@ -2343,6 +2343,7 @@ globalMsg msg model =
                 mdl =
                     { model
                         | dialog = NoDialog
+                        , popup = NoPopup
                         , editColumnsMessage = Nothing
                         , tokens = Dict.empty
                         , server = ""
@@ -3410,7 +3411,10 @@ popupChoose : PopupChoice -> Model -> ( Model, Cmd Msg )
 popupChoose choice model =
     let
         mdl =
-            { model | popupChoices = [] }
+            { model
+                | popup = NoPopup
+                , popupChoices = []
+            }
 
         ( mdl2, feedType ) =
             case choice.details of
@@ -3545,6 +3549,7 @@ dismissDialog model =
         , editColumnsMessage = Nothing
         , movingColumn = Nothing
         , showFullScrollPill = False
+        , popup = NoPopup
         , popupChoices = []
     }
         |> withNoCmd
@@ -3983,6 +3988,7 @@ addFeedType feedType model =
             , userNameInput = userNameInput
             , groupNameInput = groupNameInput
             , editColumnsMessage = Nothing
+            , popup = NoPopup
             , popupChoices = []
         }
             |> reloadFeed newFeed
@@ -6773,7 +6779,15 @@ applyResponseSideEffects response model =
                                 choices =
                                     List.map accountToChoice results
                             in
-                            { mdl | popupChoices = choices }
+                            { mdl
+                                | popupChoices = choices
+                                , popup =
+                                    if choices == [] then
+                                        NoPopup
+
+                                    else
+                                        mdl.popup
+                            }
 
                         _ ->
                             mdl
@@ -6887,7 +6901,15 @@ applyResponseSideEffects response model =
                                 choices =
                                     List.map groupToChoice results.groups
                             in
-                            { mdl | popupChoices = choices }
+                            { mdl
+                                | popupChoices = choices
+                                , popup =
+                                    if choices == [] then
+                                        NoPopup
+
+                                    else
+                                        mdl.popup
+                            }
 
                         _ ->
                             mdl
