@@ -430,7 +430,7 @@ emptyAccountId =
 accountToAccountId : Account -> AccountId
 accountToAccountId account =
     { id = account.id
-    , username = account.username
+    , username = account.acct
     , display_name = account.display_name
     , avatar = account.avatar
     , url = account.url

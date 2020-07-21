@@ -8891,8 +8891,16 @@ feedTitle feedType =
         HomeFeed ->
             b "Home"
 
-        UserFeed { username } ->
-            b <| username
+        UserFeed { username, server } ->
+            let
+                serverString =
+                    if server == "" then
+                        ""
+
+                    else
+                        "@" ++ server
+            in
+            b <| username ++ serverString
 
         PublicFeed _ ->
             b "Public"
