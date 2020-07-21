@@ -2069,7 +2069,11 @@ globalMsg msg model =
                 page =
                     stringToPage pageString
             in
-            { model | page = page }
+            { model
+                | page = page
+                , dialog = NoDialog
+                , popup = NoPopup
+            }
                 |> withCmd
                     (if page == ColumnsPage then
                         Cmd.batch
@@ -3432,7 +3436,7 @@ popupChoose choice model =
             case choice of
                 AccountChoice account ->
                     ( { mdl
-                        | userNameInput = account.username
+                        | userNameInput = account.acct
                         , accountInput = Just account
                       }
                     , Types.defaultUserFeedType
@@ -11652,13 +11656,13 @@ renderPopupChoice renderEnv choice =
     case choice of
         AccountChoice account ->
             span
-                [ title <| "@" ++ account.username
+                [ title <| "@" ++ account.acct
                 , class (getStyle renderEnv.style |> .popupChoiceClass)
                 ]
                 [ imageFromSpec
                     { imageUrl = account.avatar
                     , linkUrl = ""
-                    , altText = account.username
+                    , altText = account.acct
                     , borderColor =
                         if account.is_pro then
                             Just "gold"
@@ -11670,7 +11674,7 @@ renderPopupChoice renderEnv choice =
                 , text " "
                 , renderDisplayName account.display_name renderEnv
                 , text " @"
-                , text account.username
+                , text account.acct
                 , if not account.is_verified then
                     text ""
 
