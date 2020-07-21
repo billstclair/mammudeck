@@ -9157,7 +9157,7 @@ renderStatus renderEnv feedEnv statusIn =
                                     [ href url
                                     , style "margin-left" "0.4em"
                                     ]
-                                    [ text acct ]
+                                    [ text <| "@" ++ acct ]
                             ]
                 , renderAccount renderEnv.fontSizePct
                     color
