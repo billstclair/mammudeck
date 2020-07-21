@@ -2203,6 +2203,7 @@ globalMsg msg model =
                                             || (model.dialog /= NoDialog)
                                        )
                                )
+                            || (model.page /= ColumnsPage)
                      then
                         Cmd.none
 
