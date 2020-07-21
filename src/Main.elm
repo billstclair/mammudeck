@@ -11697,7 +11697,11 @@ renderPopupChoice renderEnv choice =
                 ]
 
         HashtagChoice hashtag ->
-            text hashtag
+            span
+                [ title <| "#" ++ hashtag
+                , class (getStyle renderEnv.style |> .popupChoiceClass)
+                ]
+                [ text hashtag ]
 
 
 renderPopup : Model -> Html Msg
