@@ -22,16 +22,16 @@
 
 See ../TODO.md for the full list.
 
-* Settings dialog. Hide left column.
-
 * Add reply-to as in Pleroma before message.
-  This requires keeping a table mapping server & id to acct (username@server) & url.
-  Accumulate this from Status.mentions, Notification.account, Status.account.
-  Look up separately when necessary.
-  All we get is Status.in_reply_to_id and Status.in_reply_to_account_id.
-  Need to be able to turn that into username@server and url
-  But to which server does in_reply_to_account_id refer.
-  Probably loginServer, but need to verify.
+  ** This requires keeping a table mapping server & id to acct (username@server) & url.
+     Accumulate this from Status.mentions, Notification.account, Status.account.
+     Look up separately when necessary.
+     All we get is Status.in_reply_to_id and Status.in_reply_to_account_id.
+     Need to be able to turn that into username@server and url
+     But to which server does in_reply_to_account_id refer.
+     Probably loginServer, but need to verify.
+  ** *DONE* modulo scanning status received after making a post.
+  ** Add "pinned" indication with rendered Status
 
 * Configure location of the scroll pill (and call it that).
     Top, bottom or center. Left, middle, or right.
@@ -39,15 +39,19 @@ See ../TODO.md for the full list.
 
 * Group feeds
     ** Delay after typing in User ID or Group before asking server.
+       *DONE*
     ** Incremental search for the group name in the "Edit Columns"
        dialog, instead of entering the ID.
+       *DONE*
     ** Post to a group.
 
 * More feed types. Lists, groups, hashtags, search
     Parameters for user, public, and notification
     Increment search for users.
+    *DONE* except lists and search
 
 * Multiple named feedsets per server.
+    Multiple host instances per feedset.
 
 * Ellipsis dialog: block, mute, (un)follow, delete, edit, (un)mute status
 
@@ -609,6 +613,7 @@ type GlobalMsg
     | SetLoginServer
     | Login
     | Logout
+    | ClearAllDialog
     | ClearAll
     | ReceiveRedirect (Result ( String, Error ) ( String, App, Cmd Msg ))
     | ReceiveAuthorization (Result ( String, Error ) ( String, Authorization, Account ))
@@ -2341,6 +2346,18 @@ globalMsg msg model =
                     }
                         |> updatePatchCredentialsInputs
                         |> withCmd (putToken server Nothing)
+
+        ClearAllDialog ->
+            model
+                |> withCmd
+                    (Task.perform (GlobalMsg << SetDialog) <|
+                        Task.succeed
+                            (ConfirmDialog
+                                "Do you really want to erase everything?"
+                                "Erase"
+                                (GlobalMsg ClearAll)
+                            )
+                    )
 
         ClearAll ->
             let
@@ -8330,8 +8347,14 @@ settingsDialogContent model =
         ]
     , p [] [ b "Advanced:" ]
     , p []
-        [ button (ColumnsUIMsg <| ClearFeatures) "clear"
-        , text " saved server features."
+        [ text "Reload the page after doing this:"
+        , br
+        , button (ColumnsUIMsg ClearFeatures) "Clear saved server features"
+        , br
+        , br
+        , text "Will ask you to confirm before clearing EVERYTHING:"
+        , br
+        , button (GlobalMsg ClearAllDialog) "Clear all persistent state!"
         ]
     ]
 
@@ -10165,13 +10188,7 @@ renderExplorer model =
                 [ explorerHelp model ]
             , br
             , p []
-                [ button
-                    ((GlobalMsg << SetDialog) <|
-                        ConfirmDialog
-                            "Do you really want to erase everything?"
-                            "Erase"
-                            (GlobalMsg ClearAll)
-                    )
+                [ button (GlobalMsg ClearAllDialog)
                     "Clear All Persistent State"
                 ]
             , br
