@@ -293,6 +293,7 @@ type Dialog
     | PostDialog
     | SettingsDialog
     | KeyboardShortcutsDialog
+    | SaveRestoreDialog
 
 
 type Popup
@@ -513,6 +514,8 @@ type alias Model =
     , movingColumn : Maybe FeedType
     , references : ReferenceDict
     , editColumnsMessage : Maybe String
+    , feedsText : Maybe String
+    , modelText : Maybe String
 
     -- API Explorer state
     , keysDown : Set String
@@ -649,6 +652,7 @@ type ColumnsUIMsg
     | ShowPostDialog (Maybe Status)
     | ShowSettingsDialog
     | ShowKeyboardShortcutsDialog
+    | ShowSaveRestoreDialog
     | DismissDialog
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
@@ -662,6 +666,10 @@ type ColumnsUIMsg
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
     | StatusEllipsisDialog Status
+    | ClearFeedsText
+    | ClearModelText
+    | SetFeedsText String
+    | SetModelText String
     | SetPostText String
     | ChoosePostAttachment
     | PostAttachmentChosen File
@@ -904,6 +912,7 @@ keyMsgDict =
         , ( "d", ToggleStyle )
         , ( ",", ShowSettingsDialog )
         , ( "?", ShowKeyboardShortcutsDialog )
+        , ( "o", ShowSaveRestoreDialog )
         , ( "j", ScrollPage ScrollLeft )
         , ( "s", ScrollPage ScrollLeft )
         , ( "l", ScrollPage ScrollRight )
@@ -1192,6 +1201,8 @@ init value url key =
     , movingColumn = Nothing
     , references = Dict.empty
     , editColumnsMessage = Nothing
+    , feedsText = Nothing
+    , modelText = Nothing
     , keysDown = Set.empty
     , request = Nothing
     , response = Nothing
@@ -3099,6 +3110,10 @@ columnsUIMsg msg model =
             { model | dialog = KeyboardShortcutsDialog }
                 |> withNoCmd
 
+        ShowSaveRestoreDialog ->
+            { model | dialog = SaveRestoreDialog }
+                |> withNoCmd
+
         DismissDialog ->
             dismissDialog model
 
@@ -3206,6 +3221,22 @@ columnsUIMsg msg model =
                 | dialog =
                     AlertDialog "Ellipsis Dialog not yet supported."
             }
+                |> withNoCmd
+
+        ClearFeedsText ->
+            { model | feedsText = Nothing }
+                |> withNoCmd
+
+        ClearModelText ->
+            { model | modelText = Nothing }
+                |> withNoCmd
+
+        SetFeedsText feedsText ->
+            { model | feedsText = Just feedsText }
+                |> withNoCmd
+
+        SetModelText modelText ->
+            { model | modelText = Just modelText }
                 |> withNoCmd
 
         SetPostText string ->
@@ -8197,6 +8228,8 @@ renderLeftColumn renderEnv =
         , p []
             [ button (ColumnsUIMsg ShowSettingsDialog) "settings" ]
         , p []
+            [ button (ColumnsUIMsg ShowSaveRestoreDialog) "save" ]
+        , p []
             [ button (ColumnsUIMsg ShowKeyboardShortcutsDialog) "keyboard" ]
         , p []
             [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
@@ -8257,6 +8290,9 @@ settingsDialogContent model =
     , p []
         [ button (ColumnsUIMsg ShowEditColumnsDialog)
             "Edit Columns Dialog"
+        , br
+        , button (ColumnsUIMsg ShowSaveRestoreDialog)
+            "Save/Restore Dialog"
         , br
         , button (ColumnsUIMsg ShowKeyboardShortcutsDialog)
             "Keyboard Shortcuts Dialog"
@@ -11789,6 +11825,9 @@ renderDialog model =
         KeyboardShortcutsDialog ->
             keyboardShortcutsDialog model
 
+        SaveRestoreDialog ->
+            saveRestoreDialog model
+
         AlertDialog content ->
             dialogRender
                 model.renderEnv
@@ -12248,12 +12287,101 @@ keyboardShortcutsDialogRows model =
         , row "r" "Reload all columns" Nothing
         , row "," "Show Settings dialog" Nothing
         , row "d" "Toggle Dark Mode" Nothing
+        , row "o" "Save/Restore Dialog" Nothing
         , row "?" "Show Keyboard Shortcuts dialog" Nothing
         , row "j / l" "Scroll one page left/right" <|
             Just "(all the way on two keystrokes quickly)"
         , row "s / f" "Scroll one page left/right (likewise)" Nothing
         , row "esc" "Dismiss dialog, collapse scroll pill" Nothing
         ]
+    ]
+
+
+saveRestoreDialog : Model -> Html Msg
+saveRestoreDialog model =
+    dialogRender
+        model.renderEnv
+        { styles =
+            [ ( "width", "40em" )
+            , ( "max-width", "95%" )
+            , ( "max-height", "90%" )
+            , ( "overflow", "auto" )
+            , ( "font-size", fspct model.renderEnv )
+            ]
+        , title = "Save / Restore"
+        , content = saveRestoreDialogRows model
+        , actionBar =
+            [ button (ColumnsUIMsg DismissDialog) "OK" ]
+        }
+        True
+
+
+saveRestoreDialogRows : Model -> List (Html Msg)
+saveRestoreDialogRows model =
+    let
+        { inputBackground, color } =
+            getStyle model.renderEnv.style
+
+        feedsText =
+            case model.feedsText of
+                Just txt ->
+                    txt
+
+                Nothing ->
+                    model.feedSetDefinition.feedTypes
+                        |> JE.list MED.encodeFeedType
+                        |> JE.encode 2
+
+        modelText =
+            case model.modelText of
+                Just txt ->
+                    txt
+
+                Nothing ->
+                    let
+                        mdl =
+                            { model
+                                | feedSetDefinition =
+                                    { name = "", feedTypes = [] }
+                                , postState = initialPostState
+                            }
+                    in
+                    modelToSavedModel mdl
+                        |> encodeSavedModel
+                        |> JE.encode 2
+    in
+    [ b "Feeds:"
+    , br
+    , textarea
+        [ rows 10
+        , style "width" "100%"
+        , style "color" color
+        , style "background-color" inputBackground
+        , onInput (ColumnsUIMsg << SetFeedsText)
+        , value feedsText
+        ]
+        []
+    , br
+    , enabledButton (model.feedsText /= Nothing)
+        (ColumnsUIMsg ClearFeedsText)
+        "Resample"
+    , br
+    , br
+    , b "Model:"
+    , br
+    , textarea
+        [ rows 10
+        , style "width" "100%"
+        , style "color" color
+        , style "background-color" inputBackground
+        , onInput (ColumnsUIMsg << SetModelText)
+        , value modelText
+        ]
+        []
+    , br
+    , enabledButton (model.modelText /= Nothing)
+        (ColumnsUIMsg ClearModelText)
+        "Resample"
     ]
 
 

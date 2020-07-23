@@ -14,7 +14,9 @@ module Mammudeck.EncodeDecode exposing
     ( accountIdsDecoder
     , encodeAccountIds
     , encodeFeedSetDefinition
+    , encodeFeedType
     , feedSetDefinitionDecoder
+    , feedTypeDecoder
     )
 
 import Json.Decode as JD exposing (Decoder)
