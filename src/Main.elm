@@ -12343,6 +12343,7 @@ saveRestoreDialogRows model =
                             { model
                                 | feedSetDefinition =
                                     { name = "", feedTypes = [] }
+                                , token = Nothing
                                 , postState = initialPostState
                             }
                     in
