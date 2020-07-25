@@ -387,6 +387,7 @@ type alias FeedEnv =
     { group : Maybe Group
     , references : Dict String Reference
     , missingReplyToAccountIds : Set String
+    , headerHeight : Maybe Float
     }
 
 
@@ -395,6 +396,7 @@ emptyFeedEnv =
     { group = Nothing
     , references = Dict.empty
     , missingReplyToAccountIds = Set.empty
+    , headerHeight = Nothing
     }
 
 
@@ -663,6 +665,7 @@ type ColumnsUIMsg
     | SendDelayedPopupRequest Popup String Request
     | ReceivePopupElement (Result Dom.Error Dom.Element)
     | PopupChoose PopupChoice
+    | ReceiveHeaderElement String (Result Dom.Error Dom.Element)
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
     | StatusEllipsisDialog Status
@@ -2997,7 +3000,12 @@ columnsUIMsg msg model =
                     model |> withNoCmd
 
                 Ok id ->
-                    model |> withCmd (makeScrollRequestWithId id True)
+                    model
+                        |> withCmds
+                            [ makeScrollRequestWithId id True
+                            , Task.attempt (ColumnsUIMsg << ReceiveHeaderElement id)
+                                (Dom.getElement <| headerFeedId id)
+                            ]
 
         Tick now ->
             let
@@ -3187,6 +3195,38 @@ columnsUIMsg msg model =
 
         PopupChoose choice ->
             popupChoose choice model
+
+        ReceiveHeaderElement id result ->
+            let
+                height =
+                    case result of
+                        Err _ ->
+                            Nothing
+
+                        Ok element ->
+                            Just element.element.height
+
+                feedEnv =
+                    case Dict.get id model.feedEnvs of
+                        Nothing ->
+                            emptyFeedEnv
+
+                        Just env ->
+                            env
+
+                mdl =
+                    if feedEnv.headerHeight == height then
+                        model
+
+                    else
+                        { model
+                            | feedEnvs =
+                                Dict.insert id
+                                    { feedEnv | headerHeight = height }
+                                    model.feedEnvs
+                        }
+            in
+            mdl |> withNoCmd
 
         ToggleStatusRepeat status ->
             let
@@ -8395,6 +8435,11 @@ settingsDialogContent model =
     ]
 
 
+headerFeedId : String -> String
+headerFeedId feedId =
+    feedId ++ " [header]"
+
+
 renderFeed : Bool -> RenderEnv -> FeedEnv -> Feed -> Html Msg
 renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
     let
@@ -8403,6 +8448,15 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
 
         ( _, h ) =
             renderEnv.windowSize
+
+        innerHeight =
+            --Debug.log "  innerHeight" <|
+            case feedEnv.headerHeight of
+                Nothing ->
+                    "calc(100% - 1.4em)"
+
+                Just headerHeight ->
+                    String.fromFloat (toFloat h - 20 - headerHeight) ++ "px"
 
         feedId =
             Types.feedID <| Debug.log "renderFeed" feedType
@@ -8436,6 +8490,7 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
             [ style "border" <| "1px solid " ++ color
             , style "text-align" "center"
             , style "color" color
+            , id <| headerFeedId feedId
             ]
             [ if isFeedLoading then
                 feedLoadingEmojiSpan True True
@@ -8477,10 +8532,10 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
                     text ""
             ]
         , div
-            [ style "height" "calc(100% - 1.4em)"
-            , style "overflow-y" "auto"
+            [ style "overflow-y" "auto"
             , style "overflow-x" "hidden"
             , id feedId
+            , style "height" innerHeight
             ]
           <|
             case elements of
