@@ -13689,74 +13689,220 @@ scrollPillStateDecoder =
         |> required "showServer" JD.bool
 
 
+encodePropertyAsList : String -> property -> (property -> Value) -> property -> List ( String, Value )
+encodePropertyAsList name property encoder default =
+    if default == property then
+        []
+
+    else
+        [ ( name, encoder property ) ]
+
+
 encodeSavedModel : SavedModel -> Value
 encodeSavedModel savedModel =
-    JE.object
-        [ ( "renderEnv", encodeRenderEnv savedModel.renderEnv )
-        , ( "page", encodePage savedModel.page )
-        , ( "token", ED.encodeMaybe JE.string savedModel.token )
-        , ( "server", JE.string savedModel.server )
-        , ( "feedSetDefinition"
-          , MED.encodeFeedSetDefinition savedModel.feedSetDefinition
-          )
-        , ( "supportsAccountByUsername"
-          , JE.dict identity JE.bool savedModel.supportsAccountByUsername
-          )
-        , ( "postState", encodePostState savedModel.postState )
-        , ( "features", encodeFeatures savedModel.features )
-        , ( "scrollPillState", encodeScrollPillState savedModel.scrollPillState )
-        , ( "showLeftColumn", JE.bool savedModel.showLeftColumn )
-        , ( "accountId", JE.string savedModel.accountId )
-        , ( "accountIds", JE.string savedModel.accountIds )
-        , ( "showMetadata", JE.bool savedModel.showMetadata )
-        , ( "q", JE.string savedModel.q )
-        , ( "resolve", JE.bool savedModel.resolve )
-        , ( "following", JE.bool savedModel.following )
-        , ( "groupId", JE.string savedModel.groupId )
-        , ( "showReceived", JE.bool savedModel.showReceived )
-        , ( "showEntity", JE.bool savedModel.showEntity )
-        , ( "whichGroups", encodeWhichGroups savedModel.whichGroups )
-        , ( "followReblogs", JE.bool savedModel.followReblogs )
-        , ( "onlyMedia", JE.bool savedModel.onlyMedia )
-        , ( "pinned", JE.bool savedModel.pinned )
-        , ( "excludeReplies", JE.bool savedModel.excludeReplies )
-        , ( "excludeReblogs", JE.bool savedModel.excludeReblogs )
-        , ( "pagingInput", encodePagingInput savedModel.pagingInput )
-        , ( "local", JE.bool savedModel.local )
-        , ( "hashtag", JE.string savedModel.hashtag )
-        , ( "listId", JE.string savedModel.listId )
-        , ( "smartPaging", JE.bool savedModel.smartPaging )
-        , ( "showJsonTree", JE.bool savedModel.showJsonTree )
-        , ( "showUpdateCredentials", JE.bool savedModel.showUpdateCredentials )
-        , ( "statusId", JE.string savedModel.statusId )
-        , ( "useElmButtonNames", JE.bool savedModel.useElmButtonNames )
-        , ( "showPostStatus", JE.bool savedModel.showPostStatus )
-        , ( "excludedNotificationTypes"
-          , JE.list ED.encodeNotificationType savedModel.excludedNotificationTypes
-          )
-        , ( "notificationsAccountId"
-          , JE.string savedModel.notificationsAccountId
-          )
-        , ( "notificationId", JE.string savedModel.notificationId )
-        , ( "muteNotifications", JE.bool savedModel.muteNotifications )
-        , ( "groupIds", JE.string savedModel.groupIds )
-        , ( "offset", JE.string savedModel.offset )
-        , ( "listTitle", JE.string savedModel.listTitle )
-        , ( "filterId", JE.string savedModel.filterId )
-        , ( "filterInput", encodeFilterInput savedModel.filterInput )
-        , ( "scheduledStatusId", JE.string savedModel.scheduledStatusId )
-        , ( "userNameInput", JE.string savedModel.userNameInput )
-        , ( "accountInput", ED.encodeMaybe ED.encodeAccount savedModel.accountInput )
-        , ( "groupNameInput", JE.string savedModel.groupNameInput )
-        , ( "groupInput", ED.encodeMaybe ED.encodeGroup savedModel.groupInput )
-        , ( "hashtagInput", JE.string savedModel.hashtagInput )
-        ]
+    JE.object <|
+        List.concat
+            [ encodePropertyAsList "renderEnv"
+                savedModel.renderEnv
+                encodeRenderEnv
+                emptyRenderEnv
+            , [ ( "page", encodePage savedModel.page ) ]
+            , encodePropertyAsList "token"
+                savedModel.token
+                (ED.encodeMaybe JE.string)
+                Nothing
+            , [ ( "server", JE.string savedModel.server ) ]
+            , encodePropertyAsList "feedSetDefinition"
+                savedModel.feedSetDefinition
+                MED.encodeFeedSetDefinition
+                Types.emptyFeedSetDefinition
+            , encodePropertyAsList "supportsAccountByUsername"
+                savedModel.supportsAccountByUsername
+                (JE.dict identity JE.bool)
+                Dict.empty
+            , encodePropertyAsList "postState"
+                savedModel.postState
+                encodePostState
+                initialPostState
+            , encodePropertyAsList "features"
+                savedModel.features
+                encodeFeatures
+                Dict.empty
+            , encodePropertyAsList "scrollPillState"
+                savedModel.scrollPillState
+                encodeScrollPillState
+                initialScrollPillState
+            , encodePropertyAsList "showLeftColumn"
+                savedModel.showLeftColumn
+                JE.bool
+                True
+            , encodePropertyAsList "accountId"
+                savedModel.accountId
+                JE.string
+                ""
+            , encodePropertyAsList "accountIds"
+                savedModel.accountIds
+                JE.string
+                ""
+            , encodePropertyAsList "showMetadata"
+                savedModel.showMetadata
+                JE.bool
+                False
+            , encodePropertyAsList "q"
+                savedModel.q
+                JE.string
+                ""
+            , encodePropertyAsList "resolve"
+                savedModel.resolve
+                JE.bool
+                False
+            , encodePropertyAsList "following"
+                savedModel.following
+                JE.bool
+                False
+            , encodePropertyAsList "groupId"
+                savedModel.groupId
+                JE.string
+                ""
+            , encodePropertyAsList "showReceived"
+                savedModel.showReceived
+                JE.bool
+                True
+            , encodePropertyAsList "showEntity"
+                savedModel.showEntity
+                JE.bool
+                False
+            , encodePropertyAsList "whichGroups"
+                savedModel.whichGroups
+                encodeWhichGroups
+                Request.MemberGroups
+            , encodePropertyAsList "followReblogs"
+                savedModel.followReblogs
+                JE.bool
+                True
+            , encodePropertyAsList "onlyMedia"
+                savedModel.onlyMedia
+                JE.bool
+                False
+            , encodePropertyAsList "pinned"
+                savedModel.pinned
+                JE.bool
+                False
+            , encodePropertyAsList "excludeReplies"
+                savedModel.excludeReplies
+                JE.bool
+                False
+            , encodePropertyAsList "excludeReblogs"
+                savedModel.excludeReblogs
+                JE.bool
+                False
+            , encodePropertyAsList "pagingInput"
+                savedModel.pagingInput
+                encodePagingInput
+                emptyPagingInput
+            , encodePropertyAsList "local"
+                savedModel.local
+                JE.bool
+                False
+            , encodePropertyAsList "hashtag"
+                savedModel.hashtag
+                JE.string
+                ""
+            , encodePropertyAsList "listId"
+                savedModel.listId
+                JE.string
+                ""
+            , encodePropertyAsList "smartPaging"
+                savedModel.smartPaging
+                JE.bool
+                False
+            , encodePropertyAsList "showJsonTree"
+                savedModel.showJsonTree
+                JE.bool
+                True
+            , encodePropertyAsList "showUpdateCredentials"
+                savedModel.showUpdateCredentials
+                JE.bool
+                False
+            , encodePropertyAsList "statusId"
+                savedModel.statusId
+                JE.string
+                ""
+            , encodePropertyAsList "useElmButtonNames"
+                savedModel.useElmButtonNames
+                JE.bool
+                False
+            , encodePropertyAsList "showPostStatus"
+                savedModel.showPostStatus
+                JE.bool
+                False
+            , encodePropertyAsList "excludedNotificationTypes"
+                savedModel.excludedNotificationTypes
+                (JE.list ED.encodeNotificationType)
+                []
+            , encodePropertyAsList "notificationsAccountId"
+                savedModel.notificationsAccountId
+                JE.string
+                ""
+            , encodePropertyAsList "notificationId"
+                savedModel.notificationId
+                JE.string
+                ""
+            , encodePropertyAsList "muteNotifications"
+                savedModel.muteNotifications
+                JE.bool
+                True
+            , encodePropertyAsList "groupIds"
+                savedModel.groupIds
+                JE.string
+                ""
+            , encodePropertyAsList "offset"
+                savedModel.offset
+                JE.string
+                ""
+            , encodePropertyAsList "listTitle"
+                savedModel.listTitle
+                JE.string
+                ""
+            , encodePropertyAsList "filterId"
+                savedModel.filterId
+                JE.string
+                ""
+            , encodePropertyAsList "filterInput"
+                savedModel.filterInput
+                encodeFilterInput
+                emptyFilterInput
+            , encodePropertyAsList "scheduledStatusId"
+                savedModel.scheduledStatusId
+                JE.string
+                ""
+            , encodePropertyAsList "userNameInput"
+                savedModel.userNameInput
+                JE.string
+                ""
+            , encodePropertyAsList "accountInput"
+                savedModel.accountInput
+                (ED.encodeMaybe ED.encodeAccount)
+                Nothing
+            , encodePropertyAsList "groupNameInput"
+                savedModel.groupNameInput
+                JE.string
+                ""
+            , encodePropertyAsList "groupInput"
+                savedModel.groupInput
+                (ED.encodeMaybe ED.encodeGroup)
+                Nothing
+            , encodePropertyAsList "hashtagInput"
+                savedModel.hashtagInput
+                JE.string
+                ""
+            ]
 
 
 savedModelDecoder : Decoder SavedModel
 savedModelDecoder =
     JD.succeed SavedModel
-        |> required "renderEnv" renderEnvDecoder
+        |> optional "renderEnv" renderEnvDecoder emptyRenderEnv
         |> required "page" pageDecoder
         |> optional "token" (JD.nullable JD.string) Nothing
         |> required "server" JD.string
