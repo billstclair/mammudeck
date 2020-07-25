@@ -154,7 +154,7 @@ import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, require
 import Json.Encode as JE exposing (Value)
 import JsonTree exposing (TaggedValue(..))
 import List.Extra as LE
-import Mammudeck.EncodeDecode as MED
+import Mammudeck.EncodeDecode as MED exposing (encodePropertyAsList)
 import Mammudeck.Types as Types
     exposing
         ( AccountId
@@ -13687,15 +13687,6 @@ scrollPillStateDecoder =
     JD.succeed ScrollPillState
         |> optional "showScrollPill" JD.bool True
         |> required "showServer" JD.bool
-
-
-encodePropertyAsList : String -> property -> (property -> Value) -> property -> List ( String, Value )
-encodePropertyAsList name property encoder default =
-    if default == property then
-        []
-
-    else
-        [ ( name, encoder property ) ]
 
 
 encodeSavedModel : SavedModel -> Value

@@ -15,6 +15,7 @@ module Mammudeck.EncodeDecode exposing
     , encodeAccountIds
     , encodeFeedSetDefinition
     , encodeFeedType
+    , encodePropertyAsList
     , feedSetDefinitionDecoder
     , feedTypeDecoder
     )
@@ -30,6 +31,7 @@ import Mammudeck.Types as Types
         , ProFeedFlags
         , PublicFeedFlags
         , UserFeedFlags
+        , defaultUserFeedType
         )
 import Mastodon.EncodeDecode as ED
 
@@ -81,6 +83,15 @@ publicFeedFlagsDecoder =
         |> required "only_media" JD.bool
 
 
+encodePropertyAsList : String -> property -> (property -> Value) -> property -> List ( String, Value )
+encodePropertyAsList name property encoder default =
+    if default == property then
+        []
+
+    else
+        [ ( name, encoder property ) ]
+
+
 encodeFeedType : FeedType -> Value
 encodeFeedType feedType =
     case feedType of
@@ -88,24 +99,40 @@ encodeFeedType feedType =
             JE.string "HomeFeed"
 
         UserFeed { username, server, flags } ->
-            JE.object
-                [ ( "feedType", JE.string "UserFeed" )
-                , ( "username", JE.string username )
-                , ( "server", JE.string server )
-                , ( "flags", ED.encodeMaybe encodeUserFeedFlags flags )
-                ]
+            JE.object <|
+                List.concat
+                    [ [ ( "feedType", JE.string "UserFeed" )
+                      , ( "username", JE.string username )
+                      ]
+                    , encodePropertyAsList "server"
+                        server
+                        JE.string
+                        ""
+                    , encodePropertyAsList "flags"
+                        flags
+                        (ED.encodeMaybe encodeUserFeedFlags)
+                        Nothing
+                    ]
 
         ProFeed { flags } ->
-            JE.object
-                [ ( "feedType", JE.string "ProFeed" )
-                , ( "flags", ED.encodeMaybe encodeProFeedFlags flags )
-                ]
+            JE.object <|
+                List.concat
+                    [ [ ( "feedType", JE.string "ProFeed" ) ]
+                    , encodePropertyAsList "flags"
+                        flags
+                        (ED.encodeMaybe encodeProFeedFlags)
+                        Nothing
+                    ]
 
         PublicFeed { flags } ->
-            JE.object
-                [ ( "feedType", JE.string "PublicFeed" )
-                , ( "flags", ED.encodeMaybe encodePublicFeedFlags flags )
-                ]
+            JE.object <|
+                List.concat
+                    [ [ ( "feedType", JE.string "PublicFeed" ) ]
+                    , encodePropertyAsList "flags"
+                        flags
+                        (ED.encodeMaybe encodePublicFeedFlags)
+                        Nothing
+                    ]
 
         HashtagFeed hashtag ->
             JE.object
@@ -126,22 +153,37 @@ encodeFeedType feedType =
                 ]
 
         NotificationFeed { accountId, exclusions } ->
-            JE.object
-                [ ( "feedType", JE.string "NotificationFeed" )
-                , ( "accountId", ED.encodeMaybe JE.string accountId )
-                , ( "exclusions", JE.list ED.encodeNotificationType exclusions )
-                ]
+            JE.object <|
+                List.concat
+                    [ [ ( "feedType", JE.string "NotificationFeed" ) ]
+                    , encodePropertyAsList "accountId"
+                        accountId
+                        (ED.encodeMaybe JE.string)
+                        Nothing
+                    , encodePropertyAsList "exclusions"
+                        exclusions
+                        (JE.list ED.encodeNotificationType)
+                        Types.defaultNotificationExclusions
+                    ]
 
         ConversationsFeed ->
             JE.string "ConversationsFeed"
 
         SearchFeed { q, resolve, following } ->
-            JE.object
-                [ ( "feedType", JE.string "SearchFeed" )
-                , ( "q", JE.string q )
-                , ( "resolve", JE.bool resolve )
-                , ( "following", JE.bool following )
-                ]
+            JE.object <|
+                List.concat
+                    [ [ ( "feedType", JE.string "SearchFeed" )
+                      , ( "q", JE.string q )
+                      ]
+                    , encodePropertyAsList "resolve"
+                        resolve
+                        JE.bool
+                        False
+                    , encodePropertyAsList "following"
+                        following
+                        JE.bool
+                        False
+                    ]
 
 
 feedTypeDecoder : Decoder FeedType
@@ -174,7 +216,7 @@ feedTypeDecoder =
                                         }
                                 )
                                 |> required "username" JD.string
-                                |> required "server" JD.string
+                                |> optional "server" JD.string ""
                                 |> optional "flags" (JD.nullable userFeedFlagsDecoder) Nothing
 
                         "ProFeed" ->
@@ -212,7 +254,9 @@ feedTypeDecoder =
                                         }
                                 )
                                 |> optional "accountId" (JD.nullable JD.string) Nothing
-                                |> required "exclusions" (JD.list ED.notificationTypeDecoder)
+                                |> optional "exclusions"
+                                    (JD.list ED.notificationTypeDecoder)
+                                    Types.defaultNotificationExclusions
 
                         "SearchFeed" ->
                             JD.succeed
@@ -224,8 +268,8 @@ feedTypeDecoder =
                                         }
                                 )
                                 |> required "q" JD.string
-                                |> required "resolve" JD.bool
-                                |> required "following" JD.bool
+                                |> optional "resolve" JD.bool False
+                                |> optional "following" JD.bool False
 
                         _ ->
                             JD.fail <| "Unknown feedType: " ++ feedType
