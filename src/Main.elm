@@ -518,6 +518,7 @@ type alias Model =
     , editColumnsMessage : Maybe String
     , feedsText : Maybe String
     , modelText : Maybe String
+    , storageReads : Dict String (Maybe Value)
 
     -- API Explorer state
     , keysDown : Set String
@@ -1206,6 +1207,7 @@ init value url key =
     , editColumnsMessage = Nothing
     , feedsText = Nothing
     , modelText = Nothing
+    , storageReads = Dict.empty
     , keysDown = Set.empty
     , request = Nothing
     , response = Nothing
@@ -1323,13 +1325,70 @@ storageHandler response state model =
 
             else
                 Cmd.none
+
+        lbl label =
+            case label of
+                Nothing ->
+                    ""
+
+                Just l ->
+                    "[" ++ l ++ "] "
     in
     case response of
         LocalStorage.GetResponse { label, key, value } ->
-            handleGetResponse label key value mdl
+            let
+                mdl2 =
+                    if
+                        (label == Just pk.token)
+                            || String.startsWith pk.accountIds key
+                    then
+                        -- Don't save tokens or accountIds
+                        mdl
+
+                    else
+                        let
+                            val =
+                                if key /= pk.model then
+                                    value
+
+                                else
+                                    case value of
+                                        Nothing ->
+                                            value
+
+                                        Just v ->
+                                            case JD.decodeValue savedModelDecoder v of
+                                                Err _ ->
+                                                    value
+
+                                                Ok savedModel ->
+                                                    encodeSavedModel
+                                                        { savedModel | token = Nothing }
+                                                        |> Just
+                        in
+                        { mdl
+                            | storageReads =
+                                Dict.insert ("get " ++ lbl label ++ key)
+                                    val
+                                    mdl.storageReads
+                        }
+            in
+            handleGetResponse label key value mdl2
 
         LocalStorage.ListKeysResponse { label, prefix, keys } ->
-            handleListKeysResponse label prefix keys model
+            let
+                keysv =
+                    Just <| JE.list JE.string keys
+
+                mdl2 =
+                    { mdl
+                        | storageReads =
+                            Dict.insert ("list " ++ lbl label ++ "key")
+                                keysv
+                                mdl.storageReads
+                    }
+            in
+            handleListKeysResponse label prefix keys mdl2
 
         _ ->
             mdl |> withCmd cmd
@@ -12438,7 +12497,26 @@ saveRestoreDialogRows model =
     , enabledButton (model.modelText /= Nothing)
         (ColumnsUIMsg ClearModelText)
         "Resample"
+    , br
+    , br
+    , b "Storage:"
+    , br
+    , textarea
+        [ rows 10
+        , style "width" "100%"
+        , style "color" color
+        , style "background-color" inputBackground
+        , disabled True
+        , value <| storageReadsText 2 model
+        ]
+        []
     ]
+
+
+storageReadsText : Int -> Model -> String
+storageReadsText indent model =
+    JE.dict identity (\x -> ED.encodeMaybe identity x) model.storageReads
+        |> JE.encode indent
 
 
 fontelloChar : List (Attribute Msg) -> String -> List (Attribute Msg) -> Model -> Html Msg
@@ -12480,6 +12558,8 @@ type alias PostState =
     , media_ids : List String
     , fileNames : List String
     , fileUrls : List String
+    , groupName : String
+    , group_id : Maybe String
     }
 
 
@@ -12493,6 +12573,8 @@ initialPostState =
     , media_ids = []
     , fileNames = []
     , fileUrls = []
+    , groupName = ""
+    , group_id = Nothing
     }
 
 
@@ -13639,6 +13721,8 @@ encodePostState postState =
         , ( "media_ids", JE.list JE.string postState.media_ids )
         , ( "fileNames", JE.list JE.string postState.fileNames )
         , ( "fileUrls", JE.list JE.string postState.fileUrls )
+        , ( "groupName", JE.string postState.groupName )
+        , ( "group_id", ED.encodeMaybe JE.string postState.group_id )
         ]
 
 
@@ -13653,6 +13737,8 @@ postStateDecoder =
         |> required "media_ids" (JD.list JD.string)
         |> required "fileNames" (JD.list JD.string)
         |> required "fileUrls" (JD.list JD.string)
+        |> optional "groupName" JD.string ""
+        |> optional "group_id" (JD.nullable JD.string) Nothing
         |> JD.andThen
             (fixDecodedPostState >> JD.succeed)
 
