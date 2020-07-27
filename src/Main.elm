@@ -1383,7 +1383,7 @@ storageHandler response state model =
                 mdl2 =
                     { mdl
                         | storageReads =
-                            Dict.insert ("list " ++ lbl label ++ "key")
+                            Dict.insert ("list " ++ lbl label ++ prefix)
                                 keysv
                                 mdl.storageReads
                     }
