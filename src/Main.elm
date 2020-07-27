@@ -9422,12 +9422,14 @@ renderStatusCard renderEnv status =
                             text ""
 
                         Just image ->
-                            p []
+                            p
+                                [ style "width" "100%"
+                                , style "text-align" "center"
+                                ]
                                 [ a [ href card.url ]
                                     [ img
                                         [ src image
-                                        , width (renderEnv.columnWidth - 18)
-                                        , style "text-align" "center"
+                                        , style "max-height" "4em"
                                         ]
                                         []
                                     ]
