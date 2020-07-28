@@ -7581,6 +7581,7 @@ sendGeneralRequest tagger request model =
                 , metadata = Nothing
                 , selectedKeyPath = ""
                 , selectedKeyValue = ""
+                , msg = Nothing
             }
                 |> withCmd
                     (Request.rawRequestToCmd tagger rawRequest)
