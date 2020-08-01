@@ -3169,7 +3169,7 @@ columnsUIMsg msg model =
                                     ( postState.groupName, postState.group_id )
 
                                 Just group ->
-                                    ( group.title, Just group.id )
+                                    ( group.title, Nothing )
                             )
             in
             { model
