@@ -33,6 +33,10 @@ See ../TODO.md for the full list.
   ** *DONE* modulo scanning status received after making a post.
   ** Add "pinned" indication with rendered Status
 
+* If the first pull of notifications doesn't fill the column, there's
+  no way to get it to fetch more. Need a button at the bottom to do that,
+  not just scrolling.
+
 * Configure location of the scroll pill (and call it that).
     Top, bottom or center. Left, middle, or right.
     Assuming the CSS works for center and middle.
@@ -301,6 +305,7 @@ type Popup
     | UserNamePopup
     | GroupNamePopup
     | HashtagPopup
+    | PostGroupPopup
 
 
 type alias FocusInput =
@@ -432,6 +437,7 @@ type PopupChoice
     = AccountChoice Account
     | GroupChoice Group
     | HashtagChoice String
+    | PostGroupChoice Group
 
 
 type alias Model =
@@ -653,6 +659,8 @@ type ColumnsUIMsg
     | ScrollPageAtTime ScrollDirection Posix
     | ClearFeatures
     | ShowPostDialog (Maybe Status)
+    | PostWithMention String
+    | PostWithGroupId String
     | ShowSettingsDialog
     | ShowKeyboardShortcutsDialog
     | ShowSaveRestoreDialog
@@ -674,6 +682,8 @@ type ColumnsUIMsg
     | ClearModelText
     | SetFeedsText String
     | SetModelText String
+    | PostGroupNameInput String
+    | TogglePostGroup
     | SetPostText String
     | ChoosePostAttachment
     | PostAttachmentChosen File
@@ -3144,30 +3154,73 @@ columnsUIMsg msg model =
 
                         Just account ->
                             account.username
+
+                ( ( replyTo, replyType ), ( groupName, group_id ) ) =
+                    case maybeStatus of
+                        Nothing ->
+                            ( ( postState.replyTo, postState.replyType )
+                            , ( postState.groupName, postState.group_id )
+                            )
+
+                        Just status ->
+                            ( ( maybeStatus, ReplyToPost )
+                            , case status.group of
+                                Nothing ->
+                                    ( postState.groupName, postState.group_id )
+
+                                Just group ->
+                                    ( group.title, Just group.id )
+                            )
             in
             { model
                 | dialog = PostDialog
                 , postState =
                     { postState
-                        | replyTo =
-                            case maybeStatus of
-                                Just _ ->
-                                    maybeStatus
-
-                                Nothing ->
-                                    postState.replyTo
-                        , replyType =
-                            case maybeStatus of
-                                Just _ ->
-                                    ReplyToPost
-
-                                _ ->
-                                    postState.replyType
+                        | replyTo = replyTo
+                        , replyType = replyType
+                        , groupName = groupName
+                        , group_id = group_id
                     }
                         |> addPostStateMentions me
             }
                 |> withCmd
                     (focusId PostDialogTextId)
+
+        PostWithMention nameAtServer ->
+            let
+                postState =
+                    model.postState
+            in
+            columnsUIMsg (ShowPostDialog Nothing)
+                { model
+                    | postState =
+                        { postState
+                            | text =
+                                "@" ++ nameAtServer ++ " " ++ postState.text
+                        }
+                }
+
+        PostWithGroupId group_id ->
+            let
+                postState =
+                    model.postState
+
+                groupName =
+                    case Dict.get group_id model.groupDict of
+                        Just group ->
+                            group.title
+
+                        Nothing ->
+                            "Group ID " ++ group_id
+            in
+            columnsUIMsg (ShowPostDialog Nothing)
+                { model
+                    | postState =
+                        { postState
+                            | groupName = groupName
+                            , group_id = Just group_id
+                        }
+                }
 
         ShowSettingsDialog ->
             { model | dialog = SettingsDialog }
@@ -3336,6 +3389,65 @@ columnsUIMsg msg model =
 
         SetModelText modelText ->
             { model | modelText = Just modelText }
+                |> withNoCmd
+
+        PostGroupNameInput groupName ->
+            let
+                postState =
+                    model.postState
+            in
+            -- TODO: close completion popup if empty.
+            -- Trigger completion popup if not empty.
+            { model
+                | postState =
+                    { postState
+                        | groupName = groupName
+                        , group_id = Nothing
+                    }
+                , popupChoices =
+                    if groupName == "" then
+                        []
+
+                    else
+                        model.popupChoices
+            }
+                |> initializePopup PostGroupPopup groupName
+
+        TogglePostGroup ->
+            let
+                postState =
+                    model.postState
+
+                ( groupName, group_id, clearPopup ) =
+                    case postState.group_id of
+                        Nothing ->
+                            case findGroup postState.groupName model of
+                                Nothing ->
+                                    ( postState.groupName, Nothing, False )
+
+                                Just group ->
+                                    ( group.title, Just group.id, True )
+
+                        Just _ ->
+                            ( postState.groupName, Nothing, True )
+
+                mdl =
+                    if not clearPopup then
+                        model
+
+                    else
+                        { model
+                            | popup = NoPopup
+                            , popupElement = Nothing
+                        }
+            in
+            { mdl
+                | postState =
+                    { postState
+                        | groupName = groupName
+                        , group_id = group_id
+                    }
+            }
                 |> withNoCmd
 
         SetPostText string ->
@@ -3520,7 +3632,7 @@ columnsUIMsg msg model =
                 post =
                     { status = nothingIfBlank postState.text
                     , in_reply_to_id = in_reply_to_id
-                    , group_id = Nothing
+                    , group_id = postState.group_id
                     , quote_of_id = quote_id
                     , media_ids = postState.media_ids
                     , poll = Nothing
@@ -3570,6 +3682,24 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
 
+findGroup : String -> Model -> Maybe Group
+findGroup groupName model =
+    let
+        lcname =
+            String.toLower groupName
+    in
+    case
+        LE.find
+            (\( _, group ) -> lcname == String.toLower group.title)
+            (Dict.toList model.groupDict)
+    of
+        Nothing ->
+            Nothing
+
+        Just ( _, group ) ->
+            Just group
+
+
 popupChoose : PopupChoice -> Model -> ( Model, Cmd Msg )
 popupChoose choice model =
     let
@@ -3579,7 +3709,7 @@ popupChoose choice model =
                 , popupChoices = []
             }
 
-        ( mdl2, feedType ) =
+        ( mdl2, feedType, addTheFeed ) =
             case choice of
                 AccountChoice account ->
                     ( { mdl
@@ -3587,6 +3717,7 @@ popupChoose choice model =
                         , accountInput = Just account
                       }
                     , Types.defaultUserFeedType
+                    , True
                     )
 
                 GroupChoice group ->
@@ -3597,6 +3728,7 @@ popupChoose choice model =
                             Dict.insert group.id group model.groupDict
                       }
                     , Types.defaultGroupFeedType
+                    , True
                     )
 
                 HashtagChoice hashtag ->
@@ -3604,9 +3736,32 @@ popupChoose choice model =
                         | hashtagInput = hashtag
                       }
                     , Types.defaultHashtagFeedType
+                    , True
+                    )
+
+                PostGroupChoice group ->
+                    let
+                        postState =
+                            mdl.postState
+                    in
+                    ( { mdl
+                        | postState =
+                            { postState
+                                | groupName = group.title
+                                , group_id = Just group.id
+                            }
+                        , groupDict =
+                            Dict.insert group.id group model.groupDict
+                      }
+                    , Types.defaultGroupFeedType
+                    , False
                     )
     in
-    addFeedType (fillinFeedType feedType mdl2) mdl2
+    if addTheFeed then
+        addFeedType (fillinFeedType feedType mdl2) mdl2
+
+    else
+        mdl2 |> withNoCmd
 
 
 popupToNodeId : Popup -> String
@@ -3620,6 +3775,9 @@ popupToNodeId popup =
 
         HashtagPopup ->
             nodeIds.hashtagInput
+
+        PostGroupPopup ->
+            nodeIds.postGroupInput
 
         _ ->
             "thereIsNoNodeWithThisIdAtLeastFnordThereHadBetterNotBe"
@@ -3695,6 +3853,9 @@ sendDelayedPopupRequest popup input request model =
 
                     HashtagPopup ->
                         model.hashtagInput
+
+                    PostGroupPopup ->
+                        model.postState.groupName
         in
         if input /= curInput then
             model |> withNoCmd
@@ -4209,6 +4370,15 @@ getGroup group_id model =
     Dict.get group_id model.groupDict
 
 
+usernameAtServer : String -> String -> RenderEnv -> String
+usernameAtServer username server renderEnv =
+    if server == "" || Just server == renderEnv.loginServer then
+        username
+
+    else
+        username ++ "@" ++ server
+
+
 {-| TODO:
 
 This needs to be sent to `server`, not `model.renderEnv.loginServer`.
@@ -4242,11 +4412,7 @@ startReloadUserFeed paging params model =
                 Just acctIds ->
                     let
                         nameAtServer =
-                            if server == "" || server == loginServer then
-                                username
-
-                            else
-                                username ++ "@" ++ server
+                            usernameAtServer username server model.renderEnv
                     in
                     case LE.find (.username >> (==) nameAtServer) acctIds of
                         Nothing ->
@@ -7085,15 +7251,12 @@ applyResponseSideEffects response model =
                                 , nextSearch = Cmd.none
                                 , searchActive = model.nextSearch /= Cmd.none
                             }
-
-                        groupToChoice group =
-                            GroupChoice group
                     in
                     case mdl.popup of
                         GroupNamePopup ->
                             let
                                 choices =
-                                    List.map groupToChoice results.groups
+                                    List.map GroupChoice results.groups
                             in
                             { mdl
                                 | popupChoices = choices
@@ -7109,6 +7272,21 @@ applyResponseSideEffects response model =
                             let
                                 choices =
                                     List.map HashtagChoice results.hashtags
+                            in
+                            { mdl
+                                | popupChoices = choices
+                                , popup =
+                                    if choices == [] then
+                                        NoPopup
+
+                                    else
+                                        mdl.popup
+                            }
+
+                        PostGroupPopup ->
+                            let
+                                choices =
+                                    List.map PostGroupChoice results.groups
                             in
                             { mdl
                                 | popupChoices = choices
@@ -8495,6 +8673,24 @@ settingsDialogContent model =
     ]
 
 
+postToFeedMsg : FeedType -> RenderEnv -> Maybe Msg
+postToFeedMsg feedType renderEnv =
+    case feedType of
+        UserFeed { username, server } ->
+            Just
+                (ColumnsUIMsg
+                    (PostWithMention <|
+                        usernameAtServer username server renderEnv
+                    )
+                )
+
+        GroupFeed group_id ->
+            Just (ColumnsUIMsg <| PostWithGroupId group_id)
+
+        _ ->
+            Nothing
+
+
 headerFeedId : String -> String
 headerFeedId feedId =
     feedId ++ " [header]"
@@ -8558,11 +8754,26 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
               else
                 Html.i
                     [ onClick <| ColumnsUIMsg (RefreshFeed feedType)
-                    , style "font-size" "80%"
+                    , style "font-size" smallTextFontSize
                     , class "icon-spin3"
                     ]
                     []
+            , text " "
             , title
+            , case postToFeedMsg feedType renderEnv of
+                Nothing ->
+                    text ""
+
+                Just msg ->
+                    span []
+                        [ text " "
+                        , Html.i
+                            [ onClick msg
+                            , style "font-size" smallTextFontSize
+                            , class "icon-pencil"
+                            ]
+                            []
+                        ]
             , case feedType of
                 GroupFeed _ ->
                     case feedEnv.group of
@@ -11765,6 +11976,7 @@ nodeIds =
     , groupNameInput = "groupNameInput"
     , hashtagInput = "hashtagInput"
     , showListsButton = "showListsButton"
+    , postGroupInput = "postGroupInput"
     }
 
 
@@ -11894,6 +12106,9 @@ renderPopupChoice renderEnv choice =
                 , class (getStyle renderEnv.style |> .popupChoiceClass)
                 ]
                 [ text hashtag ]
+
+        PostGroupChoice group ->
+            renderPopupChoice renderEnv (GroupChoice group)
 
 
 renderPopup : Model -> Html Msg
@@ -12592,6 +12807,9 @@ postDialog model =
 
         hasQuoteFeature =
             serverHasFeature renderEnv.loginServer featureNames.quote model
+
+        hasGroupsFeature =
+            serverHasFeature renderEnv.loginServer featureNames.groups model
     in
     dialogRender
         renderEnv
@@ -12610,7 +12828,7 @@ postDialog model =
                 _ ->
                     "Post"
         , content =
-            postDialogContent hasQuoteFeature
+            postDialogContent ( hasQuoteFeature, hasGroupsFeature )
                 model.renderEnv
                 model.dropZone
                 postState
@@ -12682,8 +12900,8 @@ maximumPostAttachments =
     4
 
 
-postDialogContent : Bool -> RenderEnv -> DropZone.Model -> PostState -> List (Html Msg)
-postDialogContent hasQuoteFeature renderEnv dropZone postState =
+postDialogContent : ( Bool, Bool ) -> RenderEnv -> DropZone.Model -> PostState -> List (Html Msg)
+postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone postState =
     let
         { inputBackground, color } =
             getStyle renderEnv.style
@@ -12750,6 +12968,30 @@ postDialogContent hasQuoteFeature renderEnv dropZone postState =
                 , text " "
                 , button (ColumnsUIMsg ClearPostStateReplyTo) "Clear Reply"
                 ]
+    , if not hasGroupsFeature then
+        text ""
+
+      else
+        p []
+            [ b "Group: "
+            , input
+                [ id nodeIds.postGroupInput
+                , size 40
+                , autocapitalize "off"
+                , onInput (ColumnsUIMsg << PostGroupNameInput)
+                , value postState.groupName
+                , placeholder "Group name"
+                ]
+                []
+            , text " "
+            , input
+                [ type_ "checkbox"
+                , checked <| postState.group_id /= Nothing
+                , onClick <| ColumnsUIMsg TogglePostGroup
+                ]
+                []
+            , br
+            ]
     , p []
         [ textarea
             [ id nodeIds.postDialogText
