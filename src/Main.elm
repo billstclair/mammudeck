@@ -12976,7 +12976,7 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone postS
             [ b "Group: "
             , input
                 [ id nodeIds.postGroupInput
-                , size 40
+                , size 30
                 , autocapitalize "off"
                 , onInput (ColumnsUIMsg << PostGroupNameInput)
                 , value postState.groupName
