@@ -307,6 +307,7 @@ type Popup
     | GroupNamePopup
     | HashtagPopup
     | PostGroupPopup
+    | PostTextPopup AtsignOrSharp
 
 
 type alias FocusInput =
@@ -676,6 +677,7 @@ type ColumnsUIMsg
     | GroupNameInput String
     | HashtagInput String
     | SendDelayedPopupRequest Popup String Request
+    | SendDelayedPostTextPopup AtsignOrSharp String
     | ReceivePopupElement (Result Dom.Error Dom.Element)
     | PopupChoose PopupChoice
     | ReceiveHeaderElement String (Result Dom.Error Dom.Element)
@@ -3303,6 +3305,9 @@ columnsUIMsg msg model =
         SendDelayedPopupRequest popup input request ->
             sendDelayedPopupRequest popup input request model
 
+        SendDelayedPostTextPopup atsignOrSharp postText ->
+            sendDelayedPostTextPopup atsignOrSharp postText model
+
         ReceivePopupElement result ->
             case result of
                 Err _ ->
@@ -3890,13 +3895,80 @@ pullAtsignOrSharp chars =
 
 initializePostTextPopup : String -> String -> Model -> ( Model, Cmd Msg )
 initializePostTextPopup oldText newText model =
+    -- Another way to do this is to get the cursor position and
+    -- search back from there.
+    -- That requires a loop through `view` and `update`.
+    -- text-area-tracker.js does a lot of work, so I think this
+    -- single loop through old and new is better.
+    let
+        mdl =
+            { model
+                | popup = NoPopup
+                , popupElement = Nothing
+            }
+    in
     case findAtsignOrSharp oldText newText of
         Nothing ->
-            model |> withNoCmd
+            mdl |> withNoCmd
 
-        Just atSignOrSharp ->
-            -- TODO
-            model |> withNoCmd
+        Just atsignOrSharp ->
+            let
+                text =
+                    model.postState.text
+            in
+            mdl
+                |> withCmd
+                    (popupDelayedCmd
+                        (ColumnsUIMsg <|
+                            SendDelayedPostTextPopup atsignOrSharp text
+                        )
+                    )
+
+
+sendDelayedPostTextPopup : AtsignOrSharp -> String -> Model -> ( Model, Cmd Msg )
+sendDelayedPostTextPopup atsignOrSharp postText model =
+    if postText /= model.postState.text then
+        model |> withNoCmd
+
+    else
+        let
+            searchText =
+                case atsignOrSharp of
+                    Atsign s _ ->
+                        s
+
+                    Sharp s _ ->
+                        s
+
+            request =
+                SearchRequest <|
+                    Request.GetSearch
+                        { q = searchText
+                        , resolve = True
+                        , limit = Nothing
+                        , offset = Nothing
+                        , following = False
+                        }
+
+            ( _, searchCmd ) =
+                sendRequest request model
+
+            ( mdl, cmd ) =
+                if model.searchActive then
+                    { model | nextSearch = searchCmd } |> withNoCmd
+
+                else
+                    { model
+                        | searchActive = True
+                        , nextSearch = Cmd.none
+                    }
+                        |> withCmd searchCmd
+        in
+        { mdl
+            | popup = PostTextPopup atsignOrSharp
+            , postInputCount = model.postInputCount + 1
+        }
+            |> withCmd cmd
 
 
 initializePopup : Popup -> String -> Model -> ( Model, Cmd Msg )
@@ -3940,13 +4012,18 @@ initializePopup popup input model =
                                 }
 
             delayedCmd =
-                Delay.after 500 Delay.Millisecond <|
+                popupDelayedCmd
                     (ColumnsUIMsg <|
                         SendDelayedPopupRequest popup input searchRequest
                     )
         in
         { model | popup = popup }
             |> withCmds [ cmd, delayedCmd ]
+
+
+popupDelayedCmd : Msg -> Cmd Msg
+popupDelayedCmd msg =
+    Delay.after 500 Delay.Millisecond msg
 
 
 sendDelayedPopupRequest : Popup -> String -> Request -> Model -> ( Model, Cmd Msg )
@@ -3958,9 +4035,6 @@ sendDelayedPopupRequest popup input request model =
         let
             curInput =
                 case popup of
-                    NoPopup ->
-                        ""
-
                     UserNamePopup ->
                         model.userNameInput
 
@@ -3972,6 +4046,9 @@ sendDelayedPopupRequest popup input request model =
 
                     PostGroupPopup ->
                         model.postState.groupName
+
+                    _ ->
+                        ""
         in
         if input /= curInput then
             model |> withNoCmd
