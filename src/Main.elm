@@ -89,6 +89,7 @@ import Char
 import Cmd.Extra exposing (addCmd, withCmd, withCmds, withNoCmd)
 import CustomElement.BodyColors as BodyColors
 import CustomElement.RenderNotify as RenderNotify
+import CustomElement.TextAreaTracker as TextAreaTracker exposing (Coordinates)
 import CustomElement.WriteClipboard as WriteClipboard
 import Delay
 import Dialog
@@ -525,6 +526,9 @@ type alias Model =
     , feedsText : Maybe String
     , modelText : Maybe String
     , storageReads : Dict String (Maybe Value)
+    , coordinates : Maybe Coordinates
+    , postInputPosition : Int
+    , postInputCount : Int
 
     -- API Explorer state
     , keysDown : Set String
@@ -1218,6 +1222,9 @@ init value url key =
     , feedsText = Nothing
     , modelText = Nothing
     , storageReads = Dict.empty
+    , coordinates = Nothing
+    , postInputPosition = 0
+    , postInputCount = 0
     , keysDown = Set.empty
     , request = Nothing
     , response = Nothing
@@ -3396,8 +3403,6 @@ columnsUIMsg msg model =
                 postState =
                     model.postState
             in
-            -- TODO: close completion popup if empty.
-            -- Trigger completion popup if not empty.
             { model
                 | postState =
                     { postState
@@ -3459,7 +3464,7 @@ columnsUIMsg msg model =
                 | postState =
                     { postState | text = string }
             }
-                |> withNoCmd
+                |> initializePostTextPopup postState.text string
 
         ChoosePostAttachment ->
             model
@@ -3781,6 +3786,117 @@ popupToNodeId popup =
 
         _ ->
             "thereIsNoNodeWithThisIdAtLeastFnordThereHadBetterNotBe"
+
+
+type AtsignOrSharp
+    = Atsign String Int
+    | Sharp String Int
+
+
+findAtsignOrSharp : String -> String -> Maybe AtsignOrSharp
+findAtsignOrSharp oldText newText =
+    let
+        oldLen =
+            String.length oldText
+
+        newLen =
+            String.length newText
+
+        diff =
+            newLen - oldLen
+    in
+    if abs diff /= 1 then
+        Nothing
+
+    else
+        let
+            oldChars =
+                String.toList oldText
+
+            newChars =
+                String.toList newText
+
+            loop : List Char -> List Char -> List Char -> Maybe AtsignOrSharp
+            loop old new prefix =
+                case old of
+                    [] ->
+                        case new of
+                            [] ->
+                                Nothing
+
+                            nc :: _ ->
+                                pullAtsignOrSharp <| nc :: prefix
+
+                    oc :: otail ->
+                        case new of
+                            [] ->
+                                pullAtsignOrSharp prefix
+
+                            nc :: ntail ->
+                                if oc == nc then
+                                    loop otail ntail <| nc :: prefix
+
+                                else if diff > 0 then
+                                    pullAtsignOrSharp <| nc :: prefix
+
+                                else
+                                    pullAtsignOrSharp prefix
+        in
+        loop oldChars newChars []
+
+
+whiteSpaceChars : Set Char
+whiteSpaceChars =
+    Set.fromList [ ' ', '\t', '\n', '\u{000D}' ]
+
+
+isWhiteSpace : Char -> Bool
+isWhiteSpace char =
+    Set.member char whiteSpaceChars
+
+
+pullAtsignOrSharp : List Char -> Maybe AtsignOrSharp
+pullAtsignOrSharp chars =
+    let
+        loop : List Char -> List Char -> Maybe AtsignOrSharp
+        loop cs res =
+            case cs of
+                [] ->
+                    Nothing
+
+                c :: rest ->
+                    if isWhiteSpace c then
+                        Nothing
+
+                    else if c == '@' then
+                        if res == [] then
+                            Nothing
+
+                        else
+                            Just (Atsign (String.fromList res) <| List.length cs)
+
+                    else if c == '#' then
+                        if res == [] then
+                            Nothing
+
+                        else
+                            Just (Sharp (String.fromList res) <| List.length cs)
+
+                    else
+                        loop rest <| c :: res
+    in
+    loop chars []
+
+
+initializePostTextPopup : String -> String -> Model -> ( Model, Cmd Msg )
+initializePostTextPopup oldText newText model =
+    case findAtsignOrSharp oldText newText of
+        Nothing ->
+            model |> withNoCmd
+
+        Just atSignOrSharp ->
+            -- TODO
+            model |> withNoCmd
 
 
 initializePopup : Popup -> String -> Model -> ( Model, Cmd Msg )
