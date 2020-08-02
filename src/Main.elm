@@ -527,6 +527,7 @@ type alias Model =
     , feedsText : Maybe String
     , modelText : Maybe String
     , storageReads : Dict String (Maybe Value)
+    , postDialogElement : Maybe Dom.Element
     , coordinates : Maybe Coordinates
     , postInputPosition : Int
     , postInputCount : Int
@@ -678,6 +679,8 @@ type ColumnsUIMsg
     | HashtagInput String
     | SendDelayedPopupRequest Popup String Request
     | SendDelayedPostTextPopup AtsignOrSharp String
+    | ReceivePostDialogElement (Result Dom.Error Dom.Element)
+    | ReceiveCoordinates Coordinates
     | ReceivePopupElement (Result Dom.Error Dom.Element)
     | PopupChoose PopupChoice
     | ReceiveHeaderElement String (Result Dom.Error Dom.Element)
@@ -1224,6 +1227,7 @@ init value url key =
     , feedsText = Nothing
     , modelText = Nothing
     , storageReads = Dict.empty
+    , postDialogElement = Nothing
     , coordinates = Nothing
     , postInputPosition = 0
     , postInputCount = 0
@@ -3192,8 +3196,11 @@ columnsUIMsg msg model =
                     }
                         |> addPostStateMentions me
             }
-                |> withCmd
-                    (focusId PostDialogTextId)
+                |> withCmds
+                    [ focusId PostDialogTextId
+                    , Task.attempt (ColumnsUIMsg << ReceivePostDialogElement)
+                        (Dom.getElement nodeIds.postDialogText)
+                    ]
 
         PostWithMention nameAtServer ->
             let
@@ -3307,6 +3314,60 @@ columnsUIMsg msg model =
 
         SendDelayedPostTextPopup atsignOrSharp postText ->
             sendDelayedPostTextPopup atsignOrSharp postText model
+
+        ReceivePostDialogElement result ->
+            case result of
+                Err _ ->
+                    model |> withNoCmd
+
+                Ok element ->
+                    { model | postDialogElement = Just element }
+                        |> withNoCmd
+
+        ReceiveCoordinates coordinates ->
+            if coordinates.selectionStart /= coordinates.selectionEnd then
+                model |> withNoCmd
+
+            else
+                case model.popup of
+                    PostTextPopup _ ->
+                        let
+                            { top, left, lineheight } =
+                                coordinates.caretCoordinates
+                        in
+                        case model.postDialogElement of
+                            Nothing ->
+                                model |> withNoCmd
+
+                            Just element ->
+                                let
+                                    elel =
+                                        element.element
+                                in
+                                { model
+                                    | popupElement =
+                                        Just
+                                            { element
+                                                | element =
+                                                    Debug.log "PostTextPopup"
+                                                        { elel
+                                                            | x =
+                                                                toFloat left
+                                                                    + elel.x
+                                                            , y =
+                                                                toFloat top
+                                                                    + elel.y
+                                                            , height =
+                                                                Maybe.withDefault 20
+                                                                    lineheight
+                                                                    |> toFloat
+                                                        }
+                                            }
+                                }
+                                    |> withNoCmd
+
+                    _ ->
+                        model |> withNoCmd
 
         ReceivePopupElement result ->
             case result of
@@ -3722,13 +3783,23 @@ popupChoose choice model =
         ( mdl2, feedType, addTheFeed ) =
             case choice of
                 AccountChoice account ->
-                    ( { mdl
-                        | userNameInput = account.acct
-                        , accountInput = Just account
-                      }
-                    , Types.defaultUserFeedType
-                    , True
-                    )
+                    case model.popup of
+                        PostTextPopup atsignOrSharp ->
+                            ( insertAtsignOrSharp account.username
+                                atsignOrSharp
+                                model
+                            , Types.defaultUserFeedType
+                            , False
+                            )
+
+                        _ ->
+                            ( { mdl
+                                | userNameInput = account.acct
+                                , accountInput = Just account
+                              }
+                            , Types.defaultUserFeedType
+                            , True
+                            )
 
                 GroupChoice group ->
                     ( { mdl
@@ -3742,12 +3813,20 @@ popupChoose choice model =
                     )
 
                 HashtagChoice hashtag ->
-                    ( { mdl
-                        | hashtagInput = hashtag
-                      }
-                    , Types.defaultHashtagFeedType
-                    , True
-                    )
+                    case model.popup of
+                        PostTextPopup atsignOrSharp ->
+                            ( insertAtsignOrSharp hashtag atsignOrSharp model
+                            , Types.defaultUserFeedType
+                            , False
+                            )
+
+                        _ ->
+                            ( { mdl
+                                | hashtagInput = hashtag
+                              }
+                            , Types.defaultHashtagFeedType
+                            , True
+                            )
 
                 PostGroupChoice group ->
                     let
@@ -3772,6 +3851,17 @@ popupChoose choice model =
 
     else
         mdl2 |> withNoCmd
+
+
+insertAtsignOrSharp : String -> AtsignOrSharp -> Model -> Model
+insertAtsignOrSharp string atsignOrSharp model =
+    -- TODO insertAtsignOrSharp
+    { model
+        | popup = NoPopup
+        , popupElement = Nothing
+        , postDialogElement = Nothing
+        , coordinates = Nothing
+    }
 
 
 popupToNodeId : Popup -> String
@@ -3918,7 +4008,7 @@ initializePostTextPopup oldText newText model =
             in
             mdl
                 |> withCmd
-                    (popupDelayedCmd
+                    (delayedPopupCmd
                         (ColumnsUIMsg <|
                             SendDelayedPostTextPopup atsignOrSharp text
                         )
@@ -4012,7 +4102,7 @@ initializePopup popup input model =
                                 }
 
             delayedCmd =
-                popupDelayedCmd
+                delayedPopupCmd
                     (ColumnsUIMsg <|
                         SendDelayedPopupRequest popup input searchRequest
                     )
@@ -4021,8 +4111,8 @@ initializePopup popup input model =
             |> withCmds [ cmd, delayedCmd ]
 
 
-popupDelayedCmd : Msg -> Cmd Msg
-popupDelayedCmd msg =
+delayedPopupCmd : Msg -> Cmd Msg
+delayedPopupCmd msg =
     Delay.after 500 Delay.Millisecond msg
 
 
@@ -7324,15 +7414,12 @@ applyResponseSideEffects response model =
                                 , nextSearch = Cmd.none
                                 , searchActive = model.nextSearch /= Cmd.none
                             }
-
-                        accountToChoice account =
-                            AccountChoice account
                     in
                     case mdl.popup of
                         UserNamePopup ->
                             let
                                 choices =
-                                    List.map accountToChoice results
+                                    List.map AccountChoice results
                             in
                             { mdl
                                 | popupChoices = choices
@@ -7444,55 +7531,38 @@ applyResponseSideEffects response model =
                                 , nextSearch = Cmd.none
                                 , searchActive = model.nextSearch /= Cmd.none
                             }
-                    in
-                    case mdl.popup of
-                        GroupNamePopup ->
-                            let
-                                choices =
+
+                        choices =
+                            case mdl.popup of
+                                GroupNamePopup ->
                                     List.map GroupChoice results.groups
-                            in
-                            { mdl
-                                | popupChoices = choices
-                                , popup =
-                                    if choices == [] then
-                                        NoPopup
 
-                                    else
-                                        mdl.popup
-                            }
-
-                        HashtagPopup ->
-                            let
-                                choices =
+                                HashtagPopup ->
                                     List.map HashtagChoice results.hashtags
-                            in
-                            { mdl
-                                | popupChoices = choices
-                                , popup =
-                                    if choices == [] then
-                                        NoPopup
 
-                                    else
-                                        mdl.popup
-                            }
-
-                        PostGroupPopup ->
-                            let
-                                choices =
+                                PostGroupPopup ->
                                     List.map PostGroupChoice results.groups
-                            in
-                            { mdl
-                                | popupChoices = choices
-                                , popup =
-                                    if choices == [] then
-                                        NoPopup
 
-                                    else
-                                        mdl.popup
-                            }
+                                PostTextPopup atSignOrSharp ->
+                                    case atSignOrSharp of
+                                        Atsign _ _ ->
+                                            List.map AccountChoice results.accounts
 
-                        _ ->
-                            mdl
+                                        Sharp _ _ ->
+                                            List.map HashtagChoice results.hashtags
+
+                                _ ->
+                                    []
+                    in
+                    { mdl
+                        | popupChoices = choices
+                        , popup =
+                            if choices == [] then
+                                NoPopup
+
+                            else
+                                mdl.popup
+                    }
 
                 _ ->
                     model
@@ -8445,6 +8515,12 @@ view model =
             []
         , renderDialog model
         , renderPopup model
+        , TextAreaTracker.textAreaTracker
+            [ TextAreaTracker.textAreaId nodeIds.postDialogText
+            , TextAreaTracker.triggerCoordinates model.postInputCount
+            , TextAreaTracker.onCoordinates (ColumnsUIMsg << ReceiveCoordinates)
+            ]
+            []
         , div [ id "body" ]
             [ case model.page of
                 HomePage ->
