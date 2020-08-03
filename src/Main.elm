@@ -123,6 +123,7 @@ import Html
 import Html.Attributes
     exposing
         ( alt
+        , autocomplete
         , autofocus
         , checked
         , class
@@ -528,7 +529,7 @@ type alias Model =
     , modelText : Maybe String
     , storageReads : Dict String (Maybe Value)
     , postDialogElement : Maybe Dom.Element
-    , coordinates : Maybe Coordinates
+    , postTriggerCoordinatesCount : Int
     , postInputPosition : Int
     , postInputCount : Int
 
@@ -1228,7 +1229,7 @@ init value url key =
     , modelText = Nothing
     , storageReads = Dict.empty
     , postDialogElement = Nothing
-    , coordinates = Nothing
+    , postTriggerCoordinatesCount = 0
     , postInputPosition = 0
     , postInputCount = 0
     , keysDown = Set.empty
@@ -3349,19 +3350,18 @@ columnsUIMsg msg model =
                                         Just
                                             { element
                                                 | element =
-                                                    Debug.log "PostTextPopup"
-                                                        { elel
-                                                            | x =
-                                                                toFloat left
-                                                                    + elel.x
-                                                            , y =
-                                                                toFloat top
-                                                                    + elel.y
-                                                            , height =
-                                                                Maybe.withDefault 20
-                                                                    lineheight
-                                                                    |> toFloat
-                                                        }
+                                                    { elel
+                                                        | x =
+                                                            toFloat left
+                                                                + elel.x
+                                                        , y =
+                                                            toFloat top
+                                                                + elel.y
+                                                        , height =
+                                                            Maybe.withDefault 20
+                                                                lineheight
+                                                                |> toFloat
+                                                    }
                                             }
                                 }
                                     |> withNoCmd
@@ -3845,22 +3845,54 @@ popupChoose choice model =
                     , Types.defaultGroupFeedType
                     , False
                     )
+
+        cmd =
+            case model.popup of
+                PostTextPopup _ ->
+                    Task.attempt (\_ -> Noop) <|
+                        Dom.focus nodeIds.postDialogText
+
+                _ ->
+                    Cmd.none
     in
     if addTheFeed then
         addFeedType (fillinFeedType feedType mdl2) mdl2
 
     else
-        mdl2 |> withNoCmd
+        mdl2 |> withCmd cmd
 
 
 insertAtsignOrSharp : String -> AtsignOrSharp -> Model -> Model
 insertAtsignOrSharp string atsignOrSharp model =
-    -- TODO insertAtsignOrSharp
+    let
+        ( str, pos ) =
+            case atsignOrSharp of
+                Atsign s p ->
+                    ( s, p )
+
+                Sharp s p ->
+                    ( s, p )
+
+        slen =
+            String.length str
+
+        postState =
+            model.postState
+
+        postText =
+            postState.text
+
+        newPostText =
+            String.left pos postText
+                ++ string
+                ++ String.dropLeft (pos + slen) postText
+    in
     { model
         | popup = NoPopup
         , popupElement = Nothing
-        , postDialogElement = Nothing
-        , coordinates = Nothing
+        , postState = { postState | text = newPostText }
+        , postInputPosition = pos + String.length string
+        , postInputCount = model.postInputCount + 1
     }
 
 
@@ -3995,6 +4027,7 @@ initializePostTextPopup oldText newText model =
             { model
                 | popup = NoPopup
                 , popupElement = Nothing
+                , popupChoices = []
             }
     in
     case findAtsignOrSharp oldText newText of
@@ -4056,7 +4089,7 @@ sendDelayedPostTextPopup atsignOrSharp postText model =
         in
         { mdl
             | popup = PostTextPopup atsignOrSharp
-            , postInputCount = model.postInputCount + 1
+            , postTriggerCoordinatesCount = model.postTriggerCoordinatesCount + 1
         }
             |> withCmd cmd
 
@@ -8515,10 +8548,18 @@ view model =
             []
         , renderDialog model
         , renderPopup model
-        , TextAreaTracker.textAreaTracker
+        , let
+            pos =
+                model.postInputPosition
+
+            cnt =
+                model.postInputCount
+          in
+          TextAreaTracker.textAreaTracker
             [ TextAreaTracker.textAreaId nodeIds.postDialogText
-            , TextAreaTracker.triggerCoordinates model.postInputCount
+            , TextAreaTracker.triggerCoordinates model.postTriggerCoordinatesCount
             , TextAreaTracker.onCoordinates (ColumnsUIMsg << ReceiveCoordinates)
+            , TextAreaTracker.setSelection pos pos cnt
             ]
             []
         , div [ id "body" ]
@@ -12284,8 +12325,8 @@ popupPositionAttributes renderEnv element =
         x =
             max 5 <| el.x - 150
 
-        y =
-            el.y + el.height + 20
+        xs =
+            String.fromFloat x ++ "px"
 
         ( w, h ) =
             renderEnv.windowSize
@@ -12293,20 +12334,38 @@ popupPositionAttributes renderEnv element =
         maxw =
             w - ceiling x - 10
 
-        maxh =
-            h - ceiling y - 20
+        ( maxh, attrs ) =
+            if el.y > toFloat h / 2 then
+                let
+                    yy =
+                        el.y - 10
 
-        xs =
-            String.fromFloat x ++ "px"
+                    ys =
+                        String.fromFloat (toFloat h - yy) ++ "px"
+                in
+                ( floor yy
+                , [ PopupPicker.left xs
+                  , PopupPicker.bottom ys
+                  ]
+                )
 
-        ys =
-            String.fromFloat y ++ "px"
+            else
+                let
+                    yy =
+                        el.y + el.height + 20
+
+                    ys =
+                        String.fromFloat yy ++ "px"
+                in
+                ( h - ceiling yy - 20
+                , PopupPicker.position ( xs, ys )
+                )
     in
     List.concat
         [ [ style "max-width" <| px maxw
           , style "max-height" <| px maxh
           ]
-        , PopupPicker.position ( xs, ys )
+        , attrs
         ]
 
 
@@ -12374,7 +12433,7 @@ renderPopupChoice renderEnv choice =
                 [ title <| "#" ++ hashtag
                 , class (getStyle renderEnv.style |> .popupChoiceClass)
                 ]
-                [ text hashtag ]
+                [ text <| "#" ++ hashtag ]
 
         PostGroupChoice group ->
             renderPopupChoice renderEnv (GroupChoice group)
@@ -12705,6 +12764,7 @@ editColumnDialogRows model =
                     , input
                         [ id nodeIds.userNameInput
                         , autocapitalize "off"
+                        , autocomplete False
                         , size 30
                         , onInput (ColumnsUIMsg << UserNameInput)
                         , value model.userNameInput
@@ -12726,6 +12786,7 @@ editColumnDialogRows model =
                             [ id nodeIds.groupNameInput
                             , size 30
                             , autocapitalize "off"
+                            , autocomplete False
                             , onInput (ColumnsUIMsg << GroupNameInput)
                             , value model.groupNameInput
                             , placeholder "Group name"
@@ -12740,6 +12801,7 @@ editColumnDialogRows model =
                         [ id nodeIds.hashtagInput
                         , size 30
                         , autocapitalize "off"
+                        , autocomplete False
                         , onInput (ColumnsUIMsg << HashtagInput)
                         , value model.hashtagInput
                         , placeholder "hashtag"
@@ -13247,6 +13309,7 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone postS
                 [ id nodeIds.postGroupInput
                 , size 30
                 , autocapitalize "off"
+                , autocomplete False
                 , onInput (ColumnsUIMsg << PostGroupNameInput)
                 , value postState.groupName
                 , placeholder "Group name"

@@ -62,7 +62,7 @@
             // The user will often set the text at the same time as
             // the selection. Elm will sync in an unknown order,
             // so delay changing the selection.
-            window.setTimeout(doit, 1);
+            window.setTimeout(doit, 100);
           }
         }
       }
