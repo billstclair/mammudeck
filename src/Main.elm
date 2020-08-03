@@ -12316,8 +12316,8 @@ popupPicker renderEnv =
     }
 
 
-popupPositionAttributes : RenderEnv -> Dom.Element -> List (Attribute msg)
-popupPositionAttributes renderEnv element =
+popupPositionAttributes : Int -> RenderEnv -> Dom.Element -> List (Attribute msg)
+popupPositionAttributes choiceWidth renderEnv element =
     let
         el =
             element.element
@@ -12325,15 +12325,8 @@ popupPositionAttributes renderEnv element =
         ( w, h ) =
             renderEnv.windowSize
 
-        xx =
-            if toFloat w - el.x < 300 then
-                el.x - 150
-
-            else
-                el.x - 20
-
         x =
-            max 5 xx
+            max 5 (min (toFloat <| w - choiceWidth) (el.x - 20))
 
         xs =
             String.fromFloat x ++ "px"
@@ -12459,8 +12452,30 @@ renderPopup model =
 
                 Just element ->
                     let
+                        choiceWidth =
+                            case model.popup of
+                                UserNamePopup ->
+                                    1024
+
+                                GroupNamePopup ->
+                                    1024
+
+                                PostGroupPopup ->
+                                    1024
+
+                                HashtagPopup ->
+                                    300
+
+                                PostTextPopup (Atsign _ _) ->
+                                    1024
+
+                                _ ->
+                                    300
+
                         positionAttributes =
-                            popupPositionAttributes model.renderEnv element
+                            popupPositionAttributes choiceWidth
+                                model.renderEnv
+                                element
 
                         picker =
                             popupPicker model.renderEnv
