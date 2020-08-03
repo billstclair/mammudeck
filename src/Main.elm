@@ -12322,14 +12322,21 @@ popupPositionAttributes renderEnv element =
         el =
             element.element
 
+        ( w, h ) =
+            renderEnv.windowSize
+
+        xx =
+            if toFloat w - el.x < 300 then
+                el.x - 150
+
+            else
+                el.x - 20
+
         x =
-            max 5 <| el.x - 150
+            max 5 xx
 
         xs =
             String.fromFloat x ++ "px"
-
-        ( w, h ) =
-            renderEnv.windowSize
 
         maxw =
             w - ceiling x - 10
@@ -12352,7 +12359,7 @@ popupPositionAttributes renderEnv element =
             else
                 let
                     yy =
-                        el.y + el.height + 20
+                        el.y + el.height + 10
 
                     ys =
                         String.fromFloat yy ++ "px"
