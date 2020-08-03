@@ -1,3 +1,14 @@
+# Set some options.
+Options -Indexes
+Options +FollowSymLinks
+
+# Rewriting rules for the lisp server
+RewriteEngine on
+
+# always use HTTPS
+RewriteCond "%{HTTPS}" "off" [NC]
+RewriteRule "^/?(.*)" "https://%{HTTP_HOST}/$1" [R,L,NE]
+
 # Compress JavaScript
 # https://betterexplained.com/articles/how-to-optimize-your-site-with-gzip-compression/
 
