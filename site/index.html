@@ -74,6 +74,42 @@
         window.addEventListener('blur', function() { focusNotify.send(false); });
       }
 
+      // https://plainjs.com/javascript/events/trigger-an-event-11/
+      function triggerEvent(el, type) {
+        if ('createEvent' in document) {
+          // modern browsers, IE9+
+          var e = document.createEvent('HTMLEvents');
+          e.initEvent(type, false, true);
+          el.dispatchEvent(e);
+        } else {
+          // IE 8
+          var e = document.createEventObject();
+          e.eventType = type;
+          el.fireEvent('on'+e.eventType, e);
+        }
+      }
+
+      // https://stackoverflow.com/questions/31040611/manually-trigger-focus-on-input-iphone-issue
+      var mobileFocus = app.ports.mobileFocus;
+      if (mobileFocus) {
+        mobileFocus.subscribe(function(id) {
+          try {
+            var node = document.getElementById(id);
+            if (node) {
+              var listener = function() {
+                node.focus();
+              };
+              node.addEventListener('touchstart', listener)
+              var remove = function() {
+                node.removeEventListener('touchstart', listener);
+              };
+              window.setTimeout(remove, 100);
+              triggerEvent(node, 'touchstart');
+            }
+          } catch (e) {}
+        });
+      }
+      
       // Scroll monitoring
       // https://developer.mozilla.org/en-US/docs/Web/API/Document/scroll_event
       //

@@ -241,7 +241,7 @@ import Url.Parser.Query as QP
 It forces them to open in a new tab/window.
 
 -}
-port openWindow : JE.Value -> Cmd msg
+port openWindow : Value -> Cmd msg
 
 
 {-| Scroll monitor requests.
@@ -249,7 +249,7 @@ port openWindow : JE.Value -> Cmd msg
 JSON: {id: <string>, enable: <bool>}
 
 -}
-port scrollRequest : JE.Value -> Cmd msg
+port scrollRequest : Value -> Cmd msg
 
 
 {-| Scroll monitor notifications.
@@ -260,11 +260,14 @@ JSON: {id: <string>, scrollX: <int>, scrollY: <int>}
 port scrollNotify : (Value -> msg) -> Sub msg
 
 
-
-{- When the window is focused, this gets True, when blurred, False. -}
-
-
+{-| When the window is focused, this gets True, when blurred, False.
+-}
 port focusNotify : (Bool -> msg) -> Sub msg
+
+
+{-| Make the iPhone bring up the keyboard.
+-}
+port mobileFocus : String -> Cmd msg
 
 
 type Started
@@ -611,7 +614,7 @@ type Msg
     | ColumnsSendMsg ColumnsSendMsg
     | ExplorerUIMsg ExplorerUIMsg
     | ExplorerSendMsg ExplorerSendMsg
-    | ScrollNotify JE.Value
+    | ScrollNotify Value
     | FocusNotify Bool
     | ApplyToModel (Model -> ( Model, Cmd Msg ))
 
@@ -2106,7 +2109,7 @@ emptyScrollNotification =
     }
 
 
-processScroll : JE.Value -> Model -> ( Model, Cmd Msg )
+processScroll : Value -> Model -> ( Model, Cmd Msg )
 processScroll value model =
     case JD.decodeValue scrollNotificationDecoder value of
         Err _ ->
@@ -3846,20 +3849,24 @@ popupChoose choice model =
                     , False
                     )
 
-        cmd =
+        cmds =
             case model.popup of
                 PostTextPopup _ ->
-                    Task.attempt (\_ -> Noop) <|
+                    [ Task.attempt (\_ -> Noop) <|
+                        -- Doesn't work on iPhone. See:
+                        -- https://stackoverflow.com/questions/31040611/manually-trigger-focus-on-input-iphone-issue
                         Dom.focus nodeIds.postDialogText
+                    , mobileFocus nodeIds.postDialogText
+                    ]
 
                 _ ->
-                    Cmd.none
+                    []
     in
     if addTheFeed then
         addFeedType (fillinFeedType feedType mdl2) mdl2
 
     else
-        mdl2 |> withCmd cmd
+        mdl2 |> withCmds cmds
 
 
 insertAtsignOrSharp : String -> AtsignOrSharp -> Model -> Model
