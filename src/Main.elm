@@ -157,6 +157,7 @@ import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, require
 import Json.Encode as JE exposing (Value)
 import JsonTree exposing (TaggedValue(..))
 import List.Extra as LE
+import Mammudeck.EmojiChar as EmojiChar
 import Mammudeck.EncodeDecode as MED exposing (encodePropertyAsList)
 import Mammudeck.Types as Types
     exposing
@@ -9386,6 +9387,11 @@ validEmojiChar c =
 
 validEmojiName : String -> Bool
 validEmojiName string =
+    -- Temporary
+    let
+        n =
+            EmojiChar.findEmojiChars string
+    in
     (String.length string > 0)
         && (String.toList string
                 |> LE.find (\c -> not (validEmojiChar c))
