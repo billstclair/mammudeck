@@ -22,6 +22,11 @@
 
 See ../TODO.md for the full list.
 
+* :foo in the Post dialog textarea should popup up a list of emoji
+    characters, with names containing foo, plus server
+    emojis. Clicking the former should insert that character.  The
+    latter should insert :foobar:.
+
 * Add reply-to as in Pleroma before message.
   ** This requires keeping a table mapping server & id to acct (username@server) & url.
      Accumulate this from Status.mentions, Notification.account, Status.account.
@@ -40,14 +45,6 @@ See ../TODO.md for the full list.
 * Configure location of the scroll pill (and call it that).
     Top, bottom or center. Left, middle, or right.
     Assuming the CSS works for center and middle.
-
-* Group feeds
-    ** Delay after typing in User ID or Group before asking server.
-       *DONE*
-    ** Incremental search for the group name in the "Edit Columns"
-       dialog, instead of entering the ID.
-       *DONE*
-    ** Post to a group.
 
 * More feed types. Lists, groups, hashtags, search
     Parameters for user, public, and notification
@@ -3853,8 +3850,7 @@ popupChoose choice model =
             case model.popup of
                 PostTextPopup _ ->
                     [ Task.attempt (\_ -> Noop) <|
-                        -- Doesn't work on iPhone. See:
-                        -- https://stackoverflow.com/questions/31040611/manually-trigger-focus-on-input-iphone-issue
+                        -- Probably extraneous, since mobileFocus does this again.
                         Dom.focus nodeIds.postDialogText
                     , mobileFocus nodeIds.postDialogText
                     ]
