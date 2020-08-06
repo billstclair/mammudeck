@@ -33,7 +33,7 @@ findEmojiChars name =
                 |> not
     in
     List.filter matches emojis
-        |> List.sortWith (emojiOrder name)
+        |> List.sortWith (emojiOrder <| String.replace "-" "_" name)
 
 
 emojiOrder : String -> EmojiChar -> EmojiChar -> Order
