@@ -4162,6 +4162,7 @@ findEmojis string renderEnv =
     in
     renderEnv.emojisList
         |> List.filter (\emoji -> String.startsWith lc emoji.shortcode)
+        |> List.sortBy (\emoji -> emoji.shortcode)
 
 
 searchPostPopupColon : PostPopupSearch -> Model -> ( Model, Cmd Msg )

@@ -33,6 +33,37 @@ findEmojiChars name =
                 |> not
     in
     List.filter matches emojis
+        |> List.sortWith (emojiOrder name)
+
+
+emojiOrder : String -> EmojiChar -> EmojiChar -> Order
+emojiOrder prefix char1 char2 =
+    let
+        ( name1, name2 ) =
+            ( char1.name, char2.name )
+    in
+    if String.startsWith prefix name1 then
+        if String.startsWith prefix name2 then
+            compare name1 name2
+
+        else
+            LT
+
+    else if String.startsWith prefix name2 then
+        GT
+
+    else if String.contains prefix name1 then
+        if String.contains prefix name2 then
+            compare name1 name2
+
+        else
+            LT
+
+    else if String.contains prefix name2 then
+        GT
+
+    else
+        compare name1 name2
 
 
 rawEmojiToEmoji : ( String, List (List String), ( String, List String, String ) ) -> EmojiChar
