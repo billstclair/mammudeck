@@ -18,6 +18,22 @@
       this._triggerCoordinates = null;
       this._triggerSelection = null;
       this._setSelection = null;
+
+      // https://stackoverflow.com/a/11213349/1386989
+      this.bytePos = function(string, charPos) {
+        var pos;
+        var code;
+        var i = 0;
+        var len = string.length;
+        for (pos=0 ;pos<len && i<charPos; pos++) {
+          code = string.charCodeAt(pos);
+          if (code < 128 || (code < 0xD800 || code > 0xDBFF)) i++;
+        }
+
+        if (pos < len && !(code < 0xD800 || code > 0xDBFF)) pos++
+
+        return pos;
+      }
     }
 
     connectedCallback() {
@@ -48,15 +64,17 @@
            ) {
           var element = this.textArea;
           if (element) {
-            var that = this;
+            var start = value.start;
+            var end = value.end;
+            if (start == null) {
+              start = end;
+            } else if (end == null) {
+              end = start;
+            }
+            var text = element.value;
+            start = this.bytePos(text, start);
+            end = this.bytePos(text, end);
             function doit() {
-              var start = value.start;
-              var end = value.end;
-              if (start == null) {
-                start = end;
-              } else if (end == null) {
-                end = start;
-              }
               element.setSelectionRange(start, end, value.direction);
             }
             // The user will often set the text at the same time as

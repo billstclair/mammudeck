@@ -3913,25 +3913,32 @@ insertPostSearchDeletingPrefix deletePrefix string search model =
         pos =
             search.position - delta
 
+        searchChars =
+            String.toList search.string
+
         slen =
-            String.length search.string
+            List.length searchChars
+
+        chars =
+            String.toList string
 
         postState =
             model.postState
 
-        postText =
-            postState.text
+        postChars =
+            String.toList postState.text
 
         newPostText =
-            String.left pos postText
-                ++ string
-                ++ String.dropLeft (pos + slen + delta) postText
+            List.take pos postChars
+                ++ chars
+                ++ List.drop (pos + slen + delta) postChars
+                |> String.fromList
     in
     { model
         | popup = NoPopup
         , popupElement = Nothing
         , postState = { postState | text = newPostText }
-        , postInputPosition = pos + String.length string
+        , postInputPosition = pos + List.length chars
         , postInputCount = model.postInputCount + 1
     }
 
