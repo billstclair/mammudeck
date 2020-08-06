@@ -157,7 +157,7 @@ import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, require
 import Json.Encode as JE exposing (Value)
 import JsonTree exposing (TaggedValue(..))
 import List.Extra as LE
-import Mammudeck.EmojiChar as EmojiChar
+import Mammudeck.EmojiChar as EmojiChar exposing (EmojiChar)
 import Mammudeck.EncodeDecode as MED exposing (encodePropertyAsList)
 import Mammudeck.Types as Types
     exposing
@@ -309,7 +309,7 @@ type Popup
     | GroupNamePopup
     | HashtagPopup
     | PostGroupPopup
-    | PostTextPopup AtsignOrSharp
+    | PostTextPopup PostPopupSearch
 
 
 type alias FocusInput =
@@ -374,6 +374,7 @@ type alias RenderEnv =
 
     -- not persistent
     , emojis : Dict String Emoji
+    , emojisList : List Emoji
     , windowSize : ( Int, Int )
     , here : Zone
     }
@@ -387,6 +388,7 @@ emptyRenderEnv =
     , fontSize = "100"
     , columnWidth = 300
     , emojis = Dict.empty
+    , emojisList = []
     , windowSize = ( 1024, 768 )
     , here = Time.utc
     }
@@ -442,6 +444,8 @@ type PopupChoice
     | GroupChoice Group
     | HashtagChoice String
     | PostGroupChoice Group
+    | PostEmojiChoice Emoji
+    | PostEmojiCharChoice EmojiChar
 
 
 type alias Model =
@@ -680,7 +684,7 @@ type ColumnsUIMsg
     | GroupNameInput String
     | HashtagInput String
     | SendDelayedPopupRequest Popup String Request
-    | SendDelayedPostTextPopup AtsignOrSharp String
+    | SendDelayedPostTextPopup PostPopupSearch String
     | ReceivePostDialogElement (Result Dom.Error Dom.Element)
     | ReceiveCoordinates Coordinates
     | ReceivePopupElement (Result Dom.Error Dom.Element)
@@ -3314,8 +3318,8 @@ columnsUIMsg msg model =
         SendDelayedPopupRequest popup input request ->
             sendDelayedPopupRequest popup input request model
 
-        SendDelayedPostTextPopup atsignOrSharp postText ->
-            sendDelayedPostTextPopup atsignOrSharp postText model
+        SendDelayedPostTextPopup search postText ->
+            sendDelayedPostTextPopup search postText model
 
         ReceivePostDialogElement result ->
             case result of
@@ -3785,9 +3789,9 @@ popupChoose choice model =
             case choice of
                 AccountChoice account ->
                     case model.popup of
-                        PostTextPopup atsignOrSharp ->
-                            ( insertAtsignOrSharp account.username
-                                atsignOrSharp
+                        PostTextPopup search ->
+                            ( insertPostSearch account.username
+                                search
                                 model
                             , Types.defaultUserFeedType
                             , False
@@ -3815,8 +3819,8 @@ popupChoose choice model =
 
                 HashtagChoice hashtag ->
                     case model.popup of
-                        PostTextPopup atsignOrSharp ->
-                            ( insertAtsignOrSharp hashtag atsignOrSharp model
+                        PostTextPopup search ->
+                            ( insertPostSearch hashtag search model
                             , Types.defaultUserFeedType
                             , False
                             )
@@ -3847,6 +3851,14 @@ popupChoose choice model =
                     , False
                     )
 
+                PostEmojiChoice emoji ->
+                    -- TODO
+                    ( mdl, Types.defaultGroupFeedType, False )
+
+                PostEmojiCharChoice emojiChar ->
+                    -- TODO
+                    ( mdl, Types.defaultGroupFeedType, False )
+
         cmds =
             case model.popup of
                 PostTextPopup _ ->
@@ -3866,19 +3878,14 @@ popupChoose choice model =
         mdl2 |> withCmds cmds
 
 
-insertAtsignOrSharp : String -> AtsignOrSharp -> Model -> Model
-insertAtsignOrSharp string atsignOrSharp model =
+insertPostSearch : String -> PostPopupSearch -> Model -> Model
+insertPostSearch string search model =
     let
-        ( str, pos ) =
-            case atsignOrSharp of
-                Atsign s p ->
-                    ( s, p )
-
-                Sharp s p ->
-                    ( s, p )
+        pos =
+            search.position
 
         slen =
-            String.length str
+            String.length search.string
 
         postState =
             model.postState
@@ -3919,13 +3926,21 @@ popupToNodeId popup =
             "thereIsNoNodeWithThisIdAtLeastFnordThereHadBetterNotBe"
 
 
-type AtsignOrSharp
-    = Atsign String Int
-    | Sharp String Int
+type PostPopupType
+    = PostPopupAtsign
+    | PostPopupSharp
+    | PostPopupColon
 
 
-findAtsignOrSharp : String -> String -> Maybe AtsignOrSharp
-findAtsignOrSharp oldText newText =
+type alias PostPopupSearch =
+    { popupType : PostPopupType
+    , string : String
+    , position : Int
+    }
+
+
+findPostPopupSearch : String -> String -> Maybe PostPopupSearch
+findPostPopupSearch oldText newText =
     let
         oldLen =
             String.length oldText
@@ -3947,7 +3962,7 @@ findAtsignOrSharp oldText newText =
             newChars =
                 String.toList newText
 
-            loop : List Char -> List Char -> List Char -> Maybe AtsignOrSharp
+            loop : List Char -> List Char -> List Char -> Maybe PostPopupSearch
             loop old new prefix =
                 case old of
                     [] ->
@@ -3956,22 +3971,22 @@ findAtsignOrSharp oldText newText =
                                 Nothing
 
                             nc :: _ ->
-                                pullAtsignOrSharp <| nc :: prefix
+                                pullPostPopupSearch <| nc :: prefix
 
                     oc :: otail ->
                         case new of
                             [] ->
-                                pullAtsignOrSharp prefix
+                                pullPostPopupSearch prefix
 
                             nc :: ntail ->
                                 if oc == nc then
                                     loop otail ntail <| nc :: prefix
 
                                 else if diff > 0 then
-                                    pullAtsignOrSharp <| nc :: prefix
+                                    pullPostPopupSearch <| nc :: prefix
 
                                 else
-                                    pullAtsignOrSharp prefix
+                                    pullPostPopupSearch prefix
         in
         loop oldChars newChars []
 
@@ -3986,10 +4001,26 @@ isWhiteSpace char =
     Set.member char whiteSpaceChars
 
 
-pullAtsignOrSharp : List Char -> Maybe AtsignOrSharp
-pullAtsignOrSharp chars =
+charToPostPopupType : Char -> Maybe PostPopupType
+charToPostPopupType char =
+    case char of
+        '@' ->
+            Just PostPopupAtsign
+
+        '#' ->
+            Just PostPopupSharp
+
+        ':' ->
+            Just PostPopupColon
+
+        _ ->
+            Nothing
+
+
+pullPostPopupSearch : List Char -> Maybe PostPopupSearch
+pullPostPopupSearch chars =
     let
-        loop : List Char -> List Char -> Maybe AtsignOrSharp
+        loop : List Char -> List Char -> Maybe PostPopupSearch
         loop cs res =
             case cs of
                 [] ->
@@ -3999,22 +4030,17 @@ pullAtsignOrSharp chars =
                     if isWhiteSpace c then
                         Nothing
 
-                    else if c == '@' then
-                        if res == [] then
-                            Nothing
-
-                        else
-                            Just (Atsign (String.fromList res) <| List.length cs)
-
-                    else if c == '#' then
-                        if res == [] then
-                            Nothing
-
-                        else
-                            Just (Sharp (String.fromList res) <| List.length cs)
-
                     else
-                        loop rest <| c :: res
+                        case charToPostPopupType c of
+                            Nothing ->
+                                loop rest <| c :: res
+
+                            Just popupType ->
+                                Just
+                                    { popupType = popupType
+                                    , string = String.fromList res
+                                    , position = List.length cs
+                                    }
     in
     loop chars []
 
@@ -4034,11 +4060,11 @@ initializePostTextPopup oldText newText model =
                 , popupChoices = []
             }
     in
-    case findAtsignOrSharp oldText newText of
+    case findPostPopupSearch oldText newText of
         Nothing ->
             mdl |> withNoCmd
 
-        Just atsignOrSharp ->
+        Just search ->
             let
                 text =
                     model.postState.text
@@ -4047,55 +4073,62 @@ initializePostTextPopup oldText newText model =
                 |> withCmd
                     (delayedPopupCmd
                         (ColumnsUIMsg <|
-                            SendDelayedPostTextPopup atsignOrSharp text
+                            SendDelayedPostTextPopup search text
                         )
                     )
 
 
-sendDelayedPostTextPopup : AtsignOrSharp -> String -> Model -> ( Model, Cmd Msg )
-sendDelayedPostTextPopup atsignOrSharp postText model =
+sendDelayedPostTextPopup : PostPopupSearch -> String -> Model -> ( Model, Cmd Msg )
+sendDelayedPostTextPopup search postText model =
     if postText /= model.postState.text then
         model |> withNoCmd
 
     else
-        let
-            searchText =
-                case atsignOrSharp of
-                    Atsign s _ ->
-                        s
+        case search.popupType of
+            PostPopupColon ->
+                searchPostPopupColon search model
 
-                    Sharp s _ ->
-                        s
+            _ ->
+                let
+                    searchText =
+                        search.string
 
-            request =
-                SearchRequest <|
-                    Request.GetSearch
-                        { q = searchText
-                        , resolve = True
-                        , limit = Nothing
-                        , offset = Nothing
-                        , following = False
-                        }
+                    request =
+                        SearchRequest <|
+                            Request.GetSearch
+                                { q = searchText
+                                , resolve = True
+                                , limit = Nothing
+                                , offset = Nothing
+                                , following = False
+                                }
 
-            ( _, searchCmd ) =
-                sendRequest request model
+                    ( _, searchCmd ) =
+                        sendRequest request model
 
-            ( mdl, cmd ) =
-                if model.searchActive then
-                    { model | nextSearch = searchCmd } |> withNoCmd
+                    ( mdl, cmd ) =
+                        if model.searchActive then
+                            { model | nextSearch = searchCmd } |> withNoCmd
 
-                else
-                    { model
-                        | searchActive = True
-                        , nextSearch = Cmd.none
-                    }
-                        |> withCmd searchCmd
-        in
-        { mdl
-            | popup = PostTextPopup atsignOrSharp
-            , postTriggerCoordinatesCount = model.postTriggerCoordinatesCount + 1
-        }
-            |> withCmd cmd
+                        else
+                            { model
+                                | searchActive = True
+                                , nextSearch = Cmd.none
+                            }
+                                |> withCmd searchCmd
+                in
+                { mdl
+                    | popup = PostTextPopup search
+                    , postTriggerCoordinatesCount =
+                        model.postTriggerCoordinatesCount + 1
+                }
+                    |> withCmd cmd
+
+
+searchPostPopupColon : PostPopupSearch -> Model -> ( Model, Cmd Msg )
+searchPostPopupColon search model =
+    -- TODO
+    model |> withNoCmd
 
 
 initializePopup : Popup -> String -> Model -> ( Model, Cmd Msg )
@@ -7485,13 +7518,18 @@ applyResponseSideEffects response model =
                         renderEnv =
                             model.renderEnv
 
-                        dict =
+                        list =
                             List.map (\emoji -> ( emoji.shortcode, emoji )) emojis
-                                |> Dict.fromList
+
+                        dict =
+                            Dict.fromList list
                     in
                     { model
                         | renderEnv =
-                            { renderEnv | emojis = dict }
+                            { renderEnv
+                                | emojis = dict
+                                , emojisList = List.map Tuple.second list
+                            }
                     }
 
                 _ ->
@@ -7580,13 +7618,16 @@ applyResponseSideEffects response model =
                                 PostGroupPopup ->
                                     List.map PostGroupChoice results.groups
 
-                                PostTextPopup atSignOrSharp ->
-                                    case atSignOrSharp of
-                                        Atsign _ _ ->
+                                PostTextPopup search ->
+                                    case search.popupType of
+                                        PostPopupAtsign ->
                                             List.map AccountChoice results.accounts
 
-                                        Sharp _ _ ->
+                                        PostPopupSharp ->
                                             List.map HashtagChoice results.hashtags
+
+                                        _ ->
+                                            []
 
                                 _ ->
                                     []
@@ -12447,6 +12488,25 @@ renderPopupChoice renderEnv choice =
         PostGroupChoice group ->
             renderPopupChoice renderEnv (GroupChoice group)
 
+        PostEmojiChoice emoji ->
+            -- TODO, add image.
+            let
+                size =
+                    18 * renderEnv.fontSizePct // 100
+            in
+            span []
+                [ img
+                    [ src emoji.url
+                    , draggable "false"
+                    , style "height" <| px size
+                    ]
+                    []
+                , text <| " " ++ emoji.shortcode
+                ]
+
+        PostEmojiCharChoice emojiChar ->
+            text <| emojiChar.char ++ " " ++ emojiChar.name
+
 
 renderPopup : Model -> Html Msg
 renderPopup model =
@@ -12475,10 +12535,15 @@ renderPopup model =
                                 HashtagPopup ->
                                     300
 
-                                PostTextPopup (Atsign _ _) ->
-                                    1024
+                                PostTextPopup { popupType } ->
+                                    case popupType of
+                                        PostPopupAtsign ->
+                                            1024
 
-                                _ ->
+                                        _ ->
+                                            300
+
+                                NoPopup ->
                                     300
 
                         positionAttributes =
