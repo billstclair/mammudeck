@@ -4161,8 +4161,32 @@ findEmojis string renderEnv =
             String.toLower string
     in
     renderEnv.emojisList
-        |> List.filter (\emoji -> String.startsWith lc emoji.shortcode)
-        |> List.sortBy (\emoji -> emoji.shortcode)
+        |> List.filter
+            (\emoji ->
+                String.startsWith lc emoji.shortcode
+                    || String.contains lc emoji.shortcode
+            )
+        |> List.sortWith (emojiOrder string)
+
+
+emojiOrder : String -> Emoji -> Emoji -> Order
+emojiOrder prefix emoji1 emoji2 =
+    let
+        ( code1, code2 ) =
+            ( emoji1.shortcode, emoji2.shortcode )
+    in
+    if String.startsWith prefix code1 then
+        if String.startsWith prefix code2 then
+            compare code1 code2
+
+        else
+            LT
+
+    else if String.startsWith prefix code2 then
+        GT
+
+    else
+        compare code1 code2
 
 
 searchPostPopupColon : PostPopupSearch -> Model -> ( Model, Cmd Msg )
