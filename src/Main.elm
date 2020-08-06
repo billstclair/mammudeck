@@ -3852,12 +3852,29 @@ popupChoose choice model =
                     )
 
                 PostEmojiChoice emoji ->
-                    -- TODO
-                    ( mdl, Types.defaultGroupFeedType, False )
+                    case model.popup of
+                        PostTextPopup search ->
+                            ( insertPostSearch (emoji.shortcode ++ ":") search model
+                            , Types.defaultUserFeedType
+                            , False
+                            )
+
+                        _ ->
+                            ( model, Types.defaultUserFeedType, False )
 
                 PostEmojiCharChoice emojiChar ->
-                    -- TODO
-                    ( mdl, Types.defaultGroupFeedType, False )
+                    case model.popup of
+                        PostTextPopup search ->
+                            ( insertPostSearchDeletingPrefix True
+                                emojiChar.char
+                                search
+                                model
+                            , Types.defaultUserFeedType
+                            , False
+                            )
+
+                        _ ->
+                            ( model, Types.defaultUserFeedType, False )
 
         cmds =
             case model.popup of
@@ -3879,10 +3896,22 @@ popupChoose choice model =
 
 
 insertPostSearch : String -> PostPopupSearch -> Model -> Model
-insertPostSearch string search model =
+insertPostSearch =
+    insertPostSearchDeletingPrefix False
+
+
+insertPostSearchDeletingPrefix : Bool -> String -> PostPopupSearch -> Model -> Model
+insertPostSearchDeletingPrefix deletePrefix string search model =
     let
+        delta =
+            if deletePrefix then
+                1
+
+            else
+                0
+
         pos =
-            search.position
+            search.position - delta
 
         slen =
             String.length search.string
@@ -3896,7 +3925,7 @@ insertPostSearch string search model =
         newPostText =
             String.left pos postText
                 ++ string
-                ++ String.dropLeft (pos + slen) postText
+                ++ String.dropLeft (pos + slen + delta) postText
     in
     { model
         | popup = NoPopup
@@ -4125,10 +4154,49 @@ sendDelayedPostTextPopup search postText model =
                     |> withCmd cmd
 
 
+findEmojis : String -> RenderEnv -> List Emoji
+findEmojis string renderEnv =
+    let
+        lc =
+            String.toLower string
+    in
+    renderEnv.emojisList
+        |> List.filter (\emoji -> String.startsWith lc emoji.shortcode)
+
+
 searchPostPopupColon : PostPopupSearch -> Model -> ( Model, Cmd Msg )
 searchPostPopupColon search model =
-    -- TODO
-    model |> withNoCmd
+    let
+        string =
+            search.string
+
+        choices =
+            if string == "" then
+                []
+
+            else
+                List.concat
+                    [ findEmojis search.string model.renderEnv
+                        |> List.map PostEmojiChoice
+                    , EmojiChar.findEmojiChars search.string
+                        |> List.map PostEmojiCharChoice
+                    ]
+    in
+    if choices == [] then
+        { model
+            | popupChoices = choices
+            , popup = NoPopup
+        }
+            |> withNoCmd
+
+    else
+        { model
+            | popupChoices = choices
+            , popup = PostTextPopup search
+            , postTriggerCoordinatesCount =
+                model.postTriggerCoordinatesCount + 1
+        }
+            |> withNoCmd
 
 
 initializePopup : Popup -> String -> Model -> ( Model, Cmd Msg )
