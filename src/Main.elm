@@ -22,10 +22,23 @@
 
 See ../TODO.md for the full list.
 
-* :foo in the Post dialog textarea should popup up a list of emoji
-    characters, with names containing foo, plus server
-    emojis. Clicking the former should insert that character.  The
-    latter should insert :foobar:.
+* @foo in Post dialog should use (AccountsRequest << GetSearchAccounts), not
+  (SearchRequest << GetSearch). The latter can be slow on servers that support
+  full text search in statuses.
+
+* Unalloyed @billstclair on impeccable.social gets the wrong ID when
+  added as a column, even when clicking on popup, which should know
+  the ID.
+
+* Thread Explorer (not sure yet what this will be, but I have yet to
+  see anyone do real justice to comment trees).It needs to be similar
+  to the JSON tree in the Mammudeck's API Exporer window, showing who
+  replied at each level, with clicks to include an excerpt, the whole
+  comment, and the subtree. But I haven't yet thought about how that
+  maps to the API.
+
+  The 'GET statuses/:id/context' API call is used to navigate in the
+  reply tree. Play with it at mammudeck.com/?api=statuses
 
 * Add reply-to as in Pleroma before message.
   ** This requires keeping a table mapping server & id to acct (username@server) & url.
@@ -56,22 +69,10 @@ See ../TODO.md for the full list.
 
 * Ellipsis dialog: block, mute, (un)follow, delete, edit, (un)mute status
 
-* Show quoted post. Option to show replied to post.
-  *DONE*: quoted post.
-
 * Update feed button at top of feed (first step in auto-update).
   Buttons are there, and they reload the feed.  Need to make them do
   incremental update, just load messages since the top one, and put a
   red line between new and old.
-
-* Thread Explorer (not sure yet what this will be, but I have yet to
-  see anyone do real justice to comment trees).It needs to be similar
-  to the JSON tree in the Mammudeck's API Exporer window, showing who
-  replied at each level, with clicks to include an excerpt, the whole
-  comment, and the subtree. But I haven't yet thought about how that
-  maps to the API.
-
-The 'GET statuses/:id/context' API call is used to navigate in the reply tree. Play with it at mammudeck.com/?api=statuses
 
 --}
 
@@ -185,6 +186,7 @@ import Mastodon.Entity as Entity
         , Attachment
         , AttachmentType(..)
         , Authorization
+        , Context
         , Datetime
         , Emoji
         , Entity(..)
@@ -289,6 +291,11 @@ emptyPagingInput =
     , min_id = ""
     , limit = ""
     }
+
+
+type PopupExplorer
+    = NoPopupExplorer
+    | ThreadPopupExplorer ThreadExplorerState
 
 
 type Dialog
@@ -509,6 +516,7 @@ type alias Model =
 
     -- Non-persistent below here
     , initialPage : InitialPage
+    , popupExplorer : PopupExplorer
     , dialog : Dialog
     , popup : Popup
     , popupElement : Maybe Dom.Element
@@ -689,6 +697,10 @@ type ColumnsUIMsg
     | ReceiveCoordinates Coordinates
     | ReceivePopupElement (Result Dom.Error Dom.Element)
     | PopupChoose PopupChoice
+    | OpenThreadExplorer Status
+    | GetThreadPopupStatusViewport String
+    | ReceiveThreadPopupScrollInfo (Result Dom.Error ( Dom.Element, Dom.Element ))
+    | ClosePopupExplorer
     | ReceiveHeaderElement String (Result Dom.Error Dom.Element)
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
@@ -1209,6 +1221,7 @@ init value url key =
 
     -- Non-persistent below here
     , initialPage = initialPage
+    , popupExplorer = NoPopupExplorer
     , dialog = NoDialog
     , popup = NoPopup
     , popupElement = Nothing
@@ -3386,6 +3399,37 @@ columnsUIMsg msg model =
         PopupChoose choice ->
             popupChoose choice model
 
+        OpenThreadExplorer status ->
+            openThreadExplorer status model
+
+        GetThreadPopupStatusViewport id ->
+            let
+                task =
+                    Dom.getElement id
+                        |> Task.andThen
+                            (\element ->
+                                Dom.getElement
+                                    nodeIds.threadExplorerStatusDiv
+                                    |> Task.andThen
+                                        (\scrollElement ->
+                                            Task.succeed
+                                                ( element, scrollElement )
+                                        )
+                            )
+            in
+            model
+                |> withCmd
+                    (Task.attempt (ColumnsUIMsg << ReceiveThreadPopupScrollInfo)
+                        task
+                    )
+
+        ReceiveThreadPopupScrollInfo result ->
+            receiveThreadPopupScrollInfo result model
+
+        ClosePopupExplorer ->
+            { model | popupExplorer = NoPopupExplorer }
+                |> withNoCmd
+
         ReceiveHeaderElement id result ->
             let
                 height =
@@ -3756,6 +3800,183 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+
+receiveThreadPopupScrollInfo : Result Dom.Error ( Dom.Element, Dom.Element ) -> Model -> ( Model, Cmd Msg )
+receiveThreadPopupScrollInfo result model =
+    case result of
+        Err _ ->
+            model |> withNoCmd
+
+        Ok ( { element }, scrollElement ) ->
+            let
+                height =
+                    scrollElement.element.height
+
+                y =
+                    scrollElement.element.y
+
+                oneThird =
+                    min (height / 3) element.height
+            in
+            if height - (element.y - y) < oneThird then
+                let
+                    scroll =
+                        element.y - y - (height - oneThird)
+
+                    task =
+                        Dom.setViewportOf nodeIds.threadExplorerStatusDiv
+                            0
+                            scroll
+                in
+                model
+                    |> withCmd
+                        (Task.attempt (\_ -> Noop) task)
+
+            else
+                model |> withNoCmd
+
+
+type alias ScrolledStatus =
+    { status : Status
+    , displayed : List Status
+    , scroll : Float
+    }
+
+
+type alias ThreadExplorerState =
+    List ScrolledStatus
+
+
+openThreadExplorer : Status -> Model -> ( Model, Cmd Msg )
+openThreadExplorer status model =
+    let
+        state =
+            [ { status = status
+              , displayed = [ status ]
+              , scroll = 0
+              }
+            ]
+
+        mdl =
+            { model
+                | popupExplorer =
+                    ThreadPopupExplorer state
+            }
+    in
+    sendRequest (StatusesRequest <| Request.GetStatusContext { id = status.id })
+        mdl
+
+
+{-| Called after we receive a ContextEntity.
+-}
+updateThreadExplorer : String -> Entity -> Model -> Model
+updateThreadExplorer contextId entity model =
+    case model.popupExplorer of
+        ThreadPopupExplorer state ->
+            case state of
+                scrolledStatus :: rest ->
+                    case scrolledStatus.displayed of
+                        [] ->
+                            model
+
+                        status :: _ ->
+                            if contextId /= status.id then
+                                model
+
+                            else
+                                case entity of
+                                    ContextEntity context ->
+                                        updateThreadExplorerInternal
+                                            scrolledStatus.status
+                                            context
+                                            rest
+                                            model
+
+                                    _ ->
+                                        model
+
+                _ ->
+                    model
+
+        _ ->
+            model
+
+
+updateThreadExplorerInternal : Status -> Context -> List ScrolledStatus -> Model -> Model
+updateThreadExplorerInternal status context ribbonTail model =
+    let
+        references =
+            addStatusesReferences context.ancestors model.references
+                |> addStatusesReferences context.descendants
+
+        mdl =
+            { model | references = references }
+    in
+    let
+        justId =
+            Just status.id
+
+        scrolledStatus =
+            { status = status
+            , displayed =
+                List.concat
+                    [ context.ancestors
+                    , [ status ]
+                    , if isReplyChain context.descendants then
+                        context.descendants
+
+                      else
+                        List.filter (\s -> justId == s.in_reply_to_id)
+                            context.descendants
+                    ]
+            , scroll = 0
+            }
+
+        newState =
+            scrolledStatus :: ribbonTail
+
+        idx =
+            List.length context.ancestors + 1
+
+        nodeid =
+            threadExplorerStatusId idx
+    in
+    { mdl
+        | popupExplorer = ThreadPopupExplorer newState
+        , sideEffectCmd =
+            if idx > 1 then
+                delayedCmd 499 <|
+                    ColumnsUIMsg <|
+                        GetThreadPopupStatusViewport nodeid
+
+            else
+                Cmd.none
+    }
+
+
+isReplyChain : List Status -> Bool
+isReplyChain statuses =
+    let
+        loop : Status -> List Status -> Bool
+        loop s tail =
+            case tail of
+                [] ->
+                    True
+
+                ts :: rest ->
+                    if ts.in_reply_to_id == Just s.id then
+                        loop ts rest
+
+                    else
+                        False
+    in
+    case statuses of
+        [] ->
+            True
+
+        status :: tail ->
+            loop status tail
 
 
 findGroup : String -> Model -> Maybe Group
@@ -4271,19 +4492,24 @@ initializePopup popup input model =
                                 , following = False
                                 }
 
-            delayedCmd =
+            cmd2 =
                 delayedPopupCmd
                     (ColumnsUIMsg <|
                         SendDelayedPopupRequest popup input searchRequest
                     )
         in
         { model | popup = popup }
-            |> withCmds [ cmd, delayedCmd ]
+            |> withCmds [ cmd, cmd2 ]
 
 
 delayedPopupCmd : Msg -> Cmd Msg
-delayedPopupCmd msg =
-    Delay.after 500 Delay.Millisecond msg
+delayedPopupCmd =
+    delayedCmd 500
+
+
+delayedCmd : Float -> Msg -> Cmd Msg
+delayedCmd millis msg =
+    Delay.after millis Delay.Millisecond msg
 
 
 sendDelayedPopupRequest : Popup -> String -> Request -> Model -> ( Model, Cmd Msg )
@@ -4334,11 +4560,21 @@ sendDelayedPopupRequest popup input request model =
 
 dismissDialog : Model -> ( Model, Cmd Msg )
 dismissDialog model =
+    let
+        dismissExplorer =
+            model.popup == NoPopup && model.dialog == NoDialog
+    in
     { model
         | dialog = NoDialog
         , editColumnsMessage = Nothing
         , movingColumn = Nothing
         , showFullScrollPill = False
+        , popupExplorer =
+            if dismissExplorer then
+                NoPopupExplorer
+
+            else
+                model.popupExplorer
         , popup = NoPopup
         , popupChoices = []
     }
@@ -7868,6 +8104,9 @@ applyResponseSideEffects response model =
         StatusesRequest (Request.PostUnreblogStatus _) ->
             updateColumnsStatus response.entity model
 
+        StatusesRequest (Request.GetStatusContext { id }) ->
+            updateThreadExplorer id response.entity model
+
         FavouritesRequest (Request.PostFavourite _) ->
             updateColumnsStatus response.entity model
 
@@ -7901,6 +8140,26 @@ modifyColumnsStatus id modifier model =
     let
         feedSet =
             model.feedSet
+
+        popupExplorer =
+            case model.popupExplorer of
+                ThreadPopupExplorer state ->
+                    let
+                        updateScrolledStatus scrolledStatus =
+                            { scrolledStatus
+                                | status =
+                                    modifyStatus id modifier scrolledStatus.status
+                                        |> Tuple.first
+                                , displayed =
+                                    modifyStatuses id modifier scrolledStatus.displayed
+                                        |> Tuple.first
+                            }
+                    in
+                    List.map updateScrolledStatus state
+                        |> ThreadPopupExplorer
+
+                explorer ->
+                    explorer
     in
     { model
         | feedSet =
@@ -7908,6 +8167,7 @@ modifyColumnsStatus id modifier model =
                 | feeds =
                     List.map (modifyFeedStatus id modifier) feedSet.feeds
             }
+        , popupExplorer = popupExplorer
     }
 
 
@@ -8294,6 +8554,8 @@ type alias StyleProperties =
     , inputBackground : String
     , color : String
     , popupChoiceClass : String
+    , highlightStatusColor : String
+    , repliedToStatusColor : String
     }
 
 
@@ -8312,12 +8574,16 @@ styles =
         , inputBackground = "#333"
         , color = "#eee"
         , popupChoiceClass = "popup-choice-dark"
+        , highlightStatusColor = "darkblue"
+        , repliedToStatusColor = "darkslategray"
         }
     , light =
         { backgroundColor = "white"
         , inputBackground = "white"
         , color = "black"
         , popupChoiceClass = "popup-choice-light"
+        , highlightStatusColor = "#fed8b1"
+        , repliedToStatusColor = "gainsboro"
         }
     }
 
@@ -8691,6 +8957,7 @@ view model =
             , BodyColors.backgroundColor backgroundColor
             ]
             []
+        , renderPopupExplorer model
         , renderDialog model
         , renderPopup model
         , let
@@ -9707,12 +9974,7 @@ renderNotificationBody renderEnv notification =
                     formatIso8601 renderEnv.here status.created_at
 
                 postLink =
-                    case status.url of
-                        Nothing ->
-                            text timeString
-
-                        Just url ->
-                            link timeString url
+                    renderStatusUrl timeString status
             in
             div []
                 [ hr
@@ -9839,8 +10101,8 @@ blueCheckBody =
     ]
 
 
-renderAccount : Int -> String -> Zone -> Account -> Html Msg -> Datetime -> Maybe UrlString -> Html Msg
-renderAccount fontSizePct color zone account description datetime url =
+renderAccount : Int -> String -> Zone -> Account -> Html Msg -> Datetime -> Maybe Status -> Html Msg
+renderAccount fontSizePct color zone account description datetime maybeStatus =
     table []
         [ tr []
             [ td []
@@ -9871,14 +10133,42 @@ renderAccount fontSizePct color zone account description datetime url =
                     timeString =
                         formatIso8601 zone datetime
                   in
-                  case url of
+                  case maybeStatus of
                     Nothing ->
                         text timeString
 
-                    Just u ->
-                        link timeString u
+                    Just status ->
+                        renderStatusUrl timeString status
                 ]
             ]
+        ]
+
+
+renderStatusUrl : String -> Status -> Html Msg
+renderStatusUrl timeString status =
+    span []
+        [ a
+            [ href "#"
+            , onClick <|
+                (ColumnsUIMsg <| OpenThreadExplorer status)
+            ]
+            [ text timeString ]
+        , text " "
+        , case status.url of
+            Nothing ->
+                text ""
+
+            Just url ->
+                a
+                    [ href url
+                    , blankTarget
+                    ]
+                    [ Html.i
+                        [ style "font-size" smallTextFontSize
+                        , class "icon-link-ext"
+                        ]
+                        []
+                    ]
         ]
 
 
@@ -9920,7 +10210,12 @@ renderFeedLoadingEmojiFooter renderEnv =
 
 
 renderStatus : RenderEnv -> FeedEnv -> Status -> Html Msg
-renderStatus renderEnv feedEnv statusIn =
+renderStatus =
+    renderStatusWithId Nothing
+
+
+renderStatusWithId : Maybe String -> RenderEnv -> FeedEnv -> Status -> Html Msg
+renderStatusWithId maybeNodeid renderEnv feedEnv statusIn =
     let
         ( status, account, reblogAccount ) =
             case statusIn.reblog of
@@ -9962,7 +10257,17 @@ renderStatus renderEnv feedEnv statusIn =
         body =
             statusBody renderEnv status
     in
-    div [ style "border" <| "1px solid " ++ color ]
+    div
+        (List.append
+            [ style "border" <| "1px solid " ++ color ]
+            (case maybeNodeid of
+                Nothing ->
+                    []
+
+                Just nodeid ->
+                    [ id nodeid ]
+            )
+        )
         [ div []
             [ div
                 [ class "content"
@@ -10010,7 +10315,7 @@ renderStatus renderEnv feedEnv statusIn =
                     account
                     displayNameHtml
                     status.created_at
-                    status.url
+                    (Just status)
                 ]
             , case status.group of
                 Nothing ->
@@ -12437,7 +12742,14 @@ nodeIds =
     , hashtagInput = "hashtagInput"
     , showListsButton = "showListsButton"
     , postGroupInput = "postGroupInput"
+    , threadExplorerStatusDiv = "threadExplorerStatusDiv"
+    , threadExplorerStatus = "threadExplorerStatus"
     }
+
+
+threadExplorerStatusId : Int -> String
+threadExplorerStatusId idx =
+    nodeIds.threadExplorerStatus ++ "-" ++ String.fromInt idx
 
 
 popupPicker : RenderEnv -> PopupPicker PopupChoice Msg
@@ -12456,7 +12768,7 @@ popupPicker renderEnv =
             , style "color" color
             , style "background-color" backgroundColor
             , style "min-width" "5em"
-            , style "z-index" "10"
+            , PopupPicker.zIndex zIndices.popup
             , style "overflow" "auto"
             ]
         , choiceAttributes =
@@ -12658,6 +12970,134 @@ renderPopup model =
                             { picker | positionAttributes = positionAttributes }
                     in
                     PopupPicker.view Nothing choices picker2
+
+
+{-| Higher numbers are on top.
+-}
+zIndices =
+    { explorer = 5
+    , dialog = 10 --wired in to Dialog
+    , popup = 20
+    }
+
+
+renderPopupExplorer : Model -> Html Msg
+renderPopupExplorer model =
+    case model.popupExplorer of
+        NoPopupExplorer ->
+            text ""
+
+        ThreadPopupExplorer state ->
+            renderThreadExplorer state model
+
+
+renderThreadExplorer : ThreadExplorerState -> Model -> Html Msg
+renderThreadExplorer ribbon model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        feedEnv =
+            { emptyFeedEnv | references = model.references }
+
+        { backgroundColor, color, highlightStatusColor, repliedToStatusColor } =
+            getStyle renderEnv.style
+
+        ( maxWidth, maxHeight ) =
+            renderEnv.windowSize
+
+        columnWidth =
+            min maxWidth <| 2 * renderEnv.columnWidth
+
+        renderEnv2 =
+            { renderEnv | columnWidth = columnWidth }
+
+        wpx =
+            px columnWidth
+
+        margin =
+            10
+
+        left =
+            (maxWidth - columnWidth) // 2
+
+        lpx =
+            px left
+
+        headerHeight =
+            25
+
+        hpx =
+            px (maxHeight - 20 - headerHeight - (2 * margin))
+    in
+    case ribbon of
+        [] ->
+            text ""
+
+        { status, displayed } :: _ ->
+            let
+                renderAStatus s idx =
+                    let
+                        nodeid =
+                            threadExplorerStatusId idx
+                    in
+                    if s.id == status.id then
+                        div [ style "background-color" highlightStatusColor ]
+                            [ renderStatusWithId (Just nodeid) renderEnv2 feedEnv s ]
+
+                    else if s.replies_count > 0 then
+                        div [ style "background-color" repliedToStatusColor ]
+                            [ renderStatusWithId (Just nodeid) renderEnv2 feedEnv s ]
+
+                    else
+                        renderStatusWithId (Just nodeid) renderEnv2 feedEnv s
+            in
+            div
+                [ style "width" wpx
+                , style "overflow-x" "default"
+                , style "border" <| "2px solid " ++ color
+                , style "color" color
+                , style "background-color" backgroundColor
+                , style "position" "absolute"
+                , PopupPicker.top <| px margin
+                , PopupPicker.left lpx
+                , PopupPicker.zIndex zIndices.explorer
+                ]
+                [ div
+                    [ style "width" "100%"
+                    , style "border" <| "1px solid " ++ color
+                    ]
+                    [ p
+                        [ style "padding" "0 2px"
+                        , style "height" <| px headerHeight
+                        , class "content"
+                        ]
+                        [ text "[ribbon: To Be Done]"
+                        , Html.span
+                            [ onClick <| ColumnsUIMsg ClosePopupExplorer
+                            , title "Close"
+                            , style "float" "right"
+                            ]
+                            [ Html.i
+                                [ style "font-size" smallTextFontSize
+                                , class "icon-cancel"
+                                ]
+                                []
+                            ]
+                        ]
+                    ]
+                , div
+                    [ style "width" "100%"
+                    , style "max-height" hpx
+                    , style "overflow-y" "auto"
+                    , style "overflow-x" "hidden"
+                    , id nodeIds.threadExplorerStatusDiv
+                    ]
+                  <|
+                    List.map2 renderAStatus
+                        displayed
+                        (List.range 1 <| List.length displayed)
+                ]
 
 
 renderDialog : Model -> Html Msg
