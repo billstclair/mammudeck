@@ -27,6 +27,7 @@ See ../TODO.md for the full list.
         Backward pops the ribbon.
         Forward goes to next status with comments,
         or pops the ribbon first if there are none.
+        Continue at "TODO thread explorer scrolling"
 
 * @foo in Post dialog should use (AccountsRequest << GetSearchAccounts), not
   (SearchRequest << GetSearch). The latter can be slow on servers that support
@@ -4176,6 +4177,31 @@ isReplyChain statuses =
                 loop status tail
 
 
+scrollThreadExplorer : ThreadExplorerState -> Bool -> ScrollDirection -> Model -> ( Model, Cmd Msg )
+scrollThreadExplorer state allTheWay direction model =
+    if Debug.log "scrollThreadExplorer" allTheWay then
+        let
+            ribbon =
+                List.drop (List.length state.ribbon - 1) state.ribbon
+        in
+        case List.head ribbon of
+            Nothing ->
+                model |> withNoCmd
+
+            Just { displayed } ->
+                case List.head displayed of
+                    Nothing ->
+                        model |> withNoCmd
+
+                    Just status ->
+                        openThreadExplorer status
+                            { model | popupExplorer = NoPopupExplorer }
+
+    else
+        -- TODO thread explorer scrolling
+        model |> withNoCmd
+
+
 findGroup : String -> Model -> Maybe Group
 findGroup groupName model =
     let
@@ -4835,6 +4861,38 @@ scrollPageNow goAllTheWay direction model =
 scrollPage : ScrollDirection -> Posix -> Model -> ( Model, Cmd Msg )
 scrollPage direction now model =
     let
+        allTheWay =
+            isScrollAllTheWay direction now model
+
+        mdl =
+            { model | lastScroll = ( direction, now ) }
+    in
+    case model.popupExplorer of
+        NoPopupExplorer ->
+            scrollPageInternal allTheWay direction mdl
+
+        ThreadPopupExplorer state ->
+            scrollThreadExplorer state allTheWay direction mdl
+
+
+isScrollAllTheWay : ScrollDirection -> Posix -> Model -> Bool
+isScrollAllTheWay direction now model =
+    let
+        ( lastDirection, lastNow ) =
+            model.lastScroll
+
+        millis =
+            Time.posixToMillis now
+
+        lastMillis =
+            Time.posixToMillis lastNow
+    in
+    lastDirection == direction && lastMillis + 400 >= millis
+
+
+scrollPageInternal : Bool -> ScrollDirection -> Model -> ( Model, Cmd Msg )
+scrollPageInternal allTheWay direction model =
+    let
         renderEnv =
             model.renderEnv
 
@@ -4861,17 +4919,8 @@ scrollPage direction now model =
         width =
             col0Left + columnCnt * columnWidth
 
-        ( lastDirection, lastNow ) =
-            model.lastScroll
-
-        millis =
-            Time.posixToMillis now
-
-        lastMillis =
-            Time.posixToMillis lastNow
-
         rawNewScroll =
-            if lastDirection == direction && lastMillis + 400 >= millis then
+            if allTheWay then
                 case direction of
                     ScrollLeft ->
                         col0Left
@@ -4916,8 +4965,7 @@ scrollPage direction now model =
             else
                 Cmd.none
     in
-    { model | lastScroll = ( direction, now ) }
-        |> withCmd cmd
+    model |> withCmd cmd
 
 
 adjustColumnsForPost : Status -> Model -> Model
@@ -13334,8 +13382,16 @@ renderThreadExplorer state model =
                                     else
                                         isReplyChain tail
 
+                                -- Highlight is different for the last one
+                                sReplyChain =
+                                    if tail == [] then
+                                        s.replies_count == 0
+
+                                    else
+                                        replyChain
+
                                 html =
-                                    renderAStatus s idx replyChain
+                                    renderAStatus s idx sReplyChain
                             in
                             loop (idx + 1) rc tail <| html :: res
             in
