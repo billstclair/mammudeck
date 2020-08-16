@@ -3973,10 +3973,14 @@ isReplyChain statuses =
     in
     case statuses of
         [] ->
-            True
+            False
 
         status :: tail ->
-            loop status tail
+            if tail == [] then
+                False
+
+            else
+                loop status tail
 
 
 findGroup : String -> Model -> Maybe Group
@@ -13036,7 +13040,7 @@ renderThreadExplorer ribbon model =
 
         { status, displayed } :: _ ->
             let
-                renderAStatus s idx =
+                renderAStatus s idx replyChain =
                     let
                         nodeid =
                             threadExplorerStatusId idx
@@ -13045,12 +13049,32 @@ renderThreadExplorer ribbon model =
                         div [ style "background-color" highlightStatusColor ]
                             [ renderStatusWithId (Just nodeid) renderEnv2 feedEnv s ]
 
-                    else if s.replies_count > 0 then
+                    else if not replyChain && s.replies_count > 0 then
                         div [ style "background-color" repliedToStatusColor ]
                             [ renderStatusWithId (Just nodeid) renderEnv2 feedEnv s ]
 
                     else
                         renderStatusWithId (Just nodeid) renderEnv2 feedEnv s
+
+                loop : Int -> Bool -> List Status -> List (Html Msg) -> List (Html Msg)
+                loop idx replyChain statuses res =
+                    case statuses of
+                        [] ->
+                            List.reverse res
+
+                        s :: tail ->
+                            let
+                                rc =
+                                    if replyChain then
+                                        True
+
+                                    else
+                                        isReplyChain tail
+
+                                html =
+                                    renderAStatus s idx replyChain
+                            in
+                            loop (idx + 1) rc tail <| html :: res
             in
             div
                 [ style "width" wpx
@@ -13079,7 +13103,7 @@ renderThreadExplorer ribbon model =
                             , style "float" "right"
                             ]
                             [ Html.i
-                                [ style "font-size" smallTextFontSize
+                                [ style "font-size" "120%"
                                 , class "icon-cancel"
                                 ]
                                 []
@@ -13094,9 +13118,7 @@ renderThreadExplorer ribbon model =
                     , id nodeIds.threadExplorerStatusDiv
                     ]
                   <|
-                    List.map2 renderAStatus
-                        displayed
-                        (List.range 1 <| List.length displayed)
+                    loop 1 (isReplyChain displayed) displayed []
                 ]
 
 
