@@ -22,6 +22,16 @@
 
 See ../TODO.md for the full list.
 
+* ThreadExplorer:
+    ** Get header height. Store it in ThreadExplorerState
+    ** ScrolledStatus.state should be Maybe Float
+        Then we can tell whether to scroll the status into view
+        or restore the scroll position.
+    ** Keyboard/ScrollPill interaction
+        Backward pops the ribbon.
+        Forward goes to next status with comments,
+        or pops the ribbon first if there are none.
+
 * @foo in Post dialog should use (AccountsRequest << GetSearchAccounts), not
   (SearchRequest << GetSearch). The latter can be slow on servers that support
   full text search in statuses.
@@ -698,8 +708,10 @@ type ColumnsUIMsg
     | ReceivePopupElement (Result Dom.Error Dom.Element)
     | PopupChoose PopupChoice
     | OpenThreadExplorer Status
+    | SaveThreadExplorerViewport ScrolledStatus (Result Dom.Error Dom.Viewport)
     | GetThreadPopupStatusViewport String
     | ReceiveThreadPopupScrollInfo (Result Dom.Error ( Dom.Element, Dom.Element ))
+    | SetThreadExplorerStatus Status
     | ClosePopupExplorer
     | ReceiveHeaderElement String (Result Dom.Error Dom.Element)
     | ToggleStatusRepeat Status
@@ -3402,6 +3414,9 @@ columnsUIMsg msg model =
         OpenThreadExplorer status ->
             openThreadExplorer status model
 
+        SaveThreadExplorerViewport scrolledStatus result ->
+            saveThreadExplorerViewport scrolledStatus result model
+
         GetThreadPopupStatusViewport id ->
             let
                 task =
@@ -3425,6 +3440,9 @@ columnsUIMsg msg model =
 
         ReceiveThreadPopupScrollInfo result ->
             receiveThreadPopupScrollInfo result model
+
+        SetThreadExplorerStatus status ->
+            setThreadExplorerStatus status model
 
         ClosePopupExplorer ->
             { model | popupExplorer = NoPopupExplorer }
@@ -3837,6 +3855,29 @@ receiveThreadPopupScrollInfo result model =
                 model |> withNoCmd
 
 
+setThreadExplorerStatus : Status -> Model -> ( Model, Cmd Msg )
+setThreadExplorerStatus status model =
+    case model.popupExplorer of
+        ThreadPopupExplorer state ->
+            let
+                id =
+                    status.id
+            in
+            case LE.findIndex (\ss -> id == ss.status.id) state of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just idx ->
+                    let
+                        newState =
+                            List.drop idx state
+                    in
+                    newThreadPopupExplorer newState model
+
+        _ ->
+            model |> withNoCmd
+
+
 type alias ScrolledStatus =
     { status : Status
     , displayed : List Status
@@ -3851,21 +3892,82 @@ type alias ThreadExplorerState =
 openThreadExplorer : Status -> Model -> ( Model, Cmd Msg )
 openThreadExplorer status model =
     let
-        state =
-            [ { status = status
-              , displayed = [ status ]
-              , scroll = 0
-              }
-            ]
+        id =
+            status.id
 
-        mdl =
-            { model
-                | popupExplorer =
-                    ThreadPopupExplorer state
+        newScrolledStatus =
+            { status = status
+            , displayed = [ status ]
+            , scroll = 0
             }
+
+        sendTheRequest mdl =
+            newThreadPopupExplorer [ newScrolledStatus ] mdl
     in
-    sendRequest (StatusesRequest <| Request.GetStatusContext { id = status.id })
-        mdl
+    case model.popupExplorer of
+        ThreadPopupExplorer state ->
+            case List.head state of
+                Nothing ->
+                    sendTheRequest model
+
+                Just { displayed } ->
+                    case LE.find (\s -> id == s.id) displayed of
+                        Nothing ->
+                            sendTheRequest model
+
+                        Just _ ->
+                            ( model
+                            , Dom.getViewportOf nodeIds.threadExplorerStatusDiv
+                                |> Task.attempt
+                                    (ColumnsUIMsg
+                                        << SaveThreadExplorerViewport newScrolledStatus
+                                    )
+                            )
+
+        _ ->
+            sendTheRequest model
+
+
+newThreadPopupExplorer : ThreadExplorerState -> Model -> ( Model, Cmd Msg )
+newThreadPopupExplorer state model =
+    case state of
+        [] ->
+            { model | popupExplorer = NoPopupExplorer }
+                |> withNoCmd
+
+        { status } :: _ ->
+            sendRequest
+                (StatusesRequest <|
+                    Request.GetStatusContext { id = status.id }
+                )
+                { model
+                    | popupExplorer =
+                        ThreadPopupExplorer state
+                }
+
+
+saveThreadExplorerViewport : ScrolledStatus -> Result Dom.Error Dom.Viewport -> Model -> ( Model, Cmd Msg )
+saveThreadExplorerViewport scrolledStatus result model =
+    let
+        res state =
+            newThreadPopupExplorer (scrolledStatus :: state) model
+    in
+    case model.popupExplorer of
+        ThreadPopupExplorer state ->
+            case state of
+                [] ->
+                    res state
+
+                ss :: tail ->
+                    case result of
+                        Err _ ->
+                            res state
+
+                        Ok { viewport } ->
+                            res <| { ss | scroll = viewport.y } :: tail
+
+        _ ->
+            res []
 
 
 {-| Called after we receive a ContextEntity.
@@ -10967,6 +11069,7 @@ renderColumns model =
                 [ style "position" "fixed"
                 , style "bottom" <| (10 |> String.fromInt) ++ "px"
                 , style "right" <| (10 |> String.fromInt) ++ "px"
+                , PopupPicker.zIndex zIndices.scrollPill
                 ]
                 [ renderScrollPill model
                 , if not model.scrollPillState.showServer then
@@ -12980,6 +13083,7 @@ renderPopup model =
 -}
 zIndices =
     { explorer = 5
+    , scrollPill = 7
     , dialog = 10 --wired in to Dialog
     , popup = 20
     }
@@ -13096,8 +13200,7 @@ renderThreadExplorer ribbon model =
                         , style "height" <| px headerHeight
                         , class "content"
                         ]
-                        [ text "[ribbon: To Be Done]"
-                        , Html.span
+                        [ Html.span
                             [ onClick <| ColumnsUIMsg ClosePopupExplorer
                             , title "Close"
                             , style "float" "right"
@@ -13108,6 +13211,7 @@ renderThreadExplorer ribbon model =
                                 ]
                                 []
                             ]
+                        , renderThreadExplorerRibbon ribbon renderEnv2
                         ]
                     ]
                 , div
@@ -13120,6 +13224,36 @@ renderThreadExplorer ribbon model =
                   <|
                     loop 1 (isReplyChain displayed) displayed []
                 ]
+
+
+renderThreadExplorerRibbon : ThreadExplorerState -> RenderEnv -> Html Msg
+renderThreadExplorerRibbon ribbon renderEnv =
+    if ribbon == [] then
+        text "No ribbon. Shouldn't happen."
+
+    else
+        let
+            here =
+                renderEnv.here
+
+            ribbonEntry { status } =
+                let
+                    timestring =
+                        formatIso8601 here status.created_at
+
+                    username =
+                        status.account.username
+                in
+                a
+                    [ href "#"
+                    , onClick (ColumnsUIMsg <| SetThreadExplorerStatus status)
+                    ]
+                    [ text <| "@" ++ username ++ " " ++ timestring ]
+        in
+        span []
+            (List.map ribbonEntry ribbon
+                |> List.intersperse (text " > ")
+            )
 
 
 renderDialog : Model -> Html Msg
