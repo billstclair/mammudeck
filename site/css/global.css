@@ -42,6 +42,12 @@ body {
     color:var(--text,#b9b9ba)
 }
 
+.icon-down-open.icon-clicked,.icon-down-open:hover {
+    color:#b9b9ba;
+    color:var(--text,#b9b9ba);
+    cursor:pointer;
+}
+
 .icon-retweet.retweeted,.rt-active:hover{
     color:#0fa00f;
     color:var(--cGreen,#0fa00f)
