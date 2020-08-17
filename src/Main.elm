@@ -3911,7 +3911,19 @@ setThreadExplorerStatus status model =
             in
             case LE.findIndex (\ss -> id == ss.status.id) state.ribbon of
                 Nothing ->
-                    model |> withNoCmd
+                    -- May have gone to an ancestor of the initial status
+                    case List.head state.ribbon of
+                        Nothing ->
+                            model |> withNoCmd
+
+                        Just ss ->
+                            case LE.find (\s -> id == s.id) ss.displayed of
+                                Nothing ->
+                                    model |> withNoCmd
+
+                                Just _ ->
+                                    openThreadExplorer status
+                                        { model | popupExplorer = NoPopupExplorer }
 
                 Just idx ->
                     let
@@ -3968,25 +3980,65 @@ openThreadExplorer status model =
     in
     case model.popupExplorer of
         ThreadPopupExplorer { ribbon, headerHeight } ->
-            case List.head ribbon of
-                Nothing ->
+            case ribbon of
+                [] ->
                     sendTheRequest headerHeight model
 
-                Just { displayed } ->
-                    case LE.find (\s -> id == s.id) displayed of
-                        Nothing ->
-                            sendTheRequest headerHeight model
+                scrolledStatus :: tail ->
+                    let
+                        displayed =
+                            scrolledStatus.displayed
+                    in
+                    case LE.findIndex (\ss -> id == ss.status.id) tail of
+                        Just idx ->
+                            openThreadExplorer status
+                                { model
+                                    | popupExplorer =
+                                        ThreadPopupExplorer
+                                            { ribbon = List.drop idx tail
+                                            , headerHeight = headerHeight
+                                            }
+                                }
 
-                        Just _ ->
-                            -- We're pushing a new ribbon entry.
-                            -- Need to get the old one's scroll position.
-                            ( model
-                            , Dom.getViewportOf nodeIds.threadExplorerStatusDiv
-                                |> Task.attempt
-                                    (ColumnsUIMsg
-                                        << SaveThreadExplorerViewport newScrolledStatus
-                                    )
-                            )
+                        Nothing ->
+                            let
+                                sss =
+                                    scrolledStatus.status
+
+                                containsReplyTo s slist =
+                                    case s.in_reply_to_id of
+                                        Nothing ->
+                                            False
+
+                                        Just rtid ->
+                                            List.any (\s2 -> rtid == s2.id) slist
+                            in
+                            if id == sss.id || containsReplyTo sss displayed then
+                                newThreadPopupExplorer
+                                    { ribbon =
+                                        { scrolledStatus | status = status }
+                                            :: tail
+                                    , headerHeight = headerHeight
+                                    }
+                                    model
+
+                            else
+                                case LE.find (\s -> id == s.id) displayed of
+                                    Nothing ->
+                                        sendTheRequest headerHeight model
+
+                                    Just _ ->
+                                        -- We're pushing a new ribbon entry.
+                                        -- Need to get the old one's scroll position.
+                                        ( model
+                                        , Dom.getViewportOf
+                                            nodeIds.threadExplorerStatusDiv
+                                            |> Task.attempt
+                                                (ColumnsUIMsg
+                                                    << SaveThreadExplorerViewport
+                                                        newScrolledStatus
+                                                )
+                                        )
 
         _ ->
             sendTheRequest Nothing model
@@ -4181,6 +4233,8 @@ isReplyChain statuses =
                 loop status tail
 
 
+{-| This implements the scroll keys/scroll-pill for the Thread Explorer Popup.,
+-}
 scrollThreadExplorer : ThreadExplorerState -> Bool -> ScrollDirection -> Model -> ( Model, Cmd Msg )
 scrollThreadExplorer state allTheWay direction model =
     if Debug.log "scrollThreadExplorer" allTheWay then
@@ -4202,8 +4256,62 @@ scrollThreadExplorer state allTheWay direction model =
                             { model | popupExplorer = NoPopupExplorer }
 
     else
-        -- TODO thread explorer scrolling
-        model |> withNoCmd
+        let
+            ( maybeStatus, state2 ) =
+                getScrolledThreadExplorerStatus direction state
+        in
+        case maybeStatus of
+            Nothing ->
+                model |> withNoCmd
+
+            Just status ->
+                if state2.ribbon == [] then
+                    openThreadExplorer status
+                        { model | popupExplorer = NoPopupExplorer }
+
+                else
+                    setThreadExplorerStatus status
+                        { model
+                            | popupExplorer = ThreadPopupExplorer state2
+                        }
+
+
+getScrolledThreadExplorerStatus : ScrollDirection -> ThreadExplorerState -> ( Maybe Status, ThreadExplorerState )
+getScrolledThreadExplorerStatus direction state =
+    case state.ribbon of
+        [] ->
+            ( Nothing, state )
+
+        ss :: tail ->
+            case direction of
+                ScrollLeft ->
+                    case tail of
+                        [] ->
+                            case ss.status.in_reply_to_id of
+                                Nothing ->
+                                    case List.head ss.displayed of
+                                        Nothing ->
+                                            ( Nothing, state )
+
+                                        Just status ->
+                                            ( Just status
+                                            , { state | ribbon = [] }
+                                            )
+
+                                Just rtid ->
+                                    case LE.find (\s -> rtid == s.id) ss.displayed of
+                                        Nothing ->
+                                            -- Only happens on initial post
+                                            ( Nothing, state )
+
+                                        Just rt ->
+                                            ( Just rt, { state | ribbon = [] } )
+
+                        ss2 :: _ ->
+                            ( Just ss2.status, { state | ribbon = tail } )
+
+                ScrollRight ->
+                    ( Nothing, state )
 
 
 findGroup : String -> Model -> Maybe Group
