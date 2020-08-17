@@ -28,6 +28,10 @@ See ../TODO.md for the full list.
         Forward goes to next status with comments,
         or pops the ribbon first if there are none.
         Continue at "TODO thread explorer scrolling"
+    ** When click on existing status, scroll it to the top.
+        We want to see the replies, since we already saw the
+        reply-to in the previous screen.
+        First status wants go at the bottom, as it does now.
 
 * @foo in Post dialog should use (AccountsRequest << GetSearchAccounts), not
   (SearchRequest << GetSearch). The latter can be slow on servers that support
@@ -13467,7 +13471,8 @@ renderThreadExplorerRibbon ribbon renderEnv =
                     [ text <| "@" ++ username ++ " " ++ timestring ]
         in
         span []
-            (List.map ribbonEntry ribbon
+            (List.reverse ribbon
+                |> List.map ribbonEntry
                 |> List.intersperse (text " > ")
             )
 
