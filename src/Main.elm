@@ -10632,7 +10632,7 @@ renderStatusExplorerButton fontSize status =
         ]
         [ Html.i
             [ style "font-size" fontSize
-            , class "icon-down-open"
+            , class openThreadExplorerIconClass
             ]
             []
         ]
@@ -10660,12 +10660,7 @@ renderStatusUrl timeString status =
                         , blankTarget
                         , title "Open page on server web site."
                         ]
-                        [ Html.i
-                            [ style "font-size" smallTextFontSize
-                            , class "icon-link-ext"
-                            ]
-                            []
-                        ]
+                        [ Html.i [ class "icon-link-ext" ] [] ]
                     ]
         , if needsStatusExplorerButton status then
             span []
@@ -10676,12 +10671,7 @@ renderStatusUrl timeString status =
                         (ColumnsUIMsg <| OpenThreadExplorer status)
                     , title "Open Thread Explorer"
                     ]
-                    [ Html.i
-                        [ style "font-size" smallTextFontSize
-                        , class openThreadExplorerIconClass
-                        ]
-                        []
-                    ]
+                    [ Html.i [ class openThreadExplorerIconClass ] [] ]
                 ]
 
           else
