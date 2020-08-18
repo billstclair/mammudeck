@@ -4270,10 +4270,18 @@ scrollThreadExplorer state allTheWay direction model =
                         { model | popupExplorer = NoPopupExplorer }
 
                 else
-                    setThreadExplorerStatus status
-                        { model
-                            | popupExplorer = ThreadPopupExplorer state2
-                        }
+                    let
+                        mdl =
+                            { model
+                                | popupExplorer = ThreadPopupExplorer state2
+                            }
+                    in
+                    case direction of
+                        ScrollLeft ->
+                            setThreadExplorerStatus status mdl
+
+                        ScrollRight ->
+                            openThreadExplorer status mdl
 
 
 getScrolledThreadExplorerStatus : ScrollDirection -> ThreadExplorerState -> ( Maybe Status, ThreadExplorerState )
@@ -4312,17 +4320,42 @@ getScrolledThreadExplorerStatus direction state =
 
                 ScrollRight ->
                     let
+                        lastSharedDisplayed ss2 ss3 =
+                            let
+                                d2 =
+                                    ss2.displayed
+
+                                d3 =
+                                    ss3.displayed
+
+                                loop d4 d5 res =
+                                    case d4 of
+                                        [] ->
+                                            res
+
+                                        s4 :: d4tail ->
+                                            case d5 of
+                                                [] ->
+                                                    res
+
+                                                s5 :: d5tail ->
+                                                    if Debug.log "loop s4" s4.id == Debug.log "  s5" s5.id then
+                                                        loop d4tail d5tail <|
+                                                            Just s4
+
+                                                    else
+                                                        loop d4 d5tail res
+                            in
+                            loop d2 d3 Nothing
+
                         outer : ScrolledStatus -> List ScrolledStatus -> ( Maybe Status, List ScrolledStatus )
                         outer scrolledStatus scrolledStatusses =
                             let
                                 displayed =
                                     scrolledStatus.displayed
 
-                                status =
-                                    scrolledStatus.status
-
                                 id =
-                                    status.id
+                                    scrolledStatus.status.id
                             in
                             case LE.findIndex (\s -> id == s.id) displayed of
                                 Nothing ->
@@ -4330,6 +4363,9 @@ getScrolledThreadExplorerStatus direction state =
 
                                 Just idx ->
                                     case inner <| List.drop (idx + 1) displayed of
+                                        Just s ->
+                                            ( Just s, scrolledStatus :: scrolledStatusses )
+
                                         Nothing ->
                                             case scrolledStatusses of
                                                 [] ->
@@ -4341,10 +4377,18 @@ getScrolledThreadExplorerStatus direction state =
                                                             ( Just s, [] )
 
                                                 ss2 :: rest ->
-                                                    outer ss2 rest
+                                                    case
+                                                        lastSharedDisplayed
+                                                            scrolledStatus
+                                                            ss2
+                                                    of
+                                                        Nothing ->
+                                                            outer ss2 rest
 
-                                        ms ->
-                                            ( ms, scrolledStatusses )
+                                                        Just s ->
+                                                            outer
+                                                                { ss2 | status = s }
+                                                                rest
 
                         inner : List Status -> Maybe Status
                         inner statusses =
@@ -4367,7 +4411,7 @@ getScrolledThreadExplorerStatus direction state =
                                                         s.in_reply_to_id
                                                             == Just status.id
                                                     then
-                                                        inner rest
+                                                        Nothing
 
                                                     else
                                                         Just status
