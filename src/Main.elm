@@ -4311,7 +4311,76 @@ getScrolledThreadExplorerStatus direction state =
                             ( Just ss2.status, { state | ribbon = tail } )
 
                 ScrollRight ->
-                    ( Nothing, state )
+                    let
+                        outer : ScrolledStatus -> List ScrolledStatus -> ( Maybe Status, List ScrolledStatus )
+                        outer scrolledStatus scrolledStatusses =
+                            let
+                                displayed =
+                                    scrolledStatus.displayed
+
+                                status =
+                                    scrolledStatus.status
+
+                                id =
+                                    status.id
+                            in
+                            case LE.findIndex (\s -> id == s.id) displayed of
+                                Nothing ->
+                                    ( Nothing, [] )
+
+                                Just idx ->
+                                    case inner <| List.drop (idx + 1) displayed of
+                                        Nothing ->
+                                            case scrolledStatusses of
+                                                [] ->
+                                                    case List.head displayed of
+                                                        Nothing ->
+                                                            ( Nothing, [] )
+
+                                                        Just s ->
+                                                            ( Just s, [] )
+
+                                                ss2 :: rest ->
+                                                    outer ss2 rest
+
+                                        ms ->
+                                            ( ms, scrolledStatusses )
+
+                        inner : List Status -> Maybe Status
+                        inner statusses =
+                            case statusses of
+                                [] ->
+                                    Nothing
+
+                                status :: rest ->
+                                    case status.replies_count of
+                                        0 ->
+                                            inner rest
+
+                                        1 ->
+                                            case rest of
+                                                [] ->
+                                                    Just status
+
+                                                s :: _ ->
+                                                    if
+                                                        s.in_reply_to_id
+                                                            == Just status.id
+                                                    then
+                                                        inner rest
+
+                                                    else
+                                                        Just status
+
+                                        _ ->
+                                            Just status
+
+                        ( maybeStatus, sss ) =
+                            outer ss tail
+                    in
+                    ( maybeStatus
+                    , { state | ribbon = sss }
+                    )
 
 
 findGroup : String -> Model -> Maybe Group
