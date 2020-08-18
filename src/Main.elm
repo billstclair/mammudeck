@@ -3941,8 +3941,17 @@ setThreadExplorerStatus status model =
 
 type alias ScrolledStatus =
     { status : Status
+    , visited : Set String
     , displayed : List Status
     , scroll : Maybe Float
+    }
+
+
+makeScrolledStatus status =
+    { status = status
+    , visited = Set.empty
+    , displayed = [ status ]
+    , scroll = Nothing
     }
 
 
@@ -3965,15 +3974,9 @@ openThreadExplorer status model =
         id =
             status.id
 
-        newScrolledStatus =
-            { status = status
-            , displayed = [ status ]
-            , scroll = Nothing
-            }
-
         sendTheRequest headerHeight mdl =
             newThreadPopupExplorer
-                { ribbon = [ newScrolledStatus ]
+                { ribbon = [ makeScrolledStatus status ]
                 , headerHeight = headerHeight
                 }
                 mdl
@@ -4013,7 +4016,7 @@ openThreadExplorer status model =
                                         Just rtid ->
                                             List.any (\s2 -> rtid == s2.id) slist
                             in
-                            if id == sss.id || containsReplyTo sss displayed then
+                            if id == sss.id then
                                 newThreadPopupExplorer
                                     { ribbon =
                                         { scrolledStatus | status = status }
@@ -4036,7 +4039,7 @@ openThreadExplorer status model =
                                             |> Task.attempt
                                                 (ColumnsUIMsg
                                                     << SaveThreadExplorerViewport
-                                                        newScrolledStatus
+                                                        (makeScrolledStatus status)
                                                 )
                                         )
 
@@ -4082,11 +4085,23 @@ saveThreadExplorerViewport : ScrolledStatus -> Result Dom.Error Dom.Viewport -> 
 saveThreadExplorerViewport scrolledStatus result model =
     let
         res state =
+            let
+                ribbon =
+                    case state.ribbon of
+                        [] ->
+                            []
+
+                        ss :: tail ->
+                            { ss
+                                | visited =
+                                    Debug.log "saveThreadExplorerViewport" <|
+                                        Set.insert scrolledStatus.status.id
+                                            ss.visited
+                            }
+                                :: tail
+            in
             newThreadPopupExplorer
-                { state
-                    | ribbon =
-                        scrolledStatus :: state.ribbon
-                }
+                { state | ribbon = scrolledStatus :: ribbon }
                 model
     in
     case model.popupExplorer of
@@ -4284,6 +4299,21 @@ scrollThreadExplorer state allTheWay direction model =
                             openThreadExplorer status mdl
 
 
+afterLastVisited : Set String -> List Status -> List Status
+afterLastVisited visited statuses =
+    let
+        sesutats =
+            List.reverse statuses
+    in
+    case LE.findIndex (\s -> Set.member s.id visited) sesutats of
+        Nothing ->
+            statuses
+
+        Just idx ->
+            List.take idx sesutats
+                |> List.reverse
+
+
 getScrolledThreadExplorerStatus : ScrollDirection -> ThreadExplorerState -> ( Maybe Status, ThreadExplorerState )
 getScrolledThreadExplorerStatus direction state =
     case state.ribbon of
@@ -4320,34 +4350,6 @@ getScrolledThreadExplorerStatus direction state =
 
                 ScrollRight ->
                     let
-                        lastSharedDisplayed ss2 ss3 =
-                            let
-                                d2 =
-                                    ss2.displayed
-
-                                d3 =
-                                    ss3.displayed
-
-                                loop d4 d5 res =
-                                    case d4 of
-                                        [] ->
-                                            res
-
-                                        s4 :: d4tail ->
-                                            case d5 of
-                                                [] ->
-                                                    res
-
-                                                s5 :: d5tail ->
-                                                    if Debug.log "loop s4" s4.id == Debug.log "  s5" s5.id then
-                                                        loop d4tail d5tail <|
-                                                            Just s4
-
-                                                    else
-                                                        loop d4 d5tail res
-                            in
-                            loop d2 d3 Nothing
-
                         outer : ScrolledStatus -> List ScrolledStatus -> ( Maybe Status, List ScrolledStatus )
                         outer scrolledStatus scrolledStatusses =
                             let
@@ -4362,7 +4364,13 @@ getScrolledThreadExplorerStatus direction state =
                                     ( Nothing, [] )
 
                                 Just idx ->
-                                    case inner <| List.drop (idx + 1) displayed of
+                                    case
+                                        inner
+                                            (List.drop (idx + 1) displayed
+                                                |> afterLastVisited
+                                                    scrolledStatus.visited
+                                            )
+                                    of
                                         Just s ->
                                             ( Just s, scrolledStatus :: scrolledStatusses )
 
@@ -4374,21 +4382,18 @@ getScrolledThreadExplorerStatus direction state =
                                                             ( Nothing, [] )
 
                                                         Just s ->
-                                                            ( Just s, [] )
+                                                            ( Just s
+                                                            , [ { scrolledStatus
+                                                                    | visited =
+                                                                        Set.empty
+                                                                }
+                                                              ]
+                                                            )
 
                                                 ss2 :: rest ->
-                                                    case
-                                                        lastSharedDisplayed
-                                                            scrolledStatus
-                                                            ss2
-                                                    of
-                                                        Nothing ->
-                                                            outer ss2 rest
-
-                                                        Just s ->
-                                                            outer
-                                                                { ss2 | status = s }
-                                                                rest
+                                                    ( Just ss2.status
+                                                    , scrolledStatusses
+                                                    )
 
                         inner : List Status -> Maybe Status
                         inner statusses =
@@ -9029,6 +9034,7 @@ type alias StyleProperties =
     , popupChoiceClass : String
     , highlightStatusColor : String
     , repliedToStatusColor : String
+    , visitedStatusColor : String
     }
 
 
@@ -9049,6 +9055,7 @@ styles =
         , popupChoiceClass = "popup-choice-dark"
         , highlightStatusColor = "darkblue"
         , repliedToStatusColor = "darkslategray"
+        , visitedStatusColor = "#444"
         }
     , light =
         { backgroundColor = "white"
@@ -9057,6 +9064,7 @@ styles =
         , popupChoiceClass = "popup-choice-light"
         , highlightStatusColor = "#fed8b1"
         , repliedToStatusColor = "gainsboro"
+        , visitedStatusColor = "#ececec"
         }
     }
 
@@ -13525,7 +13533,7 @@ renderThreadExplorer state model =
         feedEnv =
             { emptyFeedEnv | references = model.references }
 
-        { backgroundColor, color, highlightStatusColor, repliedToStatusColor } =
+        { backgroundColor, color, highlightStatusColor, repliedToStatusColor, visitedStatusColor } =
             getStyle renderEnv.style
 
         ( maxWidth, maxHeight ) =
@@ -13564,7 +13572,7 @@ renderThreadExplorer state model =
         [] ->
             text ""
 
-        { status, displayed } :: _ ->
+        { status, displayed, visited } :: _ ->
             let
                 renderAStatus s idx replyChain =
                     let
@@ -13576,7 +13584,14 @@ renderThreadExplorer state model =
                             [ renderStatusWithId (Just nodeid) renderEnv2 feedEnv s ]
 
                     else if not replyChain && s.replies_count > 0 then
-                        div [ style "background-color" repliedToStatusColor ]
+                        div
+                            [ style "background-color" <|
+                                if Set.member s.id visited then
+                                    visitedStatusColor
+
+                                else
+                                    repliedToStatusColor
+                            ]
                             [ renderStatusWithId (Just nodeid) renderEnv2 feedEnv s ]
 
                     else
