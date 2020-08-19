@@ -14014,6 +14014,7 @@ computeListSelector model =
 
                 availableLists =
                     List.filter (\list -> not <| List.member list.id listIds) lists
+                        |> List.sortBy (\list -> list.title)
             in
             if availableLists == [] then
                 Just <| text "All have columns."
