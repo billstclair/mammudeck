@@ -34,6 +34,7 @@ module Mammudeck.Types exposing
     , defaultFeedSetDefinition
     , defaultGroupFeedType
     , defaultHashtagFeedType
+    , defaultListFeedType
     , defaultNotificationExclusions
     , defaultProFeedFlags
     , defaultPublicFeedFlags
@@ -144,6 +145,11 @@ defaultGroupFeedType =
 defaultHashtagFeedType : FeedType
 defaultHashtagFeedType =
     HashtagFeed ""
+
+
+defaultListFeedType : FeedType
+defaultListFeedType =
+    ListFeed ""
 
 
 type alias PublicFeedParams =

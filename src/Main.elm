@@ -1,4 +1,4 @@
-------------------------------------------------------------------
+-----------------------------------------------------------------
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
@@ -205,6 +205,7 @@ import Mastodon.Entity as Entity
         , FilterContext(..)
         , Focus
         , Group
+        , ListEntity
         , Mention
         , Notification
         , NotificationType(..)
@@ -414,6 +415,7 @@ emptyRenderEnv =
 
 type alias FeedEnv =
     { group : Maybe Group
+    , list : Maybe ListEntity
     , references : Dict String Reference
     , missingReplyToAccountIds : Set String
     , headerHeight : Maybe Float
@@ -423,6 +425,7 @@ type alias FeedEnv =
 emptyFeedEnv : FeedEnv
 emptyFeedEnv =
     { group = Nothing
+    , list = Nothing
     , references = Dict.empty
     , missingReplyToAccountIds = Set.empty
     , headerHeight = Nothing
@@ -556,6 +559,8 @@ type alias Model =
     , postTriggerCoordinatesCount : Int
     , postInputPosition : Int
     , postInputCount : Int
+    , lists : List ListEntity
+    , selectedList : Maybe ListEntity
 
     -- API Explorer state
     , keysDown : Set String
@@ -702,6 +707,7 @@ type ColumnsUIMsg
     | UserNameInput String
     | GroupNameInput String
     | HashtagInput String
+    | SetSelectedList String
     | SendDelayedPopupRequest Popup String Request
     | SendDelayedPostTextPopup PostPopupSearch String
     | ReceivePostDialogElement (Result Dom.Error Dom.Element)
@@ -1266,6 +1272,8 @@ init value url key =
     , postTriggerCoordinatesCount = 0
     , postInputPosition = 0
     , postInputCount = 0
+    , lists = []
+    , selectedList = Nothing
     , keysDown = Set.empty
     , request = Nothing
     , response = Nothing
@@ -1606,8 +1614,11 @@ handleGetModelInternal maybeValue model =
 
                                 ( mdl4, cmd4 ) =
                                     getVerifyCredentials mdl3
+
+                                ( mdl5, cmd5 ) =
+                                    sendRequest (ListsRequest Request.GetLists) mdl4
                             in
-                            mdl4 |> withCmds [ cmd3, cmd4, fetchFeatures server mdl3 ]
+                            mdl5 |> withCmds [ cmd3, cmd4, cmd5, fetchFeatures server mdl3 ]
 
 
 sendCustomEmojisRequest : Model -> ( Model, Cmd Msg )
@@ -1699,15 +1710,26 @@ addFeedEnv feedType model =
                 Just group ->
                     let
                         feedEnv =
-                            { emptyFeedEnv
-                                | group = Just group
-                            }
+                            { emptyFeedEnv | group = Just group }
                     in
                     { model
                         | feedEnvs =
-                            Dict.insert feedId
-                                feedEnv
-                                model.feedEnvs
+                            Dict.insert feedId feedEnv model.feedEnvs
+                    }
+
+        ListFeed list_id ->
+            case LE.find (\list -> list_id == list.id) model.lists of
+                Nothing ->
+                    model
+
+                Just list ->
+                    let
+                        feedEnv =
+                            { emptyFeedEnv | list = Just list }
+                    in
+                    { model
+                        | feedEnvs =
+                            Dict.insert feedId feedEnv model.feedEnvs
                     }
 
         _ ->
@@ -2571,12 +2593,16 @@ globalMsg msg model =
 
                         ( mdl4, cmd4 ) =
                             sendCustomEmojisRequest mdl3
+
+                        ( mdl5, cmd5 ) =
+                            sendRequest (ListsRequest Request.GetLists) mdl4
                     in
-                    mdl4
+                    mdl5
                         |> withCmds
                             [ cmd
                             , cmd3
                             , cmd4
+                            , cmd5
                             , checkAccountByUsername server mdl4
                             , getAccountIdRelationships False mdl4
                             , getFeedSetDefinition server
@@ -3148,7 +3174,7 @@ columnsUIMsg msg model =
 
         ShowEditColumnsDialog ->
             { model | dialog = EditColumnsDialog }
-                |> withNoCmd
+                |> sendRequest (ListsRequest Request.GetLists)
 
         ShowServerDialog ->
             { model | dialog = ServerDialog }
@@ -3343,6 +3369,13 @@ columnsUIMsg msg model =
                         model.popupChoices
             }
                 |> initializePopup HashtagPopup hashtagInput
+
+        SetSelectedList id ->
+            { model
+                | selectedList =
+                    LE.find (\list -> id == list.id) model.lists
+            }
+                |> withNoCmd
 
         SendDelayedPopupRequest popup input request ->
             sendDelayedPopupRequest popup input request model
@@ -5286,6 +5319,14 @@ fillinFeedType feedType model =
         HashtagFeed _ ->
             HashtagFeed model.hashtagInput
 
+        ListFeed _ ->
+            case model.selectedList of
+                Nothing ->
+                    feedType
+
+                Just { id } ->
+                    ListFeed id
+
         _ ->
             feedType
 
@@ -5717,6 +5758,14 @@ reloadFeedPaging paging feed model =
                                 { hashtag = hashtag
                                 , local = False
                                 , only_media = False
+                                , paging = paging
+                                }
+
+                ListFeed list_id ->
+                    Just <|
+                        TimelinesRequest <|
+                            Request.GetListTimeline
+                                { list_id = list_id
                                 , paging = paging
                                 }
 
@@ -8406,6 +8455,28 @@ applyResponseSideEffects response model =
         NotificationsRequest (Request.GetNotifications { paging }) ->
             notificationsSmartPaging response.entity paging model
 
+        ListsRequest Request.GetLists ->
+            case response.entity of
+                ListEntityListEntity lists ->
+                    { model
+                        | lists = lists
+                        , selectedList =
+                            case model.selectedList of
+                                Nothing ->
+                                    Nothing
+
+                                Just { id } ->
+                                    case LE.find (\list -> id == list.id) lists of
+                                        Nothing ->
+                                            Nothing
+
+                                        justList ->
+                                            justList
+                    }
+
+                _ ->
+                    model
+
         SearchRequest (Request.GetSearch _) ->
             -- Similar to `AccountsRequest (Request.GetSearchAccounts)` above.
             case response.entity of
@@ -9933,6 +10004,14 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
                     case feedEnv.group of
                         Just group ->
                             b group.title
+
+                        _ ->
+                            feedTitle feedType
+
+                ListFeed _ ->
+                    case feedEnv.list of
+                        Just list ->
+                            b list.title
 
                         _ ->
                             feedTitle feedType
@@ -13833,7 +13912,7 @@ editColumnsDialog model =
             , ( "font-size", fspct model.renderEnv )
             ]
         , title = "Edit Columns"
-        , content = editColumnDialogRows model
+        , content = editColumnsDialogRows model
         , actionBar =
             [ button (ColumnsUIMsg DismissDialog) "OK" ]
         }
@@ -13904,17 +13983,81 @@ serverKnowsFeature maybeServer featureName model =
                             Just hasFeature
 
 
-editColumnDialogRows : Model -> List (Html Msg)
-editColumnDialogRows model =
+computeListSelector : Model -> Maybe (Html Msg)
+computeListSelector model =
+    case model.lists of
+        [] ->
+            Nothing
+
+        lists ->
+            let
+                isListFeed feed =
+                    case feed of
+                        ListFeed _ ->
+                            True
+
+                        _ ->
+                            False
+
+                listFeedId feed =
+                    case feed of
+                        ListFeed id ->
+                            id
+
+                        _ ->
+                            ""
+            in
+            let
+                listIds =
+                    List.filter isListFeed model.feedSetDefinition.feedTypes
+                        |> List.map listFeedId
+
+                availableLists =
+                    List.filter (\list -> not <| List.member list.id listIds) lists
+            in
+            if availableLists == [] then
+                Just <| text "All have columns."
+
+            else
+                let
+                    currentList =
+                        case model.selectedList of
+                            Nothing ->
+                                ""
+
+                            Just { id } ->
+                                id
+
+                    listOption list =
+                        option
+                            [ value list.id
+                            , selected <| currentList == list.id
+                            ]
+                            [ text list.title ]
+                in
+                select [ onInput (ColumnsUIMsg << SetSelectedList) ]
+                    (option [ value "" ]
+                        [ text "-- select a list --" ]
+                        :: List.map listOption availableLists
+                    )
+                    |> Just
+
+
+editColumnsDialogRows : Model -> List (Html Msg)
+editColumnsDialogRows model =
     let
         feedTypes =
             model.feedSetDefinition.feedTypes
 
         row : List (Html Msg) -> Msg -> Html Msg
-        row td1 msg =
+        row =
+            conditionalRow (\_ -> True)
+
+        conditionalRow : (Model -> Bool) -> List (Html Msg) -> Msg -> Html Msg
+        conditionalRow pred td1 msg =
             tr []
                 [ td [] td1
-                , td [] [ button msg "+" ]
+                , td [] [ enabledButton (pred model) msg "+" ]
                 ]
 
         renderEnv =
@@ -14049,6 +14192,18 @@ editColumnDialogRows model =
                     ]
                     (ColumnsUIMsg <| AddFeedColumn Types.defaultHashtagFeedType)
               ]
+            , case computeListSelector model of
+                Nothing ->
+                    []
+
+                Just selector ->
+                    [ conditionalRow
+                        (\mdl -> mdl.selectedList /= Nothing)
+                        [ b "List: "
+                        , selector
+                        ]
+                        (ColumnsUIMsg <| AddFeedColumn Types.defaultListFeedType)
+                    ]
             ]
     , if [] == feedTypes then
         text ""
@@ -14323,6 +14478,14 @@ smartFeedTitle feedType model =
             case getGroup group_id model of
                 Just group ->
                     b group.title
+
+                _ ->
+                    feedTitle feedType
+
+        ListFeed list_id ->
+            case LE.find (\list -> list_id == list.id) model.lists of
+                Just list ->
+                    b list.title
 
                 _ ->
                     feedTitle feedType
