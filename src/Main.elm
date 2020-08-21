@@ -542,6 +542,7 @@ type alias Model =
     , accountIdDict : Dict String (List AccountId)
     , dropZone : DropZone.Model
     , loadingFeeds : Set String --feed ids
+    , newElements : Dict String FeedElements
     , groupDict : Dict String Group
     , feedEnvs : Dict String FeedEnv
     , showFullScrollPill : Bool
@@ -740,6 +741,7 @@ type ColumnsUIMsg
     | PostAttachmentUrl String
     | DeletePostAttachment Int
     | TogglePostSensitive
+    | ShowNewFeedStatuses FeedType
     | ShowStatusImages String
     | SetPostReplyType ReplyType
     | ClearPostStateReplyTo
@@ -1255,6 +1257,7 @@ init value url key =
     , accountIdDict = Dict.empty
     , dropZone = DropZone.init
     , loadingFeeds = Set.empty
+    , newElements = Dict.empty
     , groupDict = Dict.empty
     , feedEnvs = Dict.empty
     , showFullScrollPill = False
@@ -3756,6 +3759,10 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+        ShowNewFeedStatuses feedType ->
+            -- TODO
+            model |> withNoCmd
 
         ShowStatusImages id ->
             modifyColumnsStatus id (\s -> { s | sensitive = False }) model
@@ -9977,8 +9984,8 @@ headerFeedId feedId =
     feedId ++ " [header]"
 
 
-renderFeed : Bool -> RenderEnv -> FeedEnv -> Feed -> Html Msg
-renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
+renderFeed : Bool -> Int -> RenderEnv -> FeedEnv -> Feed -> Html Msg
+renderFeed isFeedLoading newPostCount renderEnv feedEnv { feedType, elements } =
     let
         { color } =
             getStyle renderEnv.style
@@ -9998,12 +10005,24 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
         feedId =
             Types.feedID <| Debug.log "renderFeed" feedType
 
-        footer statuses =
-            if isFeedLoading && statuses /= [] then
-                [ renderFeedLoadingEmojiFooter renderEnv ]
+        footer theElements =
+            let
+                notEmpty =
+                    case theElements of
+                        StatusElements statuses ->
+                            statuses /= []
+
+                        NotificationElements notifications ->
+                            notifications /= []
+
+                        _ ->
+                            False
+            in
+            if isFeedLoading && notEmpty then
+                renderFeedLoadingEmojiFooter renderEnv
 
             else
-                []
+                text ""
 
         title =
             case feedType of
@@ -10039,6 +10058,20 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
             ]
             [ if isFeedLoading then
                 feedLoadingEmojiSpan True True
+
+              else if newPostCount > 0 then
+                a
+                    [ href "#"
+                    , onClick (ColumnsUIMsg <| ShowNewFeedStatuses feedType)
+                    , Html.Attributes.title "Show new"
+
+                    --, style "border" <| "2px solid " ++ color
+                    ]
+                    [ text <|
+                        special.nbsp
+                            ++ String.fromInt newPostCount
+                            ++ special.nbsp
+                    ]
 
               else
                 Html.i
@@ -10098,31 +10131,9 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
             , style "height" innerHeight
             ]
           <|
-            case elements of
-                StatusElements statuses ->
-                    List.concat
-                        [ List.map (renderStatus renderEnv feedEnv) statuses
-                        , footer statuses
-                        ]
-
-                NotificationElements notifications ->
-                    let
-                        gangedNotifications =
-                            gangNotifications notifications
-
-                        ( _, _ ) =
-                            ( List.length notifications
-                            , gangedNotifications
-                            )
-                    in
-                    List.concat
-                        [ List.map (renderGangedNotification renderEnv)
-                            gangedNotifications
-                        , footer gangedNotifications
-                        ]
-
-                _ ->
-                    [ text "" ]
+            [ Lazy.lazy3 renderFeedElements renderEnv feedEnv elements
+            , footer elements
+            ]
 
         -- This turns scroll tracking back on, after the virtual DOM is synced.
         , RenderNotify.renderNotify
@@ -10131,6 +10142,31 @@ renderFeed isFeedLoading renderEnv feedEnv { feedType, elements } =
             ]
             []
         ]
+
+
+renderFeedElements : RenderEnv -> FeedEnv -> FeedElements -> Html Msg
+renderFeedElements renderEnv feedEnv elements =
+    case elements of
+        StatusElements statuses ->
+            div [] <|
+                List.map (renderStatus renderEnv feedEnv) statuses
+
+        NotificationElements notifications ->
+            let
+                gangedNotifications =
+                    gangNotifications notifications
+
+                ( _, _ ) =
+                    ( List.length notifications
+                    , gangedNotifications
+                    )
+            in
+            div [] <|
+                List.map (renderGangedNotification renderEnv)
+                    gangedNotifications
+
+        _ ->
+            text ""
 
 
 renderGangedNotification : RenderEnv -> GangedNotification -> Html Msg
@@ -11637,6 +11673,22 @@ renderColumns model =
                                 isFeedLoading =
                                     Set.member id model.loadingFeeds
 
+                                newCount =
+                                    case Dict.get id model.newElements of
+                                        Nothing ->
+                                            0
+
+                                        Just elements ->
+                                            case elements of
+                                                StatusElements statuses ->
+                                                    List.length statuses
+
+                                                NotificationElements notifications ->
+                                                    List.length notifications
+
+                                                _ ->
+                                                    0
+
                                 feedEnv =
                                     getFeedEnv feed.feedType model
                             in
@@ -11644,8 +11696,9 @@ renderColumns model =
                                 [ style "vertical-align" "top"
                                 , style "padding" "0"
                                 ]
-                                [ Lazy.lazy4 renderFeed
+                                [ Lazy.lazy5 renderFeed
                                     isFeedLoading
+                                    newCount
                                     renderEnv
                                     feedEnv
                                     feed
