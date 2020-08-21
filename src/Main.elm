@@ -8458,21 +8458,28 @@ applyResponseSideEffects response model =
         ListsRequest Request.GetLists ->
             case response.entity of
                 ListEntityListEntity lists ->
-                    { model
-                        | lists = lists
-                        , selectedList =
-                            case model.selectedList of
-                                Nothing ->
-                                    Nothing
-
-                                Just { id } ->
-                                    case LE.find (\list -> id == list.id) lists of
+                    let
+                        mdl =
+                            { model
+                                | lists = lists
+                                , selectedList =
+                                    case model.selectedList of
                                         Nothing ->
                                             Nothing
 
-                                        justList ->
-                                            justList
-                    }
+                                        Just { id } ->
+                                            case
+                                                LE.find (\list -> id == list.id)
+                                                    lists
+                                            of
+                                                Nothing ->
+                                                    Nothing
+
+                                                justList ->
+                                                    justList
+                            }
+                    in
+                    List.foldl addFeedEnv mdl mdl.feedSetDefinition.feedTypes
 
                 _ ->
                     model
