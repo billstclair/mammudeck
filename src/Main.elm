@@ -22,6 +22,12 @@
 
 See ../TODO.md for the full list.
 
+* Refresh:
+    Handle a gap between new posts and already displayed posts.
+    First, detect that it happened.
+    Next, truncate to just the new posts, so that scrolling will
+        fill the now non-existent gap.
+
 * ThreadExplorer:
     ** Be less eager to pull from the server.
     ** When click on existing status, scroll it to the top.
@@ -5908,12 +5914,12 @@ reloadFeedPaging paging feed model =
                     -- conditions with the scroll detection code, and
                     -- putting it here does not.
                     case pagingToReceiveType paging of
-                        ReceiveWholeFeed ->
-                            Dom.setViewportOf id 0 0
-                                |> Task.attempt (\_ -> Noop)
+                        ReceiveMoreFeed ->
+                            Cmd.none
 
                         _ ->
-                            Cmd.none
+                            Dom.setViewportOf id 0 0
+                                |> Task.attempt (\_ -> Noop)
             in
             mdl2 |> withCmds [ cmd, cmd2, cmd3 ]
 
