@@ -3129,7 +3129,7 @@ columnsUIMsg msg model =
                 getFeed feed ( mdl, cmds ) =
                     let
                         ( mdl2, cmd ) =
-                            reloadFeed feed mdl
+                            columnsUIMsg (RefreshFeed feed.feedType) mdl
                     in
                     ( mdl2, Cmd.batch [ cmd, cmds ] )
 
