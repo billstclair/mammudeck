@@ -23,11 +23,7 @@
 See ../TODO.md for the full list.
 
 * ThreadExplorer:
-    ** Keyboard/ScrollPill interaction
-        Backward pops the ribbon.
-        Forward goes to next status with comments,
-        or pops the ribbon first if there are none.
-        Continue at "TODO thread explorer scrolling"
+    ** Be less eager to pull from the server.
     ** When click on existing status, scroll it to the top.
         We want to see the replies, since we already saw the
         reply-to in the previous screen.
@@ -40,16 +36,6 @@ See ../TODO.md for the full list.
 * Unalloyed @billstclair on impeccable.social gets the wrong ID when
   added as a column, even when clicking on popup, which should know
   the ID.
-
-* Thread Explorer (not sure yet what this will be, but I have yet to
-  see anyone do real justice to comment trees).It needs to be similar
-  to the JSON tree in the Mammudeck's API Exporer window, showing who
-  replied at each level, with clicks to include an excerpt, the whole
-  comment, and the subtree. But I haven't yet thought about how that
-  maps to the API.
-
-  The 'GET statuses/:id/context' API call is used to navigate in the
-  reply tree. Play with it at mammudeck.com/?api=statuses
 
 * Add reply-to as in Pleroma before message.
   ** This requires keeping a table mapping server & id to acct (username@server) & url.
@@ -183,7 +169,7 @@ import Mammudeck.Types as Types
         , Fetcher
         , GangedNotification
         , PublicFeedFlags
-        , Renderer
+          --, Renderer
         , ScrollNotification
         , UserFeedFlags
         , UserFeedParams
@@ -684,6 +670,7 @@ type ColumnsUIMsg
     | ColumnWidth VerticalDirection
     | ToggleStyle
     | ReloadAllColumns
+    | MarkFeedRead FeedType
     | RefreshFeed FeedType
     | FeedRendered Value
     | Tick Posix
@@ -2996,6 +2983,29 @@ makeScrollRequestWithId id enable =
         |> scrollRequest
 
 
+firstFeedElementId : FeedElements -> Maybe String
+firstFeedElementId elements =
+    case elements of
+        StatusElements statuses ->
+            case List.head statuses of
+                Nothing ->
+                    Nothing
+
+                Just status ->
+                    Just status.id
+
+        NotificationElements notifications ->
+            case List.head notifications of
+                Nothing ->
+                    Nothing
+
+                Just notification ->
+                    Just notification.id
+
+        _ ->
+            Nothing
+
+
 {-| Process UI messages from the columns page.
 
 These change the Model, but don't send anything over the wire to any instances.
@@ -3131,6 +3141,28 @@ columnsUIMsg msg model =
             in
             mdl4 |> withCmds [ cmd3, cmd4 ]
 
+        MarkFeedRead feedType ->
+            let
+                feedSet =
+                    model.feedSet
+
+                feeds =
+                    List.map
+                        (\feed ->
+                            if feedType == feed.feedType then
+                                { feed | newElements = 0 }
+
+                            else
+                                feed
+                        )
+                        feedSet.feeds
+            in
+            { model
+                | feedSet =
+                    { feedSet | feeds = feeds }
+            }
+                |> withNoCmd
+
         RefreshFeed feedType ->
             -- TODO : Change this to do an update, not a total refresh
             case findFeed feedType model.feedSet of
@@ -3138,7 +3170,15 @@ columnsUIMsg msg model =
                     model |> withNoCmd
 
                 Just feed ->
-                    reloadFeed feed model
+                    case firstFeedElementId feed.elements of
+                        Nothing ->
+                            reloadFeed feed model
+
+                        justId ->
+                            reloadFeedPaging
+                                (Just { emptyPaging | since_id = justId })
+                                feed
+                                model
 
         FeedRendered v ->
             case JD.decodeValue JD.string v of
@@ -5476,6 +5516,7 @@ addFeedType feedType model =
             newFeed =
                 { feedType = Debug.log "addFeedType" feedType
                 , elements = Types.feedTypeToElements feedType
+                , newElements = 0
                 }
 
             newFeedSet =
@@ -6243,30 +6284,57 @@ addNotificationReferences notification references =
 
 updateReceivedFeed : ReceiveFeedType -> FeedElements -> Feed -> Feed
 updateReceivedFeed receiveType elements feed =
-    { feed
-        | elements =
+    let
+        ( elements2, newElements ) =
             case receiveType of
                 ReceiveWholeFeed ->
-                    elements
+                    ( elements, 0 )
 
                 ReceiveMoreFeed ->
-                    appendFeedElements feed.elements elements feed.elements
+                    ( appendFeedElements feed.elements elements feed.elements
+                    , feed.newElements
+                    )
 
                 ReceiveNewFeed ->
-                    --TODO
-                    -- Needs to put new elements in another place
-                    -- Only appended when user clicks a button
-                    appendFeedElements elements feed.elements feed.elements
+                    let
+                        elements3 =
+                            appendFeedElementsTruncated (Just 100)
+                                elements
+                                feed.elements
+                                feed.elements
+                    in
+                    ( elements3
+                    , min (Types.feedElementsCount elements)
+                        (Types.feedElementsCount elements3)
+                    )
+    in
+    { feed
+        | elements = elements2
+        , newElements = newElements
     }
 
 
 appendFeedElements : FeedElements -> FeedElements -> FeedElements -> FeedElements
-appendFeedElements fe1 fe2 default =
+appendFeedElements =
+    appendFeedElementsTruncated Nothing
+
+
+appendFeedElementsTruncated : Maybe Int -> FeedElements -> FeedElements -> FeedElements -> FeedElements
+appendFeedElementsTruncated maybeMax fe1 fe2 default =
+    let
+        truncate list =
+            case maybeMax of
+                Nothing ->
+                    list
+
+                Just max ->
+                    List.take max list
+    in
     case fe1 of
         StatusElements els1 ->
             case fe2 of
                 StatusElements els2 ->
-                    StatusElements <| List.append els1 els2
+                    StatusElements <| truncate <| List.append els1 els2
 
                 _ ->
                     default
@@ -6274,7 +6342,7 @@ appendFeedElements fe1 fe2 default =
         NotificationElements els1 ->
             case fe2 of
                 NotificationElements els2 ->
-                    NotificationElements <| List.append els1 els2
+                    NotificationElements <| truncate <| List.append els1 els2
 
                 _ ->
                     default
@@ -8255,6 +8323,7 @@ applyProTimelineSideEffects response model =
                                     { feedType = proFeedType
                                     , elements =
                                         StatusElements statuses
+                                    , newElements = 0
                                     }
 
                                 newFeedSet =
@@ -9985,8 +10054,14 @@ headerFeedId feedId =
 
 
 renderFeed : Bool -> Int -> RenderEnv -> FeedEnv -> Feed -> Html Msg
-renderFeed isFeedLoading newPostCount renderEnv feedEnv { feedType, elements } =
+renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
     let
+        feedType =
+            feed.feedType
+
+        newElements =
+            feed.newElements
+
         { color } =
             getStyle renderEnv.style
 
@@ -10076,6 +10151,7 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv { feedType, elements } =
               else
                 Html.i
                     [ onClick <| ColumnsUIMsg (RefreshFeed feedType)
+                    , style "cursor" "pointer"
                     , style "font-size" smallTextFontSize
                     , class "icon-spin3"
                     ]
@@ -10091,6 +10167,7 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv { feedType, elements } =
                         [ text " "
                         , Html.i
                             [ onClick msg
+                            , style "cursor" "pointer"
                             , style "font-size" smallTextFontSize
                             , class "icon-pencil"
                             ]
@@ -10123,6 +10200,20 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv { feedType, elements } =
 
                 _ ->
                     text ""
+            , if newElements <= 0 then
+                text ""
+
+              else
+                span
+                    [ style "text-align" "center"
+                    , style "color" "red"
+                    , style "cursor" "pointer"
+                    , Html.Attributes.title "Click to mark read."
+                    , onClick (ColumnsUIMsg <| MarkFeedRead feedType)
+                    ]
+                    [ br
+                    , text <| String.fromInt newElements ++ " new"
+                    ]
             ]
         , div
             [ style "overflow-y" "auto"
@@ -10131,8 +10222,13 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv { feedType, elements } =
             , style "height" innerHeight
             ]
           <|
-            [ Lazy.lazy3 renderFeedElements renderEnv feedEnv elements
-            , footer elements
+            [ Lazy.lazy5 renderFeedElements
+                newElements
+                feedType
+                renderEnv
+                feedEnv
+                feed.elements
+            , footer feed.elements
             ]
 
         -- This turns scroll tracking back on, after the virtual DOM is synced.
@@ -10144,22 +10240,19 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv { feedType, elements } =
         ]
 
 
-renderFeedElements : RenderEnv -> FeedEnv -> FeedElements -> Html Msg
-renderFeedElements renderEnv feedEnv elements =
+renderFeedElements : Int -> FeedType -> RenderEnv -> FeedEnv -> FeedElements -> Html Msg
+renderFeedElements newElements feedType renderEnv feedEnv elements =
     case elements of
         StatusElements statuses ->
             div [] <|
-                List.map (renderStatus renderEnv feedEnv) statuses
+                List.indexedMap
+                    (renderStatusWithNewMarker feedType renderEnv feedEnv newElements)
+                    statuses
 
         NotificationElements notifications ->
             let
-                gangedNotifications =
-                    gangNotifications notifications
-
-                ( _, _ ) =
-                    ( List.length notifications
-                    , gangedNotifications
-                    )
+                ( gangedNotifications, newElements2 ) =
+                    gangNotifications newElements notifications
             in
             div [] <|
                 List.map (renderGangedNotification renderEnv)
@@ -10251,14 +10344,14 @@ notificationStatusId notification =
             ""
 
 
-gangNotifications : List Notification -> List GangedNotification
-gangNotifications notifications =
+gangNotifications : Int -> List Notification -> ( List GangedNotification, Int )
+gangNotifications newElements notifications =
     let
-        loop : List Notification -> List GangedNotification -> List GangedNotification
-        loop tail res =
+        loop : Int -> Int -> List Notification -> List GangedNotification -> ( List GangedNotification, Int )
+        loop idx new tail res =
             case tail of
                 [] ->
-                    List.reverse res
+                    ( List.reverse res, new )
 
                 car :: cdr ->
                     let
@@ -10274,7 +10367,7 @@ gangNotifications notifications =
                             res
                     of
                         Nothing ->
-                            loop cdr <|
+                            loop (idx + 1) new cdr <|
                                 { id = id
                                 , notification = car
                                 , accounts = [ car.account ]
@@ -10288,11 +10381,18 @@ gangNotifications notifications =
                                         | accounts =
                                             List.append gn.accounts [ car.account ]
                                     }
+
+                                newnew =
+                                    if idx >= newElements then
+                                        new
+
+                                    else
+                                        new - 1
                             in
-                            loop cdr <|
+                            loop (idx + 1) newnew cdr <|
                                 LE.setIf ((==) gn) newgn res
     in
-    loop notifications []
+    loop 0 newElements notifications []
 
 
 notificationDescription : Notification -> RenderEnv -> Html Msg
@@ -10488,8 +10588,6 @@ emojiStringToImg size dict emojiOrText =
                         [ ( "src", emoji.url )
                         , ( "draggable", "false" )
                         , ( "style", "height:" ++ size ++ ";" )
-
-                        -- ("style", "margin:-3px 0 0;")
                         , ( "title", tit )
                         , ( "alt", tit )
                         ]
@@ -10849,6 +10947,45 @@ renderFeedLoadingEmojiFooter renderEnv =
                 [ feedLoadingEmojiSpan False False ]
             ]
         ]
+
+
+renderNewMarker : FeedType -> RenderEnv -> Html Msg
+renderNewMarker feedType renderEnv =
+    let
+        { color } =
+            getStyle renderEnv.style
+
+        border =
+            "1px solid " ++ color
+    in
+    div
+        [ style "border-right" border
+        , style "border-left" border
+        , style "border-bottom" border
+        ]
+        [ Html.hr
+            [ style "color" "red"
+            , style "background-color" "red"
+            , style "height" "8px"
+            , style "margin" "0"
+            , style "cursor" "pointer"
+            , title "Click to mark read."
+            , onClick (ColumnsUIMsg <| MarkFeedRead feedType)
+            ]
+            []
+        ]
+
+
+renderStatusWithNewMarker : FeedType -> RenderEnv -> FeedEnv -> Int -> Int -> Status -> Html Msg
+renderStatusWithNewMarker feedType renderEnv feedEnv newElements index status =
+    if newElements > 0 && newElements == index then
+        div []
+            [ renderNewMarker feedType renderEnv
+            , renderStatus renderEnv feedEnv status
+            ]
+
+    else
+        renderStatus renderEnv feedEnv status
 
 
 renderStatus : RenderEnv -> FeedEnv -> Status -> Html Msg

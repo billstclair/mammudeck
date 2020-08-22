@@ -23,8 +23,9 @@ module Mammudeck.Types exposing
     , NotificationFeedParams
     , ProFeedFlags
     , PublicFeedFlags
-    , PublicFeedParams
-    , Renderer
+    ,  PublicFeedParams
+       --, Renderer
+
     , ScrollNotification
     , UserFeedFlags
     , UserFeedParams
@@ -43,6 +44,7 @@ module Mammudeck.Types exposing
     , emptyAccountId
     , emptyFeedSet
     , emptyFeedSetDefinition
+    , feedElementsCount
     , feedID
     , feedIdToType
     , feedSetDefinitionToFeedSet
@@ -294,6 +296,25 @@ type FeedElements
     | ResultsElements (List Results)
 
 
+feedElementsCount : FeedElements -> Int
+feedElementsCount elements =
+    case elements of
+        StatusElements statuses ->
+            List.length statuses
+
+        NotificationElements notifications ->
+            List.length notifications
+
+        AccountElements accounts ->
+            List.length accounts
+
+        ConversationsElements conversations ->
+            List.length conversations
+
+        ResultsElements results ->
+            List.length results
+
+
 feedTypeToElements : FeedType -> FeedElements
 feedTypeToElements feedType =
     case feedType of
@@ -313,6 +334,7 @@ feedTypeToElements feedType =
 type alias Feed =
     { feedType : FeedType
     , elements : FeedElements
+    , newElements : Int
     }
 
 
@@ -357,6 +379,7 @@ feedSetDefinitionToFeedSet { name, feedTypes } =
             (\feedType ->
                 { feedType = feedType
                 , elements = feedTypeToElements feedType
+                , newElements = 0
                 }
             )
             feedTypes
