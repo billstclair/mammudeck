@@ -960,6 +960,7 @@ keyMsgDict =
     Dict.fromList
         [ ( "p", ShowPostDialog Nothing )
         , ( "r", ReloadAllColumns )
+        , ( "R", ReloadAllColumns )
         , ( ".", ShowSettingsDialog )
         , ( "d", ToggleStyle )
         , ( ",", ShowSettingsDialog )
@@ -978,6 +979,7 @@ keyboard =
     , alt = "Alt"
     , meta = "Meta"
     , escape = "Escape"
+    , shift = "Shift"
     }
 
 
@@ -3175,10 +3177,14 @@ columnsUIMsg msg model =
                             reloadFeed feed model
 
                         justId ->
-                            reloadFeedPaging
-                                (Just { emptyPaging | since_id = justId })
-                                feed
-                                model
+                            if isKeyDown keyboard.shift model then
+                                reloadFeed feed model
+
+                            else
+                                reloadFeedPaging
+                                    (Just { emptyPaging | since_id = justId })
+                                    feed
+                                    model
 
         FeedRendered v ->
             case JD.decodeValue JD.string v of
@@ -10966,7 +10972,7 @@ renderNewMarker feedType renderEnv =
         [ Html.hr
             [ style "color" "red"
             , style "background-color" "red"
-            , style "height" "8px"
+            , style "height" "10px"
             , style "margin" "0"
             , style "cursor" "pointer"
             , title "Click to mark read."
