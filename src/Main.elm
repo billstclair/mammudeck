@@ -2991,24 +2991,24 @@ makeScrollRequestWithId id enable =
         |> scrollRequest
 
 
-firstFeedElementId : FeedElements -> Maybe String
-firstFeedElementId elements =
+secondFeedElementId : FeedElements -> Maybe String
+secondFeedElementId elements =
     case elements of
         StatusElements statuses ->
-            case List.head statuses of
-                Nothing ->
-                    Nothing
+            case statuses of
+                _ :: s :: _ ->
+                    Just s.id
 
-                Just status ->
-                    Just status.id
+                _ ->
+                    Nothing
 
         NotificationElements notifications ->
-            case List.head notifications of
-                Nothing ->
-                    Nothing
+            case notifications of
+                _ :: n :: _ ->
+                    Just n.id
 
-                Just notification ->
-                    Just notification.id
+                _ ->
+                    Nothing
 
         _ ->
             Nothing
@@ -3172,13 +3172,12 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
         RefreshFeed feedType ->
-            -- TODO : Change this to do an update, not a total refresh
             case findFeed feedType model.feedSet of
                 Nothing ->
                     model |> withNoCmd
 
                 Just feed ->
-                    case firstFeedElementId feed.elements of
+                    case secondFeedElementId feed.elements of
                         Nothing ->
                             reloadFeed feed model
 
@@ -6148,8 +6147,7 @@ receiveFeed request paging feedType result model =
                                             )
 
                         missing =
-                            Debug.log "  missing replyToAccountIds"
-                                feedEnv2.missingReplyToAccountIds
+                            feedEnv2.missingReplyToAccountIds
 
                         mdl3 =
                             { mdl2
@@ -6304,21 +6302,16 @@ updateReceivedFeed receiveType elements feed =
 
                 ReceiveMoreFeed ->
                     ( appendFeedElements feed.elements elements feed.elements
+                        |> Tuple.first
                     , feed.newElements
                     )
 
                 ReceiveNewFeed ->
-                    let
-                        elements3 =
-                            appendFeedElementsTruncated (Just 100)
-                                elements
-                                feed.elements
-                                feed.elements
-                    in
-                    ( elements3
-                    , min (Types.feedElementsCount elements)
-                        (Types.feedElementsCount elements3)
-                    )
+                    appendFeedElementsTruncated (Just 100)
+                        True
+                        elements
+                        feed.elements
+                        feed.elements
     in
     { feed
         | elements = elements2
@@ -6326,13 +6319,78 @@ updateReceivedFeed receiveType elements feed =
     }
 
 
-appendFeedElements : FeedElements -> FeedElements -> FeedElements -> FeedElements
+merge : (a -> comparable) -> List a -> List a -> ( List a, Int )
+merge keyfun prefix suffix =
+    let
+        dict : Dict comparable Int
+        dict =
+            List.indexedMap (\idx a -> ( keyfun a, idx )) suffix
+                |> Dict.fromList
+
+        loop : Int -> List a -> List a -> Int -> List a -> ( List a, Int )
+        loop preidx pre suf residx res =
+            let
+                newresidx idx =
+                    if residx >= 0 then
+                        residx
+
+                    else
+                        idx
+            in
+            case pre of
+                [] ->
+                    if res == [] then
+                        ( suf, 0 )
+
+                    else
+                        ( List.reverse res, List.length res )
+
+                p :: ptail ->
+                    case Dict.get (keyfun p) dict of
+                        Nothing ->
+                            loop (preidx + 1)
+                                ptail
+                                suf
+                                (residx + 1)
+                            <|
+                                (p :: res)
+
+                        Just _ ->
+                            if ptail == [] then
+                                ( List.concat
+                                    [ List.concat [ pre, res ]
+                                        |> List.reverse
+                                    , listCdr suf
+                                    ]
+                                , preidx
+                                )
+
+                            else
+                                -- Probably wont' ever happen
+                                ( List.append (List.reverse res) pre
+                                , preidx + List.length pre
+                                )
+    in
+    loop 0 prefix suffix -1 []
+
+
+listCdr : List a -> List a
+listCdr list =
+    case List.tail list of
+        Nothing ->
+            []
+
+        Just l ->
+            l
+
+
+appendFeedElements : FeedElements -> FeedElements -> FeedElements -> ( FeedElements, Int )
 appendFeedElements =
-    appendFeedElementsTruncated Nothing
+    appendFeedElementsTruncated Nothing False
 
 
-appendFeedElementsTruncated : Maybe Int -> FeedElements -> FeedElements -> FeedElements -> FeedElements
-appendFeedElementsTruncated maybeMax fe1 fe2 default =
+appendFeedElementsTruncated : Maybe Int -> Bool -> FeedElements -> FeedElements -> FeedElements -> ( FeedElements, Int )
+appendFeedElementsTruncated maybeMax useMerge fe1 fe2 default =
     let
         truncate list =
             case maybeMax of
@@ -6346,42 +6404,64 @@ appendFeedElementsTruncated maybeMax fe1 fe2 default =
         StatusElements els1 ->
             case fe2 of
                 StatusElements els2 ->
-                    StatusElements <| truncate <| List.append els1 els2
+                    let
+                        ( l, newcnt ) =
+                            if useMerge then
+                                merge .id els1 els2
+
+                            else
+                                ( List.append els1 els2, List.length els1 )
+                    in
+                    ( truncate l
+                        |> StatusElements
+                    , newcnt
+                    )
 
                 _ ->
-                    default
+                    ( default, 0 )
 
         NotificationElements els1 ->
             case fe2 of
                 NotificationElements els2 ->
-                    NotificationElements <| truncate <| List.append els1 els2
+                    let
+                        ( l, newcnt ) =
+                            if useMerge then
+                                merge .id els1 els2
+
+                            else
+                                ( List.append els1 els2, List.length els1 )
+                    in
+                    ( truncate l
+                        |> NotificationElements
+                    , 0
+                    )
 
                 _ ->
-                    default
+                    ( default, 0 )
 
         AccountElements els1 ->
             case fe2 of
                 AccountElements els2 ->
-                    AccountElements <| List.append els1 els2
+                    ( AccountElements <| List.append els1 els2, 0 )
 
                 _ ->
-                    default
+                    ( default, 0 )
 
         ConversationsElements els1 ->
             case fe2 of
                 ConversationsElements els2 ->
-                    ConversationsElements <| List.append els1 els2
+                    ( ConversationsElements <| List.append els1 els2, 0 )
 
                 _ ->
-                    default
+                    ( default, 0 )
 
         ResultsElements els1 ->
             case fe2 of
                 ResultsElements els2 ->
-                    ResultsElements <| List.append els1 els2
+                    ( ResultsElements <| List.append els1 els2, 0 )
 
                 _ ->
-                    default
+                    ( default, 0 )
 
 
 {-| Process UI messages from the API Explorer page.
@@ -8636,8 +8716,8 @@ applyResponseSideEffects response model =
                         , idempotencyKey = ""
                         , pollOptions = [ "", "" ]
                     }
-                        |> adjustColumnsForPost status
 
+                -- |> adjustColumnsForPost status
                 _ ->
                     model
 
@@ -10550,7 +10630,7 @@ parseEmojiString string =
                     if validEmojiName first then
                         case rest of
                             car :: cdr ->
-                                loop cdr <|
+                                loop rest <|
                                     TextString car
                                         :: EmojiString first
                                         :: res
