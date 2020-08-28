@@ -8745,8 +8745,8 @@ applyResponseSideEffects response model =
                         , idempotencyKey = ""
                         , pollOptions = [ "", "" ]
                     }
+                        |> adjustColumnsForPost status
 
-                -- |> adjustColumnsForPost status
                 _ ->
                     model
 
