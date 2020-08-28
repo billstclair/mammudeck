@@ -2886,6 +2886,16 @@ findFeed feedType feedSet =
     LE.find (\feed -> feedType == feed.feedType) feedSet.feeds
 
 
+replaceFeed : Feed -> FeedSet -> FeedSet
+replaceFeed feed feedSet =
+    { feedSet
+        | feeds =
+            LE.updateIf (\f -> feed.feedType == f.feedType)
+                (\_ -> feed)
+                feedSet.feeds
+    }
+
+
 loadMoreCmd : String -> Model -> ( Model, Cmd Msg )
 loadMoreCmd id model =
     case Types.feedIdToType id of
@@ -3899,7 +3909,7 @@ columnsUIMsg msg model =
             in
             sendRequest
                 (StatusesRequest <| Request.PostStatus post)
-                { model | dialog = NoDialog }
+                model
 
         ProbeGroupsFeature server ->
             probeGroupsFeature server model
@@ -5289,6 +5299,14 @@ scrollPageInternal allTheWay direction model =
     model |> withCmd cmd
 
 
+{-| If you enable this, you need to fix the update code to somehow
+ignore it when the new posts come in.
+-}
+showReceivedPost : Bool
+showReceivedPost =
+    False
+
+
 adjustColumnsForPost : Status -> Model -> Model
 adjustColumnsForPost status model =
     let
@@ -5335,9 +5353,20 @@ adjustColumnsForPost status model =
     in
     { model
         | feedSet =
-            { feedSet
-                | feeds = List.map updateFeed feedSet.feeds
-            }
+            if showReceivedPost then
+                { feedSet
+                    | feeds = List.map updateFeed feedSet.feeds
+                }
+
+            else
+                model.feedSet
+        , dialog =
+            case model.dialog of
+                PostDialog ->
+                    NoDialog
+
+                d ->
+                    d
         , postState = initialPostState
     }
 
@@ -10347,11 +10376,27 @@ renderFeedElements newElements feedType renderEnv feedEnv elements =
                     gangNotifications newElements notifications
             in
             div [] <|
-                List.map (renderGangedNotification renderEnv)
+                List.indexedMap
+                    (renderGangedNotificationWithNewMarker feedType
+                        renderEnv
+                        newElements
+                    )
                     gangedNotifications
 
         _ ->
             text ""
+
+
+renderGangedNotificationWithNewMarker : FeedType -> RenderEnv -> Int -> Int -> GangedNotification -> Html Msg
+renderGangedNotificationWithNewMarker feedType renderEnv newElements index gangedNotification =
+    if newElements > 0 && newElements == index then
+        div []
+            [ renderNewMarker feedType renderEnv
+            , renderGangedNotification renderEnv gangedNotification
+            ]
+
+    else
+        renderGangedNotification renderEnv gangedNotification
 
 
 renderGangedNotification : RenderEnv -> GangedNotification -> Html Msg
