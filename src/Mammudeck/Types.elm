@@ -2,7 +2,7 @@
 --
 -- Types.elm
 -- Shared types for Mammudeck.
--- Copyright (c) 2019 Bill St. Clair <billstclair@gmail.com>
+-- Copyright (c) 2019-2020 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
 -- See LICENSE

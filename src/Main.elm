@@ -968,14 +968,14 @@ keyMsgDict =
         , ( "r", ReloadAllColumns )
         , ( "R", ReloadAllColumns )
         , ( ".", ShowSettingsDialog )
-        , ( "d", ToggleStyle )
+        , ( "t", ToggleStyle )
         , ( ",", ShowSettingsDialog )
         , ( "?", ShowKeyboardShortcutsDialog )
         , ( "o", ShowSaveRestoreDialog )
         , ( "j", ScrollPage ScrollLeft )
-        , ( "s", ScrollPage ScrollLeft )
+        , ( "a", ScrollPage ScrollLeft )
         , ( "l", ScrollPage ScrollRight )
-        , ( "f", ScrollPage ScrollRight )
+        , ( "d", ScrollPage ScrollRight )
         , ( "Escape", DismissDialog )
         ]
 
@@ -14678,12 +14678,12 @@ keyboardShortcutsDialogRows model =
         [ row "p" "Show Post dialog" Nothing
         , row "r" "Reload all columns" Nothing
         , row "," "Show Settings dialog" Nothing
-        , row "d" "Toggle Dark Mode" Nothing
+        , row "t" "Toggle Dark Mode" Nothing
         , row "o" "Save/Restore Dialog" Nothing
         , row "?" "Show Keyboard Shortcuts dialog" Nothing
         , row "j / l" "Scroll one page left/right" <|
             Just "(all the way on two keystrokes quickly)"
-        , row "s / f" "Scroll one page left/right (likewise)" Nothing
+        , row "a / d" "Scroll one page left/right (likewise)" Nothing
         , row "esc" "Dismiss dialog, collapse scroll pill" Nothing
         ]
     ]
