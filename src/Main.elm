@@ -2947,7 +2947,16 @@ extendFeed feedId feed model =
         model |> withNoCmd
 
     else
-        reloadFeedPaging (Just { emptyPaging | max_id = Just id }) feed model
+        let
+            ( mdl, cmd ) =
+                reloadFeedPaging
+                    (Just { emptyPaging | max_id = Just id })
+                    feed
+                    model
+        in
+        markFeedRead feed.feedType mdl
+            |> Tuple.first
+            |> withCmd cmd
 
 
 feedsNeedLoading : Model -> Bool
@@ -3160,26 +3169,7 @@ columnsUIMsg msg model =
             mdl4 |> withCmds [ cmd3, cmd4 ]
 
         MarkFeedRead feedType ->
-            let
-                feedSet =
-                    model.feedSet
-
-                feeds =
-                    List.map
-                        (\feed ->
-                            if feedType == feed.feedType then
-                                { feed | newElements = 0 }
-
-                            else
-                                feed
-                        )
-                        feedSet.feeds
-            in
-            { model
-                | feedSet =
-                    { feedSet | feeds = feeds }
-            }
-                |> withNoCmd
+            markFeedRead feedType model
 
         RefreshFeed feedType ->
             case findFeed feedType model.feedSet of
@@ -3943,6 +3933,33 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+
+markFeedRead : FeedType -> Model -> ( Model, Cmd Msg )
+markFeedRead feedType model =
+    let
+        feedSet =
+            model.feedSet
+
+        feeds =
+            List.map
+                (\feed ->
+                    if
+                        (feedType == feed.feedType)
+                            && (feed.newElements > 0)
+                    then
+                        { feed | newElements = 0 }
+
+                    else
+                        feed
+                )
+                feedSet.feeds
+    in
+    { model
+        | feedSet =
+            { feedSet | feeds = feeds }
+    }
+        |> withNoCmd
 
 
 receiveThreadPopupScrollInfo : Result Dom.Error ( Dom.Element, Dom.Element ) -> Model -> ( Model, Cmd Msg )
@@ -6342,12 +6359,22 @@ updateReceivedFeed receiveType elements feed =
                         feed.elements
                         feed.elements
     in
-    { feed
-        | elements = elements2
-        , newElements = newElements
-    }
+    if
+        (elements2 == feed.elements)
+            && (newElements == feed.newElements)
+    then
+        feed
+
+    else
+        { feed
+            | elements = elements2
+            , newElements = newElements
+        }
 
 
+{-| Prepend the first list to the second, stopping when you get to
+a matching element. Currently throws away the rest of the second list.
+-}
 merge : (a -> comparable) -> List a -> List a -> ( List a, Int )
 merge keyfun prefix suffix =
     let
