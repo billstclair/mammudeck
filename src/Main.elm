@@ -411,6 +411,8 @@ type alias FeedEnv =
     , references : Dict String Reference
     , missingReplyToAccountIds : Set String
     , headerHeight : Maybe Float
+    , newElementsLeft : Int
+    , newElementsRight : Int
     }
 
 
@@ -421,6 +423,8 @@ emptyFeedEnv =
     , references = Dict.empty
     , missingReplyToAccountIds = Set.empty
     , headerHeight = Nothing
+    , newElementsLeft = 0
+    , newElementsRight = 0
     }
 
 
@@ -6202,13 +6206,16 @@ receiveFeed request paging feedType result model =
                             }
 
                         mdl4 =
-                            if Set.size mdl3.loadingFeeds > 0 then
-                                mdl3
+                            updateNewElementsLeftRight mdl3
+
+                        mdl5 =
+                            if Set.size mdl4.loadingFeeds > 0 then
+                                mdl4
 
                             else
-                                fillinMissingReplyToAccountIds mdl3
+                                fillinMissingReplyToAccountIds mdl4
                     in
-                    { mdl4
+                    { mdl5
                         | feedSet =
                             { feedSet | feeds = feeds }
                         , references = references
@@ -6217,6 +6224,70 @@ receiveFeed request paging feedType result model =
                             [ cmd
                             , cmd2
                             ]
+
+
+updateNewElementsLeftRight : Model -> Model
+updateNewElementsLeftRight model =
+    let
+        feeds =
+            model.feedSet.feeds
+
+        news =
+            List.map .newElements feeds
+
+        totalNews =
+            List.foldr (+) 0 news
+
+        loop : Int -> List Int -> List Feed -> Dict String FeedEnv -> Dict String FeedEnv
+        loop left newsTail feedsTail feedEnvs =
+            case newsTail of
+                [] ->
+                    feedEnvs
+
+                total :: newsRest ->
+                    case feedsTail of
+                        [] ->
+                            feedEnvs
+
+                        feed :: feedsRest ->
+                            let
+                                feedId =
+                                    Types.feedID feed.feedType
+
+                                newElements =
+                                    feed.newElements
+                            in
+                            loop (left + newElements)
+                                newsRest
+                                feedsRest
+                                (case Dict.get feedId feedEnvs of
+                                    Nothing ->
+                                        feedEnvs
+
+                                    Just feedEnv ->
+                                        let
+                                            right =
+                                                totalNews - left - newElements
+                                        in
+                                        if
+                                            (feedEnv.newElementsLeft == left)
+                                                && (feedEnv.newElementsRight == right)
+                                        then
+                                            feedEnvs
+
+                                        else
+                                            Dict.insert feedId
+                                                { feedEnv
+                                                    | newElementsLeft = left
+                                                    , newElementsRight = right
+                                                }
+                                                feedEnvs
+                                )
+
+        feedEnvs2 =
+            loop 0 news feeds model.feedEnvs
+    in
+    { model | feedEnvs = feedEnvs2 }
 
 
 updateFeedEnvReferences : ReceiveFeedType -> FeedElements -> ReferenceDict -> FeedEnv -> FeedEnv
