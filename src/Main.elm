@@ -681,6 +681,7 @@ type ColumnsUIMsg
     | ToggleStyle
     | ReloadAllColumns
     | MarkFeedRead FeedType
+    | ScrollToNew ScrollDirection FeedType
     | RefreshFeed FeedType
     | FeedRendered Value
     | Tick Posix
@@ -3175,6 +3176,10 @@ columnsUIMsg msg model =
         MarkFeedRead feedType ->
             markFeedRead feedType model
 
+        ScrollToNew direction feedType ->
+            -- TODO
+            model |> withNoCmd
+
         RefreshFeed feedType ->
             case findFeed feedType model.feedSet of
                 Nothing ->
@@ -3963,6 +3968,7 @@ markFeedRead feedType model =
         | feedSet =
             { feedSet | feeds = feeds }
     }
+        |> updateNewElementsLeftRight
         |> withNoCmd
 
 
@@ -6206,20 +6212,18 @@ receiveFeed request paging feedType result model =
                             }
 
                         mdl4 =
-                            updateNewElementsLeftRight mdl3
-
-                        mdl5 =
-                            if Set.size mdl4.loadingFeeds > 0 then
-                                mdl4
+                            if Set.size mdl3.loadingFeeds > 0 then
+                                mdl3
 
                             else
-                                fillinMissingReplyToAccountIds mdl4
+                                fillinMissingReplyToAccountIds mdl3
                     in
-                    { mdl5
+                    { mdl4
                         | feedSet =
                             { feedSet | feeds = feeds }
                         , references = references
                     }
+                        |> updateNewElementsLeftRight
                         |> withCmds
                             [ cmd
                             , cmd2
@@ -6236,7 +6240,8 @@ updateNewElementsLeftRight model =
             List.map .newElements feeds
 
         totalNews =
-            List.foldr (+) 0 news
+            Debug.log "totalNews" <|
+                List.foldr (+) 0 news
 
         loop : Int -> List Int -> List Feed -> Dict String FeedEnv -> Dict String FeedEnv
         loop left newsTail feedsTail feedEnvs =
@@ -6260,14 +6265,17 @@ updateNewElementsLeftRight model =
                             loop (left + newElements)
                                 newsRest
                                 feedsRest
-                                (case Dict.get feedId feedEnvs of
+                                (case Dict.get (Debug.log "  feedId" feedId) feedEnvs of
                                     Nothing ->
                                         feedEnvs
 
                                     Just feedEnv ->
                                         let
                                             right =
-                                                totalNews - left - newElements
+                                                Debug.log "    right"
+                                                    totalNews
+                                                    - Debug.log "    left" left
+                                                    - newElements
                                         in
                                         if
                                             (feedEnv.newElementsLeft == left)
@@ -10278,9 +10286,6 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
         feedType =
             feed.feedType
 
-        newElements =
-            feed.newElements
-
         { color } =
             getStyle renderEnv.style
 
@@ -10419,20 +10424,7 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
 
                 _ ->
                     text ""
-            , if newElements <= 0 then
-                text ""
-
-              else
-                span
-                    [ style "text-align" "center"
-                    , style "color" "red"
-                    , style "cursor" "pointer"
-                    , Html.Attributes.title "Click to mark read."
-                    , onClick (ColumnsUIMsg <| MarkFeedRead feedType)
-                    ]
-                    [ br
-                    , text <| String.fromInt newElements ++ " new"
-                    ]
+            , renderNewElementsRow feed.newElements feedType feedEnv
             ]
         , div
             [ style "overflow-y" "auto"
@@ -10442,7 +10434,7 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
             ]
           <|
             [ Lazy.lazy5 renderFeedElements
-                newElements
+                feed.newElements
                 feedType
                 renderEnv
                 feedEnv
@@ -10457,6 +10449,70 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
             ]
             []
         ]
+
+
+renderNewElementsRow : Int -> FeedType -> FeedEnv -> Html Msg
+renderNewElementsRow newElements feedType feedEnv =
+    let
+        newElementsLeft =
+            feedEnv.newElementsLeft
+
+        newElementsRight =
+            feedEnv.newElementsRight
+    in
+    if
+        (newElements <= 0)
+            && (newElementsLeft <= 0)
+            && (newElementsRight <= 0)
+    then
+        text ""
+
+    else
+        span
+            [ style "text-align" "center" ]
+            [ br
+            , if newElementsLeft <= 0 then
+                text ""
+
+              else
+                span
+                    [ style "cursor" "pointer"
+                    , Html.Attributes.title "Scroll left to new post."
+                    , onClick (ColumnsUIMsg <| ScrollToNew ScrollLeft feedType)
+                    ]
+                    [ text <|
+                        String.fromInt newElementsLeft
+                            ++ special.nbsp
+                            ++ "<-"
+                    , text " "
+                    ]
+            , if newElements <= 0 then
+                text ""
+
+              else
+                span
+                    [ style "color" "red"
+                    , style "cursor" "pointer"
+                    , Html.Attributes.title "Mark read."
+                    , onClick (ColumnsUIMsg <| MarkFeedRead feedType)
+                    ]
+                    [ text <| String.fromInt newElements ++ " new "
+                    ]
+            , if newElementsRight <= 0 then
+                text ""
+
+              else
+                span
+                    [ style "cursor" "pointer"
+                    , Html.Attributes.title "Scroll left to new post."
+                    , onClick (ColumnsUIMsg <| ScrollToNew ScrollLeft feedType)
+                    ]
+                    [ text <|
+                        "->"
+                            ++ special.nbsp
+                            ++ String.fromInt newElementsRight
+                    ]
+            ]
 
 
 renderFeedElements : Int -> FeedType -> RenderEnv -> FeedEnv -> FeedElements -> Html Msg
@@ -11204,7 +11260,7 @@ renderNewMarker feedType renderEnv =
             , style "height" "10px"
             , style "margin" "0"
             , style "cursor" "pointer"
-            , title "Click to mark read."
+            , title "Mark read."
             , onClick (ColumnsUIMsg <| MarkFeedRead feedType)
             ]
             []
