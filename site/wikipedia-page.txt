@@ -1,0 +1,506 @@
+== Projects ==
+
+{| class="wikitable sortable" style="font-size: smaller;"
+|-
+! Project Name
+! Features
+! Software Type
+! Programming Language
+! License
+! Protocols
+! Privacy Support
+! [[Federation (information technology)|Federation]] (with other applications or services)
+! Instances
+! Maturity
+|-
+| Amplify
+| Trust-based search
+| 
+|
+| Public Domain
+| [[HTTP Secure|HTTPS]], Amplify Messaging Protocol
+| {{Yes|Provides fine grained privacy control through [[object-capability model|object capability security]] and transport layer encryption.}}
+| {{Yes|Application framework, [[webhook]] style sensor network}}
+| 
+| alpha
+|-
+| Anahita<ref>{{cite web|author=The Anahita Project |url=https://www.getanahita.com |title=Anahita social networking platform and framework |publisher=GetAnahita.com |date=28 January 2016 |accessdate=28 January 2016}}</ref>
+| Anahita is an open source social networking platform and framework for building knowledge sharing apps and services
+| 
+| LAMP
+| GPL3
+| 
+| {{Yes|Provides privacy management based on social graph: public, registered, followers, leaders, mutuals, myself}}
+| 
+| 
+| stable
+|-
+| Buddycloud<ref>{{cite web|url=http://buddycloud.com/ |title=buddycloud |publisher=buddycloud |date= |accessdate=15 November 2011}}</ref><ref name="buddycloud.org">{{cite web |url=http://buddycloud.org/ |title=Archived copy |accessdate=24 December 2012 |url-status=dead |archiveurl=https://web.archive.org/web/20160324055909/https://buddycloud.org/ |archivedate=24 March 2016 }}</ref>
+| Personal and topic channels, Buddycloud directory, channel search, channel recommender, media server, friend-finder, mobile and email push service, location, messaging
+| server,<ref>{{cite web|url=https://github.com/buddycloud/buddycloud-server-java|title=buddycloud/buddycloud-server-java|website=GitHub|date=13 November 2018}}</ref> client<ref>{{cite web|url=https://github.com/buddycloud |title=Buddycloud's Profile |publisher=GitHub |date= |accessdate=15 November 2011}}</ref>
+| JavaScript, NodeJS, Java
+| [[Apache License|Apache]] 2.0
+| [[Extensible Messaging and Presence Protocol|XMPP]],<ref name="buddycloud.org"/> Buddycloud Protocol,<ref>{{cite web |url=https://buddycloud.com/buddycloud-xep |title=Buddycloud Protocol |publisher=buddycloud |date= |accessdate=15 November 2011 }}{{Dead link|date=July 2019 |bot=InternetArchiveBot |fix-attempted=yes }}</ref> [[Atom (standard)|Atom]],<ref>{{cite web|title=How Buddycloud Works|url=http://buddycloud.com/how-buddycloud-works|accessdate=9 July 2014|ref="Channel posts use the open ATOM content format." - from the Buddycloud web site in the How it Works section.}} "Channel posts use the open ATOM content format." - from the Buddycloud web site in the How it Works section.</ref> [[Activity Streams (format)|Activity Streams]],<ref>"all bc posts are activity stream objects." - from a conversation on the buddycloud XMPP channel.</ref> Location Query{{clarify|date=July 2013}}
+| {{Yes}}
+| {{Yes}}
+| Domains running buddycloud: 90<ref>{{cite web |url=https://munin.buddycloud.com/buddycloud.com/crater.buddycloud.com/buddycloud_domain_count.html |title=domains running buddycloud - Overview - Buddycloud |publisher=buddycloud |accessdate=26 April 2014 |archive-url=https://web.archive.org/web/20140427013346/https://munin.buddycloud.com/buddycloud.com/crater.buddycloud.com/buddycloud_domain_count.html |archive-date=27 April 2014 |url-status=dead }}</ref>
+| stable
+|-
+| [[Diaspora (software)|diaspora*]]
+| Status messages, blogging, photo sharing, privacy enhanced
+| server<ref>{{cite web|author=danielgrippi |url=https://github.com/diaspora/diaspora |title=diaspora/diaspora |publisher=GitHub |date= |accessdate=15 November 2011}}</ref>
+| Ruby
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| Diaspora,<ref>{{cite web|url=https://wiki.diasporafoundation.org/Federation_protocol_overview |title=Diaspora Protocol Overview|date=20 December 2015 |accessdate=20 December 2015}}</ref> [[Salmon (protocol)|Salmon]]<ref>{{cite web|url=https://groups.google.com/group/salmon-protocol/browse_thread/thread/efab99ca7311d4ae |title= Diaspora is running Salmon |website=Google Groups |date=17 September 2010 |accessdate=15 November 2011}}</ref>
+| {{Yes}}, through "aspects" 
+| {{Yes}}, own federation protocol<ref>{{cite web|url=https://diaspora.github.io/diaspora_federation/|title=diaspora* federation protocol|website=diaspora.github.io}}</ref>
+| 232 'nodes/pods' listed on The-Federation.info<ref>{{cite web|url=https://the-federation.info/diaspora|title=diaspora*|website=The Federation - a statistics hub}}</ref>
+| stable 0.7.12.0<ref>{{cite web|url=https://github.com/diaspora/diaspora/releases/|title=Diaspora Releases|website=GitHub}}</ref>
+|-
+| [[Distributed Social Networking Protocol|DSNP]]<ref name="dsnp">{{cite web |author=Adrian D. Thurston |url=http://complang.org/dsnp/ |title=DSNP: Distributed Social Networking Protocol |publisher=Complang.org |accessdate=15 November 2011 |url-status=dead |archiveurl=https://web.archive.org/web/20120117230326/http://www.complang.org/dsnp/ |archivedate=17 January 2012 }}</ref>
+| 
+| DSNPd (server [[daemon (computer software)|daemon]]), ChoiceSocial (web interface)<ref name="dsnp"/>
+|
+| 
+| [[Distributed Social Networking Protocol]] (DSNP)<ref name="dsnp" /><ref>{{cite web |url=http://complang.org/dsnp/spec/dsnp-spec.pdf |title=Archived copy |accessdate=24 December 2012 |url-status=dead |archiveurl=https://web.archive.org/web/20121222080416/http://www.complang.org/dsnp/spec/dsnp-spec.pdf |archivedate=22 December 2012 }}</ref>
+| {{dunno}}
+| {{dunno}}
+| [https://web.archive.org/web/20130807123254/http://friendsinfeed.com/ Friends in Feed], [https://web.archive.org/web/20130807123314/http://choicesocial.net/ ChoiceSocial.net], [https://web.archive.org/web/20130807123339/http://distribsocial.net/ DistribSocial.net]
+| beta (v0.6)
+|-
+| Friend2Friend<ref>{{cite web|url=http://Friend2Friend.net/ |title=Friend2Friend |publisher=Altruists International |date=17 November 2010 |accessdate=15 November 2011}}</ref>
+| Strong encryption, XML for all data exchange, Data is digitally signed
+| 
+|
+| [[GNU Lesser General Public License|LGPL]]
+| 
+| {{partial|Connect to known individuals.}}
+| {{dunno}}
+| 
+| alpha
+|-
+| [[Friendica]]<ref>{{Cite web | url=http://friendi.ca/ | title=Friendica – A Decentralized Social Network}}</ref>
+| Rich profiles, networking groups, community/group/celebrity pages, richtext status (not specifically length limited), photo albums, YouTube share, location, like/dislike, multiple profiles w/assignment to specific friends, single sign on to post directly to friend's profiles on co-operating systems. Communications encryption. Fans and one-way relationships. Local and global [[directory services]]. Ability to restrict connection endpoints.
+| server<ref>{{cite web|url=http://friendi.ca/use-it/ |title=Use it}}</ref>
+| PHP
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki><ref>{{cite web|url=https://github.com/friendica/friendica/blob/master/LICENSE |title=Friendica license at GitHub |publisher=GitHub, Inc. |date=21 May 2013 |accessdate=4 October 2013}}</ref>
+| [[ActivityPub]], [[OStatus]],<ref>{{cite web|url=http://friendi.ca/features |title=Features}}</ref> Diaspora, [[OpenID]], DFRN,<ref>{{cite web|url=http://dfrn.org/dfrn2.pdf |title=The DFRN Protocol: Version 2.2 |date=22 September 2010 |accessdate=15 November 2011 |archive-url=https://web.archive.org/web/20120321204843/http://dfrn.org/dfrn2.pdf |archive-date=21 March 2012}}</ref>
+| {{Yes|extensive}}
+| {{Yes|Friendica, Diaspora, GNU-Social, Mastodon, email, RSS feeds via native protocol support. Pump.io, Libertree, Twitter,  Wordpress and Tumblr via connectors and/or third party services.}}
+| more than 113 servers according to external statistics,<ref>{{cite web|url=https://the-federation.info/friendica|title=Friendica|website=the federation - a statistics hub}}</ref> more than 300 servers in total according to internal federation statistics.
+| stable
+|-
+| [[GNU social]]<ref>{{cite web |url=https://gnu.org/software/social |title=GNU social |publisher=Gnu.org |date=22 February 1999 |accessdate=15 November 2011}}</ref>
+|[[ microblogging]]
+| server<ref>{{cite web |url=http://gitorious.org/+socialites/statusnet/gnu-social |title=gnu-social in socialites |publisher=Gitorious |accessdate=15 November 2011 |archive-url=https://web.archive.org/web/20110908132251/http://gitorious.org/+socialites/statusnet/gnu-social |archive-date=8 September 2011 |url-status=dead }}</ref> (formerly known as StatusNet)
+| PHP
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| [[OStatus]]<ref>{{cite web |author=FAQ |url=http://foocorp.org/projects/social/faq/ |title=FAQ - GNU social |publisher=Foocorp.org |date=22 February 1999 |accessdate=15 November 2011 |url-status=dead |archiveurl=https://web.archive.org/web/20111114201109/http://foocorp.org/projects/social/faq/ |archivedate=14 November 2011 }}</ref>, [[OpenID]], partial Diaspora support
+| {{dunno}}
+| {{Yes}}
+| Around 200 servers <ref>{{Cite web |url=https://www.fediverse.org/ |title=Archived copy |access-date=7 August 2017 |archive-url=https://web.archive.org/web/20170807195921/https://www.fediverse.org/ |archive-date=7 August 2017 |url-status=dead }}</ref>
+| stable<ref>{{cite web|url=https://gnu.io/social/resources/code/|title=Download GNU social|website=gnu.io}}</ref>
+|-
+| [[Hubzilla]]
+| decentralised identity and community platform, also provides blogs, rich social networking, cloud storage and internet-scale access control/privacy
+| server
+| PHP, Javascript
+| [[MIT License|MIT]]
+| [[ActivityPub]]<ref name="medium-2018-02-27" />, [[Diaspora (social network)|diaspora]]<ref name="medium-2018-02-27" />, [[OStatus]]<ref name="medium-2018-02-27">{{Cite web|url=https://medium.com/we-distribute/the-do-everything-system-an-in-depth-review-of-hubzilla-3-0-692204177d4e|title=The Do-Everything System: An in-depth review of Hubzilla 3.0.|last=Tilley|first=Sean|date=2018-02-27|website=[[Medium (website)]]|access-date=2019-06-18}}</ref>, Zot<ref>{{cite web |title=So what is all this talk about "Zot!"? |website=Friendika |date=11 July 2011 |url=http://project.friendika.com/node/124 |archive-url=https://web.archive.org/web/20110920225421/http://project.friendika.com/node/124 |archive-date=20 September 2011}}</ref>, Zot6<ref>{{cite web |title=Tags · hubzilla _ core · GitLab |website=Framagit |date=8 March 2019 |url=https://framagit.org/hubzilla/core/tags/4.0}}</ref>
+| {{Yes|Extensive}}
+| {{Yes|via external connectors}}
+| 279<ref>{{cite web|title=Hubzilla - Fediverse|url=https://fediverse.party/en/hubzilla/|accessdate=17 June 2019}}</ref>
+| stable
+|-
+| [[Kune (software)|Kune]]<ref>{{cite web|url=http://kune.ourproject.org |title=Kune: a web tool to encourage collaboration, content sharing and free culture |publisher=Kune.ourproject.org |date= |accessdate=15 November 2011}}</ref>
+| real-time collaborative edition, XMPP chat, groups, calendar, lists, tasks, blogs, [[Apache Wave]] inbox (modern email), wave extensions (gadgets, robots), public webpages, profiles, galleries (photos, videos), maps, federation, usability
+| server, integrates [[Apache Wave]] 
+| Java-based [[Google Web Toolkit|GWT]] (generates AJAX)
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| [[Extensible Messaging and Presence Protocol|XMPP]], [[Wave Federation Protocol]]
+| {{yes|Excellent}}
+| {{yes|Total federation/interoperability with other Kune installations and [[Apache Wave]] accounts. XMPP chat interoperable with other XMPP-compliant}}
+| [http://kune.cc kune.cc],<ref>{{cite web|url=http://kune.cc|title=Kune|website=kune.cc}}</ref> demo,<ref>{{cite web |url=http://kune.beta.iepala.es/ws/ |title=Archived copy |accessdate=24 December 2012 |url-status=dead |archiveurl=https://web.archive.org/web/20130309095146/http://kune.beta.iepala.es/ws/ |archivedate=9 March 2013 }}</ref> 3 in total
+| stable
+|-
+|[[Lemmy (software)|Lemmy]]
+|[[Social network aggregation|Link Aggregator]], [[Social networking service|Social Network]] (Based on [[Reddit]])
+|server and webclient
+|[[Rust (programming language)|Rust]], [[Actix]], Diesel, Inferno, [[TypeScript|Typescript]]<ref>{{Cite web|url=https://github.com/dessalines/lemmy|title=dessalines/lemmy|website=GitHub|language=en|access-date=2020-02-01}}</ref>
+|[[GNU Affero General Public License|AGPL]]<nowiki/>v3
+|[[ActivityPub]] (in progress)
+|Development not yet complete, more privacy options are likely to be implemented.
+|In progress
+|[https://dev.lemmy.ml dev.lemmy.ml], [https://hommunism.lemmy.ml communism.lemmy.ml]
+|beta
+|-
+| Lipsync.it<ref>{{cite web|author=philcryer |url=https://github.com/philcryer/lipsync |title=philcryer/lipsync |publisher=GitHub |date= |accessdate=15 November 2011}}</ref>
+| Synchronization tool inspired by Dropbox
+| 
+|
+| Simplified BSD
+| rsync, lsyncd, OpenSSH
+| {{Yes}}
+| planned
+| 
+| stable
+|-
+| Libertree<ref>{{cite web|author=Libertree |url=http://libertree.org/ |title=Libertree |publisher=Libertree |date= |accessdate=25 July 2015}}</ref>
+| Social network
+| server and webclient
+| [[Ruby (programming language)|Ruby]]
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| 
+| {{No}}
+| 
+| 3
+| beta
+|-
+| Mammudeck<ref>{{cite web|author=Bill St. Clair |url=https://mammudeck.com/ |title=Mammudeck |publisher=Bill St. Clair}}</ref>
+| Social network client for servers implementing the Mastodon REST API <ref>{{cite web|url=https://docs.joinmastodon.org/client/intro/ |author=Mastodon |publisher=Mastodon.social|title=Mastodon REST API.}}</ref>, e.g. [[Mastodon (software)|Mastodon]], Pleroma<ref>{{cite web|author=Pleroma |url=https://pleroma.social |title=Pleroma |publisher=Pleroma.social}}</ref>
+| webclient
+| [[Elm (programming language)|Elm]]
+| [[MIT License|MIT]]
+| [[HTTP Secure|HTTPS]]
+| {{Yes|HTTPS communication. State stored only in browser's local storage.}}
+| {{No|Client only}}
+| Client only
+| alpha
+|-
+| [[Mastodon (software)|Mastodon]]
+| microblogging
+| server
+| [[Ruby on Rails]], [[React.js]]
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| [[ActivityPub]]
+| {{Yes}}
+| {{Yes}}
+| More than 1.200 servers <ref>{{cite web|url=https://instances.social/list/advanced|title=Mastodon instances|website=instances.social}}</ref>
+| stable
+|-
+|-
+|-
+| [[Minds]]
+| Free, open source, [[Distributed social network|decentralized]], and based on a foundation of transparency and privacy
+| server,<ref name="github.com">{{cite web|url=https://github.com/Minds/engine|title=Minds/engine|website=GitHub}}</ref> front,<ref>{{cite web|url=https://github.com/Minds/front|title=Minds/front|website=GitHub}}</ref> [[mobile app]]<ref>{{cite web|url=https://github.com/Minds/mobile|title=Minds/mobile|website=GitHub|date=3 January 2019}}</ref>
+| PHP<ref name="github.com"/><ref>{{cite web|url=https://github.com/Minds/minds|title=Minds/minds|website=GitHub}}</ref>
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki><ref>{{cite web|url=https://minds.org/docs/license.html|title=License — Minds dev-0.1a documentation|website=minds.org}}</ref>
+| [[OpenSSL]], [[RabbitMQ]]<ref>{{cite web|url=https://minds.org/docs/install/requirements.html|title=1. Requirements — Minds dev-0.1a documentation|website=minds.org}}</ref>
+| {{Yes}}<ref>{{cite web|url=https://www.minds.com/p/privacy|title=Privacy|website=www.minds.com}}</ref>
+| {{Yes}}<ref>{{cite web|url=https://www.minds.com/p/about|title=About|website=www.minds.com|access-date=21 April 2017|archive-url=https://web.archive.org/web/20170517082158/https://www.minds.com/p/about|archive-date=17 May 2017|url-status=dead}}</ref>
+| [https://github.com/Minds]
+| beta
+|-
+| Misskey<ref>{{cite web|author=Misskey|url=https://joinmisskey.github.io/en |title=Misskey |publisher=Misskey |date=28 December 2018 |accessdate=29 December 2018}}</ref>
+| Microblogging social-network
+| server, web-client
+| [[Node.js]], [[TypeScript|Typescript]] / [[JavaScript]]
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| [[ActivityPub]]
+| {{Yes}}
+| {{Yes}}, nodes supporting [[ActivityPub]]
+| More than 35 instances<ref>{{cite web|url=https://fediverse.network/misskey|title=Misskey Instances — The Fediverse Network|website=fediverse.network}}</ref>
+| stable
+|-
+| [[Movim]]
+| [[Extensible Messaging and Presence Protocol|XMPP]] client + Microblogging
+| server and webclient
+| PHP
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| [[Extensible Messaging and Presence Protocol|XMPP]]
+| {{yes}}
+| {{yes|XMPP}}
+| 16 'pods'<ref>{{cite web|url=https://api.movim.eu/pods|title=Movim API|website=api.movim.eu}}</ref>
+| stable
+|-
+| Newebe<ref name="newebe.org">{{cite web|url=http://newebe.org/|title=Newebe - Freedom To Share|website=newebe.org}}</ref>
+| one user = one node ; microblogging, picture sharing, activity stream
+| server, web client
+| Python / Coffeescript
+| AGPL
+| [[HTTP]], REST API
+|
+|
+| 
+| alpha
+|-
+|[https://nextcloud.com/ Nextcloud]
+|online storage, data synchronization, file encryption, calendar, task scheduler, address book, media streaming, content sharing, bookmarking, photo gallery, video viewer, [[RSS]]/[[Atom (standard)|Atom]] feed reader, drawing, polls, [[markdown]] editing, [https://www.collaboraoffice.com/ Collabora] office suite, mind mapping, notes, PDF viewer, [[Multi-factor authentication|2FA]], custom terms of service, maps, [https://apps.nextcloud.com/ and many more] 
+|server, client, web client, mobile apps
+|[[PHP]], [[JavaScript]]
+|[[GNU General Public License|GNU AGPLv3]]
+|[[WebDAV]], [[Hypertext Transfer Protocol|HTTP]], [[OAuth]], [[OpenID]]
+|{{yes}}
+|{{yes}}
+|service providers
+|stable
+|-
+| Notabug<ref name="notabug.io">{{cite web|url=https://notabug.io/|title=Notabug - decentralized reddit clone|website=notabug.io}}</ref>
+| p2p reimplementation of open-source reddit ; Free, anonymity, privacy
+| server, web client
+| [[JavaScript]]
+| [[MIT License]] (with [[Reddit]] CPAL UI components/css)
+| [[HTTP]], GUN
+| Partial/Anonymous contribution supported but no strong anonymity guarantees yet
+| {{Yes}}
+| [https://notabug.io/ Notabug.io],
+[https://web.archive.org/web/20181030012706/https://blubit.space/ Blubit.space],
+[https://supportnikki.org/ Supportnikki.org]
+| alpha
+|-
+| ObjectCloud
+| customization, flexible hosting, security, application platform
+| 
+|
+| SimPL 2.0
+| [[OpenID]], Particle
+| {{Yes}}
+| {{dunno}}
+| 2
+| alpha
+
+|-
+| [[OpenAutonomy]]<ref name="http://openautonomy.com/">{{cite web|url=http://openautonomy.com/ |title=Open Autonomy Inc. |accessdate=30 January 2014}}</ref>
+| Micro-blogging, RSS aggregation, Cloud storage
+| server,<ref name="http://sourceforge.net/projects/openautonomy/">{{cite web|url=http://sourceforge.net/projects/openautonomy/ |title=OpenAutonomy Reference Implementation |accessdate=30 January 2014}}</ref> web client,<ref name="http://sourceforge.net/projects/openautonomy/" /> non-web applications,<ref name="http://sourceforge.net/projects/oa-demos/">{{cite web|url=http://sourceforge.net/projects/oa-demos/ |title=OpenAutonomy Demos |accessdate=30 January 2014}}</ref>
+| PHP (server), Javascript (web client), Java (native applications)
+| [[MIT]]
+| [[OpenAutonomy]], [[XML-RPC]]
+| {{Yes|Trusted user list and fine-grained trusted sub-groups}}
+| {{Yes|All components intrinsically federated}}
+| 4 known
+| stable (r210)<ref name="http://sourceforge.net/projects/openautonomy/" />
+|-
+| OpenLink Data Spaces (ODS)<ref>{{cite web|url=http://ods.openlinksw.com/wiki/ODS/ |title=VOS: OpenLink Data Spaces |location=us |publisher=Ods.openlinksw.com |date= |accessdate=15 November 2011}}</ref>
+| Profile Management, Blogs, Wikis, Address Books, Calendars, Feed Aggregation, Discussion Forums (includes NNTP support), File Servers (WebDAV based Briefcase).
+| 
+|
+| Dual (Commercial and [[GNU General Public License|GPL]] for Open Source Edition)
+| [[WebID]], [[WebFinger]], [[OpenID]], [[OAuth]], [[Hypertext Transfer Protocol|HTTP]], [[SPARQL]], [[Atom (standard)|Atom]] Publishing, [[PubSubHubbub]], Semantic Pingback, [[OpenSocial]], Social Graph API, [[Portable Contacts]], more.
+| {{Yes|WebID and others}}
+| {{Yes}}
+| id.myopenlink.net<ref>{{cite web|url=http://id.myopenlink.net/ods/ |title=Personal Data Space Explorer |publisher=Id.myopenlink.net |date=22 February 1999 |accessdate=15 November 2011}}</ref> among others
+| stable
+|-
+| [[ownCloud]]
+| online storage, data synchronization, file encryption, calendar, task scheduler, address book, media streaming, content sharing, bookmarking, photo gallery, video viewer, [[RSS]]/[[Atom (standard)|Atom]] feed reader
+| server, client, web-client
+| [[PHP]], [[JavaScript]]
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| [[WebDAV]], Federated Cloud Sharing API,<ref>{{cite web|title=OCS Share API|url=https://doc.owncloud.org/server/8.2/developer_manual/core/ocs-share-api.html|website=doc.owncloud.org|publisher=The ownCloud developers|accessdate=1 February 2016}}</ref> [[Open Collaboration Services]]
+| {{Yes}}
+| {{Yes}}
+| service providers<ref>{{cite web|title=Providers|url=https://owncloud.org/providers/|website=ownCloud.org|accessdate=1 February 2016}}</ref>
+| stable
+|-
+| Pleroma<ref>{{cite web|author=Pleroma |url=https://pleroma.social |title=Pleroma |publisher=Pleroma.social |date=28 December 2017 |accessdate=26 December 2018}}</ref>
+| Microblogging social-network
+| server, web-client
+| [[Elixir (programming language)]]
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| [[OStatus]], [[ActivityPub]], [[Gopher (protocol)|Gopher]]<ref>{{Cite web|url=https://blog.soykaf.com/post/gopher-support-in-pleroma/|title=Gopher Support in Pleroma|last=lain@pleroma.soykaf.com|date=2018-04-01|website=blog.soykaf.com|language=en-US|access-date=2019-03-18}}</ref>
+| {{Yes}}
+| {{Yes}}, nodes supporting [[ActivityPub]] and [[OStatus]] (except StatusNet for now)
+| Over 500 instances<ref>{{cite web|url=https://fediverse.network/pleroma|title=Pleroma Instances — The Fediverse Network|website=fediverse.network}}</ref>
+| stable
+|-
+| Plume<ref>{{cite web|author=Plume |url=https://joinplu.me |title=Plume - The federated blogging engine |publisher=JoinPlu.me |date=11 December 2018 |accessdate=11 December 2018}}</ref>
+| Federated blogging engine
+| server, web-client
+| [[Rust (programming language)]]
+| [[Affero General Public License|AGPL]]<nowiki>v3</nowiki>
+| [[ActivityPub]]
+| {{Yes}}
+| {{Yes}}, nodes supporting [[ActivityPub]]
+| Around 12 instances<ref>{{cite web|url=https://fediverse.network/plume|title=Plume Instances — The Fediverse Network|website=fediverse.network}}</ref>
+| stable/beta (0.2.0 not released yet)
+|-
+| Project Danube
+| 1) Sharing personal data with companies/organizations<br />2) Sharing personal data with "friends"<br />3) Use of personal data for "personal applications"
+| 
+|
+| TBD, likely Eclipse or [[Apache License|Apache]]
+| [[OStatus]], [[OAuth]] 2.0, [[WebFinger]], [[hCard]], [[Portable Contacts]], [[XRI]], [[XDI]], [[PubSubHubbub]], [[Salmon]]
+| {{dunno}}
+| {{Yes|[[StatusNet]] and Cliqset, among others}}
+| 
+| alpha
+|-
+| Project Nori
+| 
+| 
+|
+| 
+| [[OStatus]], [[OAuth]], [[Portable Contacts]], [[WebFinger]], and other open protocols
+| {{dunno}}
+| {{Yes}}
+| 
+| alpha
+|-
+| psyced
+| profiles, chat, microblogging
+| server, clients optional
+| LPC<ref>{{cite web|url=http://about.psyc.eu/LPC|title=(PSYC) LPC|website=about.psyc.eu}}</ref>
+| [[GNU General Public License|GPL]]<nowiki>v2</nowiki><br />[[MIT License|MIT]] <ref>http://www.psyced.org/dist/LICENSE.txt</ref>
+| PSYC, [[Extensible Messaging and Presence Protocol|XMPP]], [[IRC]], [[TELNET]], [[Hypertext Transfer Protocol|HTTP]], Applet, [[Simple Mail Transfer Protocol|SMTP]], WAP, [[RSS]]
+| {{Yes |OTR, friends-only functions and profile, secret chatrooms, presence, [[Tor (anonymity network)|tor]] integration}}
+| {{Yes |PSYC and XMPP}}
+| 5 public known ones in 2016<ref>{{cite web|url=http://about.psyc.eu/Public_server|title=(PSYC) Public_server|website=about.psyc.eu}}</ref>
+| stable
+|-
+| [[pump.io]]
+| stream server supporting social networking capabilities
+| server, clients
+| [[Node.js]], [[JavaScript]]
+| [[Apache License|Apache]] 2.0
+| pump.io API<ref>{{cite web|url=https://github.com/e14n/pump.io/blob/master/API.md|title=pump-io/pump.io|website=GitHub|date=17 January 2019}}</ref>
+| {{Yes}}
+| {{Yes}}
+| 72,<ref>{{cite web|last=Pope|first=J.|title=Pump.io user list. Known Pumps|url=http://static.jpope.org/users.html|accessdate=24 September 2013|archive-url=https://web.archive.org/web/20130923222130/http://static.jpope.org/users.html|archive-date=23 September 2013|url-status=dead}}</ref> including [http://identi.ca Identi.ca]
+| stable
+|-
+| [[Retroshare]]
+| Private messaging and VoIP, group chats, distributed forums, file transfers
+| client-server,<ref>{{cite web|url=http://retroshare.sourceforge.net/wiki/index.php/Developers_Corner |title=Developers Corner - RetroShare Wiki |publisher=Retroshare.sourceforge.net |date= |accessdate=15 November 2011}}</ref> web interface
+| Qt, C++
+| Various Open Source licenses (with some exceptions)<ref>{{cite web|url=http://retroshare.sourceforge.net/wiki/index.php/Frequently_Asked_Questions#Is_RetroShare_Open_source.3F |title=Frequently Asked Questions - Retroshare | publisher=Retroshare.sourceforge.net | date=26 October 2008 |accessdate=5 March 2014}}</ref>
+| GPG, OpenSSL
+| Yes
+| 
+| 
+| stable
+|-
+| RSSN
+| private messaging, groups
+| 
+|
+| 
+| RSSN
+| {{dunno}}
+| {{dunno}}
+| 
+| alpha
+|-
+| [[Salut à Toi (software)|Salut à Toi]]<ref>{{cite web|url=http://sat.goffi.org|title=Salut à Toi: the multi frontend, multipurpose communication tool|website=sat.goffi.org}}</ref><ref>{{cite web|url=http://www.goffi.org/post/2011/06/05/Salut-%C3%A0-Toi%3A-a-multi-frontends-XMPP-client |title=Salut à Toi: a multi-frontends XMPP client - Goffi non-hebdo |publisher=Goffi.org |date= |accessdate=15 November 2011}}</ref>
+| multi-frontends, microblogging, group microblogging, file sharing, games, XMPP client
+| XMPP client (multi-frontends), web server, SMTP/IMAP server
+| Python, C++
+| [[Affero General Public License|AGPL]]
+| [[Extensible Messaging and Presence Protocol|XMPP]]
+| {{Yes|through XMPP groups, presence authorisation}}
+| {{Yes|XMPP native federation}}
+| demo<ref>{{cite web|url=http://www.libervia.org |title=Libervia |publisher=Libervia |date= |accessdate=15 January 2013}}</ref>
+| alpha
+|-
+|[[Secure Scuttlebutt]]
+|social networking, messaging, games, development tools
+|client-server<ref>{{cite web|title=ssb-server: The gossip and replication server for Secure Scuttlebutt|url=https://github.com/ssbc/ssb-server|publisher=Secure Scuttlebutt Consortium|access-date=6 November 2019}}</ref>, applications<ref>{{Cite web|url=https://www.scuttlebutt.nz/applications|title=Scuttlebutt Applications|website=www.scuttlebutt.nz|publisher=Secure Scuttlebutt Consortium|access-date=6 November 2019}}</ref>
+|JavaScript (reference implementation)
+|Various [[Free and open-source software|FLOSS]] licenses
+|Secret Handshake<ref>{{cite web |last1=Tarr|first1=Dominic|title=Designing a Secret Handshake: Authenticated Key Exchange as a Capability System|url=https://dominictarr.github.io/secret-handshake-paper/shs.pdf|accessdate=20 January 2019}}</ref>, Scuttlebutt Protocol<ref>{{cite web|url=https://ssbc.github.io/scuttlebutt-protocol-guide/|title=Scuttlebutt Protocol Guide|publisher=Secure Scuttlebutt Consortium|access-date=6 November 2019}}</ref>
+|End-to-end encryption for private messages.
+|Peer-to-peer network. Limited outside syndication.
+|
+|stable
+|
+|-
+|Socialhome
+|Microblogging, blogging, rich-text federated profiles, home page builder.
+|Server
+|Python, JavaScript
+|[[AGPL 3|AGPL]]
+|[https://diaspora.github.io/diaspora_federation/ Diaspora]
+|
+| {{Yes}}
+|[https://socialhome.network/ Socialhome.network]
+Other servers findable from [https://the-federation.info The-Federation.info]
+|alpha
+|-
+| Socknet Provider- FoolishMortal.org
+| profiles, messaging, enables internet content sharing
+| 
+|
+| 
+| Socknet, [[OpenID]]
+| {{No}}
+| {{Yes}}
+| 
+| beta
+|-
+| Sone<ref>{{cite web|url = https://github.com/Bombe/Sone|title = Fully Decentralized Peer-to-peer Microblogging Platform|publisher = David Roden|date = |accessdate = 18 August 2015}}</ref>
+| microblogging, media library, decentralized spam protection
+| P2P client, web interface
+| Java, Javascript
+| [[GPL]]
+| [[Freenet]]
+| {{Yes}}, Multiple Anonymous Identities, private messages via the Freemail plugin with [[Forward secrecy]]
+| {{partial}}, Sone messages can be read from the FMS Forum system
+| 
+| beta
+|-
+| Sonic<ref>{{cite web|url = http://sonic-project.net|title = SOcial Network InterConnect|publisher = Sebastian Göndör|date = 2018|accessdate = 31 January 2019}}</ref><ref>{{cite journal|title = Seamless Interoperability and Data Portability in the Social Web for Facilitating an Open and Heterogeneous Online Social Network Federation|publisher = Sebastian Göndör|date = 2018|doi = 10.14279/depositonce-7239|last1 = Göndör|first1 = Sebastian Jürg}}</ref>
+| Federation protocol for OSN services
+| API, SDK
+| PHP / JSON
+| [[MIT]]
+| 
+| 
+| {{Yes}}
+| 
+| beta
+|-
+| Sparkleshare<ref>{{cite web|url=http://www.sparkleshare.org/|title=SparkleShare - Self hosted, instant, secure file sync|website=www.sparkleshare.org}}</ref>
+| Collaboration and sharing tool inspired by Dropbox
+| 
+| Python (Nautilus plugin), C# (rest)
+| GPL<nowiki>v3</nowiki>
+| SSH
+| {{Yes}}, encryption option
+| planned
+| 
+| alpha
+|-
+| [[Twister (software)|Twister]]<ref>{{cite web|url=http://twister.net.co/ |title=Fully Decentralized Peer-to-peer Microblogging Platform |publisher=Twister |date= |accessdate=26 January 2014}}</ref>
+| microblogging
+| P2P client, web interface
+| C++, Javascript
+| [[MIT License|MIT]] and [[BSD License|BSD]]
+| [[Bitcoin]], [[BitTorrent|Torrent]], [[Distributed hash table|DHT]]
+| {{Yes}} End-to-end encryption for private messages
+| {{no|not yet}}
+| 
+| beta
+|-
+| twtxt<ref>{{cite web|url=https://github.com/buckket/twtxt|title=Decentralised, minimalist microblogging service for hackers.|date=16 January 2019}}</ref>
+| microblogging
+| Terminal
+| Python (reference implementation)
+| [[MIT License|MIT]] (reference implementation)
+| HTTP(S), REST
+| {{No}}
+| {{dunno}}
+| Approximately 100<ref>{{cite web|author1=Reed Nathan|title=twtxt-dir - a user directory of twtxt|url=http://twtxt.reednj.com/|accessdate=23 March 2016}}</ref>
+| alpha
+|-
+| Weestit
+| 
+| 
+|
+| 
+| [[Extensible Messaging and Presence Protocol|XMPP]], [[Hypertext Transfer Protocol|HTTP]], [[OStatus]], [[Simple Mail Transfer Protocol|SMTP]], [[Post Office Protocol|POP]]
+| {{Yes}}
+| {{no|Planned}}
+| 
+| alpha
+|-
+| Zap
+| social network, microblogging, cloud storage
+| server
+| PHP, JavaScript
+| [[MIT License|MIT]]
+| Zot/6, ActivityPub
+| {{Yes|Extensive}}
+| {{Yes}}
+| ?
+| stable
+|}

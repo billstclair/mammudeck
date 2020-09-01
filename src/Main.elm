@@ -27,6 +27,14 @@ See ../TODO.md for the full list.
     First, detect that it happened.
     Next, truncate to just the new posts, so that scrolling will
         fill the now non-existent gap.
+    Do the right thing for your own recent posts at the top of the
+        Home and You feeds. Must skip those for since_id, and merge
+        them on reception.
+    <Shift> is a bad choice for the non-incremental indicator.
+        It sometimes selects text.
+        Pick some other way.
+    Finally, automatic update, using WebSockets when possible or
+        polling when not.
 
 * ThreadExplorer:
     ** Be less eager to pull from the server.
@@ -71,11 +79,6 @@ See ../TODO.md for the full list.
     Multiple host instances per feedset.
 
 * Ellipsis dialog: block, mute, (un)follow, delete, edit, (un)mute status
-
-* Update feed button at top of feed (first step in auto-update).
-  Buttons are there, and they reload the feed.  Need to make them do
-  incremental update, just load messages since the top one, and put a
-  red line between new and old.
 
 --}
 
