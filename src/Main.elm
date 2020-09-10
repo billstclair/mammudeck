@@ -684,7 +684,6 @@ type ColumnsUIMsg
     | ToggleStyle
     | ReloadAllColumns
     | MarkFeedRead FeedType
-    | ScrollToNew ScrollDirection FeedType
     | RefreshFeed FeedType
     | FeedRendered Value
     | Tick Posix
@@ -693,6 +692,7 @@ type ColumnsUIMsg
     | SimpleButtonMsg Button.Msg ColumnsUIMsg
     | ShowFullScrollPill
     | TimestampedCmd (Posix -> ColumnsUIMsg) Posix
+    | ScrollToNew ScrollDirection FeedType
     | ScrollPage ScrollDirection
     | ScrollPageAtTime ScrollDirection Posix
     | ClearFeatures
@@ -3179,10 +3179,6 @@ columnsUIMsg msg model =
         MarkFeedRead feedType ->
             markFeedRead feedType model
 
-        ScrollToNew direction feedType ->
-            -- TODO
-            model |> withNoCmd
-
         RefreshFeed feedType ->
             case findFeed feedType model.feedSet of
                 Nothing ->
@@ -3248,6 +3244,9 @@ columnsUIMsg msg model =
 
         TimestampedCmd wrapper now ->
             columnsUIMsg (wrapper now) model
+
+        ScrollToNew direction feedType ->
+            model |> withCmd (scrollToNew direction feedType model)
 
         ScrollPage direction ->
             model |> withCmd (timestampCmd <| ScrollPageAtTime direction)
@@ -5327,6 +5326,89 @@ scrollPageInternal allTheWay direction model =
                 Cmd.none
     in
     model |> withCmd cmd
+
+
+getFeedEnvs : Model -> List (Maybe FeedEnv)
+getFeedEnvs model =
+    let
+        feedEnvs =
+            model.feedEnvs
+    in
+    List.map (\feed -> Dict.get (Types.feedID feed.feedType) feedEnvs)
+        model.feedSet.feeds
+
+
+scrollToNew : ScrollDirection -> FeedType -> Model -> Cmd Msg
+scrollToNew direction feedType model =
+    -- TODO
+    Cmd.none
+
+
+
+{-
+
+   let
+       renderEnv =
+           model.renderEnv
+
+       ( windowWidth, _ ) =
+           renderEnv.windowSize
+
+       feedEnvs =
+           getFeedEnvs model
+   in
+   let
+       scrollLeft =
+           model.bodyScroll.scrollLeft
+               |> round
+               - (if model.showLeftColumn then
+                   leftColumnWidth + 5
+
+                  else
+                   0
+                 )
+
+       columnCnt =
+           model.feedSet.feeds |> List.length
+
+       columnWidth =
+           renderEnv.columnWidth + 4
+
+       rawNewScroll =
+           case direction of
+               ScrollLeft ->
+                   let
+                       leftMost =
+                           scrollLeft // columnWidth
+                   in
+                   -- TODO
+                   foo
+
+               ScrollRight ->
+                   let
+                       maxScroll =
+                           width - windowWidth
+
+                       nominal =
+                           scrollLeft + windowWidth
+
+                       proper =
+                           (nominal - col0Left) // columnWidth
+                   in
+                   min maxScroll
+                       ((proper * columnWidth) + col0Left)
+
+       newScroll =
+           rawNewScroll + 1
+   in
+   if newScroll /= scrollLeft then
+       Dom.setViewportOf "body" (toFloat newScroll) 0
+           |> Task.attempt (\_ -> Noop)
+
+   else
+       Cmd.none
+
+-}
 
 
 {-| If you enable this, you need to fix the update code to somehow
@@ -10478,8 +10560,8 @@ renderNewElementsRow newElements feedType feedEnv =
                 text ""
 
               else
-                span
-                    [ style "cursor" "pointer"
+                a
+                    [ href "#"
                     , Html.Attributes.title "Scroll left to new post."
                     , onClick (ColumnsUIMsg <| ScrollToNew ScrollLeft feedType)
                     ]
@@ -10505,10 +10587,10 @@ renderNewElementsRow newElements feedType feedEnv =
                 text ""
 
               else
-                span
-                    [ style "cursor" "pointer"
+                a
+                    [ href "#"
                     , Html.Attributes.title "Scroll left to new post."
-                    , onClick (ColumnsUIMsg <| ScrollToNew ScrollLeft feedType)
+                    , onClick (ColumnsUIMsg <| ScrollToNew ScrollRight feedType)
                     ]
                     [ text <|
                         "->"
