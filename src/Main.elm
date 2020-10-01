@@ -419,7 +419,9 @@ type alias FeedEnv =
     { list : Maybe ListEntity
     , headerHeight : Maybe Float
     , newElementsLeft : Int
+    , newColumnsLeft : Int
     , newElementsRight : Int
+    , newColumnsRight : Int
     , bodyEnv : FeedBodyEnv
     }
 
@@ -437,7 +439,9 @@ emptyFeedEnv =
     { list = Nothing
     , headerHeight = Nothing
     , newElementsLeft = 0
+    , newColumnsLeft = 0
     , newElementsRight = 0
+    , newColumnsRight = 0
     , bodyEnv = emptyFeedBodyEnv
     }
 
@@ -6496,8 +6500,20 @@ updateNewElementsLeftRight model =
         totalNews =
             List.foldr (+) 0 news
 
-        loop : Int -> Int -> List Int -> List Feed -> Dict String FeedEnv -> Dict String FeedEnv
-        loop colidx left newsTail feedsTail feedEnvs =
+        totalCols =
+            List.foldr
+                (\n tot ->
+                    if n > 0 then
+                        tot + 1
+
+                    else
+                        tot
+                )
+                0
+                news
+
+        loop : Int -> Int -> Int -> List Int -> List Feed -> Dict String FeedEnv -> Dict String FeedEnv
+        loop colidx left cols newsTail feedsTail feedEnvs =
             case newsTail of
                 [] ->
                     feedEnvs
@@ -6514,9 +6530,17 @@ updateNewElementsLeftRight model =
 
                                 newElements =
                                     feed.newElements
+
+                                newCols =
+                                    if feed.newElements > 0 then
+                                        1
+
+                                    else
+                                        0
                             in
                             loop (colidx + 1)
                                 (left + newElements)
+                                (cols + newCols)
                                 newsRest
                                 feedsRest
                                 (case Dict.get feedId feedEnvs of
@@ -6528,23 +6552,28 @@ updateNewElementsLeftRight model =
                                             right =
                                                 totalNews - left - newElements
 
-                                            storedLeft =
+                                            rightCols =
+                                                totalCols - cols - newCols
+
+                                            ( storedLeft, storedCols ) =
                                                 if colidx == leftColumn then
-                                                    left
+                                                    ( left, cols )
 
                                                 else
-                                                    0
+                                                    ( 0, 0 )
 
-                                            storedRight =
+                                            ( storedRight, storedRightCols ) =
                                                 if colidx == rightColumn then
-                                                    right
+                                                    ( right, rightCols )
 
                                                 else
-                                                    0
+                                                    ( 0, 0 )
                                         in
                                         if
                                             (feedEnv.newElementsLeft == storedLeft)
+                                                && (feedEnv.newColumnsLeft == storedCols)
                                                 && (feedEnv.newElementsRight == storedRight)
+                                                && (feedEnv.newColumnsRight == storedRightCols)
                                         then
                                             feedEnvs
 
@@ -6552,13 +6581,15 @@ updateNewElementsLeftRight model =
                                             Dict.insert feedId
                                                 { feedEnv
                                                     | newElementsLeft = storedLeft
+                                                    , newColumnsLeft = storedCols
                                                     , newElementsRight = storedRight
+                                                    , newColumnsRight = storedRightCols
                                                 }
                                                 feedEnvs
                                 )
 
         feedEnvs2 =
-            loop 0 0 news feeds model.feedEnvs
+            loop 0 0 0 news feeds model.feedEnvs
     in
     { model | feedEnvs = feedEnvs2 }
 
@@ -10738,8 +10769,14 @@ renderNewElementsRow newElements feedType feedEnv =
         newElementsLeft =
             feedEnv.newElementsLeft
 
+        newColumnsLeft =
+            feedEnv.newColumnsLeft
+
         newElementsRight =
             feedEnv.newElementsRight
+
+        newColumnsRight =
+            feedEnv.newColumnsRight
     in
     if
         (newElements <= 0)
@@ -10764,6 +10801,8 @@ renderNewElementsRow newElements feedType feedEnv =
                     [ text <|
                         special.nbsp
                             ++ String.fromInt newElementsLeft
+                            ++ "/"
+                            ++ String.fromInt newColumnsLeft
                             ++ special.nbsp
                             ++ "<"
                             ++ special.nbsp
@@ -10799,6 +10838,8 @@ renderNewElementsRow newElements feedType feedEnv =
                             ++ ">"
                             ++ special.nbsp
                             ++ String.fromInt newElementsRight
+                            ++ "/"
+                            ++ String.fromInt newColumnsRight
                             ++ special.nbsp
                     ]
             ]
