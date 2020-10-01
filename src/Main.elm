@@ -408,26 +408,37 @@ emptyRenderEnv =
     }
 
 
-type alias FeedEnv =
+type alias FeedBodyEnv =
     { group : Maybe Group
-    , list : Maybe ListEntity
     , references : Dict String Reference
     , missingReplyToAccountIds : Set String
+    }
+
+
+type alias FeedEnv =
+    { list : Maybe ListEntity
     , headerHeight : Maybe Float
     , newElementsLeft : Int
     , newElementsRight : Int
+    , bodyEnv : FeedBodyEnv
+    }
+
+
+emptyFeedBodyEnv : FeedBodyEnv
+emptyFeedBodyEnv =
+    { group = Nothing
+    , references = Dict.empty
+    , missingReplyToAccountIds = Set.empty
     }
 
 
 emptyFeedEnv : FeedEnv
 emptyFeedEnv =
-    { group = Nothing
-    , list = Nothing
-    , references = Dict.empty
-    , missingReplyToAccountIds = Set.empty
+    { list = Nothing
     , headerHeight = Nothing
     , newElementsLeft = 0
     , newElementsRight = 0
+    , bodyEnv = emptyFeedBodyEnv
     }
 
 
@@ -547,6 +558,7 @@ type alias Model =
     , showFullScrollPill : Bool
     , isTouchAware : Bool
     , bodyScroll : ScrollNotification
+    , scrollColumn : Float
     , lastScroll : ( ScrollDirection, Posix )
     , featureProbeRequests : List ( String, Request )
     , movingColumn : Maybe FeedType
@@ -1266,6 +1278,7 @@ init value url key =
     , showFullScrollPill = False
     , isTouchAware = False
     , bodyScroll = emptyScrollNotification
+    , scrollColumn = 0
     , lastScroll = ( ScrollLeft, Time.millisToPosix 0 )
     , featureProbeRequests = []
     , movingColumn = Nothing
@@ -1716,7 +1729,10 @@ addFeedEnv feedType model =
                 Just group ->
                     let
                         feedEnv =
-                            { emptyFeedEnv | group = Just group }
+                            { emptyFeedEnv
+                                | bodyEnv =
+                                    { emptyFeedBodyEnv | group = Just group }
+                            }
                     in
                     { model
                         | feedEnvs =
@@ -2180,7 +2196,28 @@ processScroll value model =
                     notification.id
             in
             if id == "body" then
-                { model | bodyScroll = notification }
+                let
+                    mdl =
+                        { model
+                            | bodyScroll = notification
+                        }
+
+                    scrollColumn =
+                        columnScrollInfo mdl
+                            |> computeScrollColumn
+
+                    mdl2 =
+                        if scrollColumn == mdl.scrollColumn then
+                            mdl
+
+                        else
+                            { mdl
+                                | scrollColumn =
+                                    Debug.log "processScroll, scrollColumn" scrollColumn
+                            }
+                                |> updateNewElementsLeftRight
+                in
+                mdl2
                     |> withNoCmd
 
             else if Set.member id model.loadingFeeds then
@@ -3916,8 +3953,18 @@ columnsUIMsg msg model =
             probeGroupsFeature server model
 
         ToggleShowLeftColumn ->
-            { model | showLeftColumn = not model.showLeftColumn }
-                |> withNoCmd
+            let
+                mdl =
+                    { model | showLeftColumn = not model.showLeftColumn }
+
+                mdl2 =
+                    { mdl
+                        | scrollColumn =
+                            columnScrollInfo mdl |> computeScrollColumn
+                    }
+                        |> updateNewElementsLeftRight
+            in
+            mdl2 |> withNoCmd
 
         ToggleShowScrollPill ->
             let
@@ -5250,6 +5297,44 @@ isScrollAllTheWay direction now model =
     lastDirection == direction && lastMillis + 400 >= millis
 
 
+computeScrollColumn : ScrollInfo -> Float
+computeScrollColumn { scrollLeft, col0Left, columnWidth } =
+    let
+        scrollCol =
+            toFloat (scrollLeft - col0Left)
+                / toFloat columnWidth
+    in
+    toFloat (round (scrollCol * 2)) / 2
+
+
+type alias ScrollInfo =
+    { scrollLeft : Int, col0Left : Int, columnWidth : Int }
+
+
+columnScrollInfo : Model -> ScrollInfo
+columnScrollInfo model =
+    let
+        scrollLeft =
+            model.bodyScroll.scrollLeft
+                |> round
+
+        col0Left =
+            if model.showLeftColumn then
+                leftColumnWidth + 5
+
+            else
+                5
+
+        columnWidth =
+            model.renderEnv.columnWidth
+                + 4
+    in
+    { scrollLeft = scrollLeft
+    , col0Left = col0Left
+    , columnWidth = columnWidth
+    }
+
+
 scrollPageInternal : Bool -> ScrollDirection -> Model -> ( Model, Cmd Msg )
 scrollPageInternal allTheWay direction model =
     let
@@ -5260,21 +5345,11 @@ scrollPageInternal allTheWay direction model =
             renderEnv.windowSize
     in
     let
-        scrollLeft =
-            model.bodyScroll.scrollLeft |> round
-
-        col0Left =
-            if model.showLeftColumn then
-                leftColumnWidth + 5
-
-            else
-                5
+        { scrollLeft, col0Left, columnWidth } =
+            columnScrollInfo model
 
         columnCnt =
             model.feedSet.feeds |> List.length
-
-        columnWidth =
-            renderEnv.columnWidth + 4
 
         width =
             col0Left + columnCnt * columnWidth
@@ -6137,19 +6212,28 @@ fillinMissingReplyToAccountIds model =
         fillin : String -> FeedEnv -> FeedEnv
         fillin k env =
             let
+                bodyEnv =
+                    env.bodyEnv
+
                 ( refs, miss ) =
                     Set.foldl fillin1
-                        ( env.references, env.missingReplyToAccountIds )
-                        env.missingReplyToAccountIds
+                        ( bodyEnv.references, bodyEnv.missingReplyToAccountIds )
+                        bodyEnv.missingReplyToAccountIds
             in
-            if refs == env.references && miss == env.missingReplyToAccountIds then
+            if
+                (refs == bodyEnv.references)
+                    && (miss == bodyEnv.missingReplyToAccountIds)
+            then
                 -- Preserve EQ
                 env
 
             else
                 { env
-                    | references = refs
-                    , missingReplyToAccountIds = miss
+                    | bodyEnv =
+                        { bodyEnv
+                            | references = refs
+                            , missingReplyToAccountIds = miss
+                        }
                 }
 
         feedEnvs =
@@ -6165,7 +6249,7 @@ debugFeedEnvsMissing feedEnvs =
         missing =
             Dict.foldl
                 (\k env miss ->
-                    Set.union env.missingReplyToAccountIds miss
+                    Set.union env.bodyEnv.missingReplyToAccountIds miss
                 )
                 Set.empty
                 feedEnvs
@@ -6288,7 +6372,7 @@ receiveFeed request paging feedType result model =
                                             )
 
                         missing =
-                            feedEnv2.missingReplyToAccountIds
+                            feedEnv2.bodyEnv.missingReplyToAccountIds
 
                         mdl3 =
                             { mdl2
@@ -6321,12 +6405,14 @@ updateNewElementsLeftRight model =
         feeds =
             model.feedSet.feeds
 
+        scrollColumn =
+            model.scrollColumn
+
         news =
             List.map .newElements feeds
 
         totalNews =
-            Debug.log "totalNews" <|
-                List.foldr (+) 0 news
+            List.foldr (+) 0 news
 
         loop : Int -> List Int -> List Feed -> Dict String FeedEnv -> Dict String FeedEnv
         loop left newsTail feedsTail feedEnvs =
@@ -6350,17 +6436,14 @@ updateNewElementsLeftRight model =
                             loop (left + newElements)
                                 newsRest
                                 feedsRest
-                                (case Dict.get (Debug.log "  feedId" feedId) feedEnvs of
+                                (case Dict.get feedId feedEnvs of
                                     Nothing ->
                                         feedEnvs
 
                                     Just feedEnv ->
                                         let
                                             right =
-                                                Debug.log "    right"
-                                                    totalNews
-                                                    - Debug.log "    left" left
-                                                    - newElements
+                                                totalNews - left - newElements
                                         in
                                         if
                                             (feedEnv.newElementsLeft == left)
@@ -6386,13 +6469,16 @@ updateNewElementsLeftRight model =
 updateFeedEnvReferences : ReceiveFeedType -> FeedElements -> ReferenceDict -> FeedEnv -> FeedEnv
 updateFeedEnvReferences receiveType feedElements references feedEnv =
     let
+        bodyEnv =
+            feedEnv.bodyEnv
+
         referencesAndMissing =
             case receiveType of
                 ReceiveWholeFeed ->
                     ( Dict.empty, Set.empty )
 
                 _ ->
-                    ( feedEnv.references, feedEnv.missingReplyToAccountIds )
+                    ( bodyEnv.references, bodyEnv.missingReplyToAccountIds )
 
         processReplyTo maybeId ( refs, missing ) =
             case maybeId of
@@ -6439,10 +6525,20 @@ updateFeedEnvReferences receiveType feedElements references feedEnv =
                 _ ->
                     referencesAndMissing
     in
-    { feedEnv
-        | references = feedReferences
-        , missingReplyToAccountIds = missingReplyToAccountIds
-    }
+    if
+        (bodyEnv.references == feedReferences)
+            && (bodyEnv.missingReplyToAccountIds == missingReplyToAccountIds)
+    then
+        feedEnv
+
+    else
+        { feedEnv
+            | bodyEnv =
+                { bodyEnv
+                    | references = feedReferences
+                    , missingReplyToAccountIds = missingReplyToAccountIds
+                }
+        }
 
 
 addStatusesReferences : List Status -> ReferenceDict -> ReferenceDict
@@ -8135,7 +8231,7 @@ sendPatchUpdateCredentials model =
                                     flds =
                                         extendFields fields
                                 in
-                                if Debug.log "fields" flds == Debug.log "model.fields" model.fields then
+                                if flds == model.fields then
                                     Nothing
 
                                 else
@@ -10368,6 +10464,9 @@ headerFeedId feedId =
 renderFeed : Bool -> Int -> RenderEnv -> FeedEnv -> Feed -> Html Msg
 renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
     let
+        bodyEnv =
+            feedEnv.bodyEnv
+
         feedType =
             feed.feedType
 
@@ -10411,7 +10510,7 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
         title =
             case feedType of
                 GroupFeed _ ->
-                    case feedEnv.group of
+                    case bodyEnv.group of
                         Just group ->
                             b group.title
 
@@ -10484,7 +10583,7 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
                         ]
             , case feedType of
                 GroupFeed _ ->
-                    case feedEnv.group of
+                    case bodyEnv.group of
                         Just group ->
                             let
                                 memberLine =
@@ -10522,7 +10621,7 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
                 feed.newElements
                 feedType
                 renderEnv
-                feedEnv
+                feedEnv.bodyEnv
                 feed.elements
             , footer feed.elements
             ]
@@ -10566,13 +10665,14 @@ renderNewElementsRow newElements feedType feedEnv =
                     , onClick (ColumnsUIMsg <| ScrollToNew ScrollLeft feedType)
                     ]
                     [ text <|
-                        String.fromInt newElementsLeft
+                        special.nbsp
+                            ++ String.fromInt newElementsLeft
                             ++ special.nbsp
-                            ++ "<-"
-                    , text " "
+                            ++ "<"
+                            ++ special.nbsp
                     ]
             , if newElements <= 0 then
-                text ""
+                text <| special.nbsp ++ special.nbsp
 
               else
                 span
@@ -10581,7 +10681,12 @@ renderNewElementsRow newElements feedType feedEnv =
                     , Html.Attributes.title "Mark read."
                     , onClick (ColumnsUIMsg <| MarkFeedRead feedType)
                     ]
-                    [ text <| String.fromInt newElements ++ " new "
+                    [ text <|
+                        special.nbsp
+                            ++ String.fromInt newElements
+                            ++ special.nbsp
+                            ++ "new"
+                            ++ special.nbsp
                     ]
             , if newElementsRight <= 0 then
                 text ""
@@ -10593,20 +10698,26 @@ renderNewElementsRow newElements feedType feedEnv =
                     , onClick (ColumnsUIMsg <| ScrollToNew ScrollRight feedType)
                     ]
                     [ text <|
-                        "->"
+                        special.nbsp
+                            ++ ">"
                             ++ special.nbsp
                             ++ String.fromInt newElementsRight
+                            ++ special.nbsp
                     ]
             ]
 
 
-renderFeedElements : Int -> FeedType -> RenderEnv -> FeedEnv -> FeedElements -> Html Msg
-renderFeedElements newElements feedType renderEnv feedEnv elements =
+renderFeedElements : Int -> FeedType -> RenderEnv -> FeedBodyEnv -> FeedElements -> Html Msg
+renderFeedElements newElements feedType renderEnv bodyEnv elements =
+    let
+        feedId =
+            Types.feedID <| Debug.log "  renderFeedElements" feedType
+    in
     case elements of
         StatusElements statuses ->
             div [] <|
                 List.indexedMap
-                    (renderStatusWithNewMarker feedType renderEnv feedEnv newElements)
+                    (renderStatusWithNewMarker feedType renderEnv bodyEnv newElements)
                     statuses
 
         NotificationElements notifications ->
@@ -11352,25 +11463,25 @@ renderNewMarker feedType renderEnv =
         ]
 
 
-renderStatusWithNewMarker : FeedType -> RenderEnv -> FeedEnv -> Int -> Int -> Status -> Html Msg
-renderStatusWithNewMarker feedType renderEnv feedEnv newElements index status =
+renderStatusWithNewMarker : FeedType -> RenderEnv -> FeedBodyEnv -> Int -> Int -> Status -> Html Msg
+renderStatusWithNewMarker feedType renderEnv bodyEnv newElements index status =
     if newElements > 0 && newElements == index then
         div []
             [ renderNewMarker feedType renderEnv
-            , renderStatus renderEnv feedEnv status
+            , renderStatus renderEnv bodyEnv status
             ]
 
     else
-        renderStatus renderEnv feedEnv status
+        renderStatus renderEnv bodyEnv status
 
 
-renderStatus : RenderEnv -> FeedEnv -> Status -> Html Msg
+renderStatus : RenderEnv -> FeedBodyEnv -> Status -> Html Msg
 renderStatus =
     renderStatusWithId Nothing
 
 
-renderStatusWithId : Maybe String -> RenderEnv -> FeedEnv -> Status -> Html Msg
-renderStatusWithId maybeNodeid renderEnv feedEnv statusIn =
+renderStatusWithId : Maybe String -> RenderEnv -> FeedBodyEnv -> Status -> Html Msg
+renderStatusWithId maybeNodeid renderEnv bodyEnv statusIn =
     let
         ( status, account, reblogAccount ) =
             case statusIn.reblog of
@@ -11391,7 +11502,7 @@ renderStatusWithId maybeNodeid renderEnv feedEnv statusIn =
                             Nothing
 
                         Just account_id ->
-                            case Dict.get account_id feedEnv.references of
+                            case Dict.get account_id bodyEnv.references of
                                 Nothing ->
                                     Just ( account_id, "" )
 
@@ -11477,7 +11588,7 @@ renderStatusWithId maybeNodeid renderEnv feedEnv statusIn =
                     text ""
 
                 Just group ->
-                    case feedEnv.group of
+                    case bodyEnv.group of
                         Just _ ->
                             text ""
 
@@ -11502,15 +11613,15 @@ renderStatusWithId maybeNodeid renderEnv feedEnv statusIn =
                 ]
                 body
             , renderMediaAttachments renderEnv status
-            , renderStatusQuote renderEnv feedEnv status
+            , renderStatusQuote renderEnv bodyEnv status
             , renderStatusCard renderEnv status
             , renderStatusActions renderEnv status
             ]
         ]
 
 
-renderStatusQuote : RenderEnv -> FeedEnv -> Status -> Html Msg
-renderStatusQuote renderEnv feedEnv status =
+renderStatusQuote : RenderEnv -> FeedBodyEnv -> Status -> Html Msg
+renderStatusQuote renderEnv bodyEnv status =
     case status.quote of
         Nothing ->
             text ""
@@ -11530,7 +11641,7 @@ renderStatusQuote renderEnv feedEnv status =
                                     | columnWidth =
                                         renderEnv.columnWidth - 16
                                 }
-                                feedEnv
+                                bodyEnv
                                 wrappedStatus
                             ]
                         ]
@@ -14182,8 +14293,11 @@ renderThreadExplorer state model =
         renderEnv =
             model.renderEnv
 
+        bodyEnv =
+            { emptyFeedBodyEnv | references = model.references }
+
         feedEnv =
-            { emptyFeedEnv | references = model.references }
+            { emptyFeedEnv | bodyEnv = bodyEnv }
 
         { backgroundColor, color, highlightStatusColor, repliedToStatusColor, visitedStatusColor } =
             getStyle renderEnv.style
@@ -14233,7 +14347,7 @@ renderThreadExplorer state model =
                     in
                     if s.id == status.id then
                         div [ style "background-color" highlightStatusColor ]
-                            [ renderStatusWithId (Just nodeid) renderEnv2 feedEnv s ]
+                            [ renderStatusWithId (Just nodeid) renderEnv2 bodyEnv s ]
 
                     else if not replyChain && s.replies_count > 0 then
                         div
@@ -14244,10 +14358,10 @@ renderThreadExplorer state model =
                                 else
                                     repliedToStatusColor
                             ]
-                            [ renderStatusWithId (Just nodeid) renderEnv2 feedEnv s ]
+                            [ renderStatusWithId (Just nodeid) renderEnv2 bodyEnv s ]
 
                     else
-                        renderStatusWithId (Just nodeid) renderEnv2 feedEnv s
+                        renderStatusWithId (Just nodeid) renderEnv2 bodyEnv s
 
                 loop : Int -> Bool -> List Status -> List (Html Msg) -> List (Html Msg)
                 loop idx replyChain statuses res =
