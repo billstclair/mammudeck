@@ -479,6 +479,12 @@ type PopupChoice
     | PostEmojiCharChoice EmojiChar
 
 
+type alias ScrollColumns =
+    { left : Int
+    , right : Int
+    }
+
+
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -558,7 +564,7 @@ type alias Model =
     , showFullScrollPill : Bool
     , isTouchAware : Bool
     , bodyScroll : ScrollNotification
-    , scrollColumn : Float
+    , scrollColumns : ScrollColumns
     , lastScroll : ( ScrollDirection, Posix )
     , featureProbeRequests : List ( String, Request )
     , movingColumn : Maybe FeedType
@@ -1278,7 +1284,7 @@ init value url key =
     , showFullScrollPill = False
     , isTouchAware = False
     , bodyScroll = emptyScrollNotification
-    , scrollColumn = 0
+    , scrollColumns = { left = 0, right = 0 }
     , lastScroll = ( ScrollLeft, Time.millisToPosix 0 )
     , featureProbeRequests = []
     , movingColumn = Nothing
@@ -2202,19 +2208,16 @@ processScroll value model =
                             | bodyScroll = notification
                         }
 
-                    scrollColumn =
+                    scrollColumns =
                         columnScrollInfo mdl
-                            |> computeScrollColumn
+                            |> computeScrollColumns
 
                     mdl2 =
-                        if scrollColumn == mdl.scrollColumn then
+                        if scrollColumns == mdl.scrollColumns then
                             mdl
 
                         else
-                            { mdl
-                                | scrollColumn =
-                                    Debug.log "processScroll, scrollColumn" scrollColumn
-                            }
+                            { mdl | scrollColumns = scrollColumns }
                                 |> updateNewElementsLeftRight
                 in
                 mdl2
@@ -3959,8 +3962,8 @@ columnsUIMsg msg model =
 
                 mdl2 =
                     { mdl
-                        | scrollColumn =
-                            columnScrollInfo mdl |> computeScrollColumn
+                        | scrollColumns =
+                            columnScrollInfo mdl |> computeScrollColumns
                     }
                         |> updateNewElementsLeftRight
             in
@@ -5297,18 +5300,39 @@ isScrollAllTheWay direction now model =
     lastDirection == direction && lastMillis + 400 >= millis
 
 
-computeScrollColumn : ScrollInfo -> Float
-computeScrollColumn { scrollLeft, col0Left, columnWidth } =
+computeScrollColumns : ScrollInfo -> ScrollColumns
+computeScrollColumns { scrollLeft, col0Left, columnWidth, maxColumn, windowWidth } =
     let
-        scrollCol =
+        left =
             toFloat (scrollLeft - col0Left)
                 / toFloat columnWidth
+
+        right =
+            toFloat (scrollLeft + windowWidth - col0Left)
+                / toFloat columnWidth
     in
-    toFloat (round (scrollCol * 2)) / 2
+    { left =
+        if (left - toFloat (truncate left)) < 0.25 then
+            max 0 <| truncate left
+
+        else
+            max 0 <| (truncate left + 1)
+    , right =
+        if (right - toFloat (truncate right)) < 0.75 then
+            min maxColumn <| truncate right - 1
+
+        else
+            min maxColumn <| truncate right
+    }
 
 
 type alias ScrollInfo =
-    { scrollLeft : Int, col0Left : Int, columnWidth : Int }
+    { scrollLeft : Int
+    , col0Left : Int
+    , columnWidth : Int
+    , maxColumn : Int
+    , windowWidth : Int
+    }
 
 
 columnScrollInfo : Model -> ScrollInfo
@@ -5332,6 +5356,8 @@ columnScrollInfo model =
     { scrollLeft = scrollLeft
     , col0Left = col0Left
     , columnWidth = columnWidth
+    , maxColumn = List.length model.feedSet.feeds - 1
+    , windowWidth = (model.renderEnv.windowSize |> Tuple.first) - 8
     }
 
 
@@ -5415,75 +5441,128 @@ getFeedEnvs model =
 
 scrollToNew : ScrollDirection -> FeedType -> Model -> Cmd Msg
 scrollToNew direction feedType model =
-    -- TODO
-    Cmd.none
+    case direction of
+        ScrollLeft ->
+            scrollLeftToNew feedType model
+
+        ScrollRight ->
+            scrollRightToNew feedType model
 
 
+scrollLeftToNew : FeedType -> Model -> Cmd Msg
+scrollLeftToNew feedType model =
+    let
+        ft =
+            feedType
 
-{-
+        findIndex : Int -> Maybe Int -> List Feed -> Int
+        findIndex idx last feeds =
+            case feeds of
+                [] ->
+                    -- Can't happen
+                    0
 
-   let
-       renderEnv =
-           model.renderEnv
+                feed :: tail ->
+                    if feedType == feed.feedType then
+                        case last of
+                            Just i ->
+                                i
 
-       ( windowWidth, _ ) =
-           renderEnv.windowSize
+                            Nothing ->
+                                idx
 
-       feedEnvs =
-           getFeedEnvs model
-   in
-   let
-       scrollLeft =
-           model.bodyScroll.scrollLeft
-               |> round
-               - (if model.showLeftColumn then
-                   leftColumnWidth + 5
+                    else if feed.newElements > 0 then
+                        findIndex (idx + 1) (Just idx) tail
 
-                  else
-                   0
-                 )
+                    else
+                        findIndex (idx + 1) last tail
+    in
+    scrollToIndexOnRight (findIndex 0 Nothing model.feedSet.feeds) model
 
-       columnCnt =
-           model.feedSet.feeds |> List.length
 
-       columnWidth =
-           renderEnv.columnWidth + 4
+scrollToIndexOnRight : Int -> Model -> Cmd Msg
+scrollToIndexOnRight idx model =
+    let
+        { scrollLeft, col0Left, columnWidth, maxColumn, windowWidth } =
+            columnScrollInfo model
 
-       rawNewScroll =
-           case direction of
-               ScrollLeft ->
-                   let
-                       leftMost =
-                           scrollLeft // columnWidth
-                   in
-                   -- TODO
-                   foo
+        scrollPos =
+            col0Left
+                + (columnWidth * (idx + 1))
+                - windowWidth
 
-               ScrollRight ->
-                   let
-                       maxScroll =
-                           width - windowWidth
+        newScroll =
+            if scrollPos < 0 then
+                col0Left
 
-                       nominal =
-                           scrollLeft + windowWidth
+            else
+                scrollPos
+    in
+    if newScroll /= scrollLeft then
+        Dom.setViewportOf "body" (toFloat newScroll) 0
+            |> Task.attempt (\_ -> Noop)
 
-                       proper =
-                           (nominal - col0Left) // columnWidth
-                   in
-                   min maxScroll
-                       ((proper * columnWidth) + col0Left)
+    else
+        Cmd.none
 
-       newScroll =
-           rawNewScroll + 1
-   in
-   if newScroll /= scrollLeft then
-       Dom.setViewportOf "body" (toFloat newScroll) 0
-           |> Task.attempt (\_ -> Noop)
 
-   else
-       Cmd.none
+scrollRightToNew : FeedType -> Model -> Cmd Msg
+scrollRightToNew feedType model =
+    let
+        findIndex : Int -> Maybe Int -> List Feed -> Int
+        findIndex idx found feeds =
+            case feeds of
+                [] ->
+                    -- Can't happen
+                    0
 
--}
+                feed :: tail ->
+                    case found of
+                        Just foundIdx ->
+                            if feed.newElements > 0 then
+                                idx
+
+                            else
+                                findIndex (idx + 1) found tail
+
+                        Nothing ->
+                            if feedType == feed.feedType then
+                                findIndex (idx + 1) (Just idx) tail
+
+                            else
+                                findIndex (idx + 1) Nothing tail
+    in
+    scrollToIndexOnLeft (findIndex 0 Nothing model.feedSet.feeds) model
+
+
+scrollToIndexOnLeft : Int -> Model -> Cmd Msg
+scrollToIndexOnLeft idx model =
+    let
+        { scrollLeft, col0Left, columnWidth, maxColumn, windowWidth } =
+            columnScrollInfo model
+
+        scrollPos =
+            col0Left + (columnWidth * idx)
+
+        rightDelta =
+            maxColumn + 1 - idx
+
+        maxPos =
+            scrollPos + (rightDelta * columnWidth)
+
+        newScroll =
+            if maxPos < windowWidth then
+                col0Left + ((maxColumn + 1) * columnWidth) - windowWidth
+
+            else
+                scrollPos
+    in
+    if newScroll /= scrollLeft then
+        Dom.setViewportOf "body" (toFloat newScroll) 0
+            |> Task.attempt (\_ -> Noop)
+
+    else
+        Cmd.none
 
 
 {-| If you enable this, you need to fix the update code to somehow
@@ -6405,8 +6484,11 @@ updateNewElementsLeftRight model =
         feeds =
             model.feedSet.feeds
 
-        scrollColumn =
-            model.scrollColumn
+        leftColumn =
+            model.scrollColumns.left
+
+        rightColumn =
+            model.scrollColumns.right
 
         news =
             List.map .newElements feeds
@@ -6414,8 +6496,8 @@ updateNewElementsLeftRight model =
         totalNews =
             List.foldr (+) 0 news
 
-        loop : Int -> List Int -> List Feed -> Dict String FeedEnv -> Dict String FeedEnv
-        loop left newsTail feedsTail feedEnvs =
+        loop : Int -> Int -> List Int -> List Feed -> Dict String FeedEnv -> Dict String FeedEnv
+        loop colidx left newsTail feedsTail feedEnvs =
             case newsTail of
                 [] ->
                     feedEnvs
@@ -6433,7 +6515,8 @@ updateNewElementsLeftRight model =
                                 newElements =
                                     feed.newElements
                             in
-                            loop (left + newElements)
+                            loop (colidx + 1)
+                                (left + newElements)
                                 newsRest
                                 feedsRest
                                 (case Dict.get feedId feedEnvs of
@@ -6444,24 +6527,38 @@ updateNewElementsLeftRight model =
                                         let
                                             right =
                                                 totalNews - left - newElements
+
+                                            storedLeft =
+                                                if colidx == leftColumn then
+                                                    left
+
+                                                else
+                                                    0
+
+                                            storedRight =
+                                                if colidx == rightColumn then
+                                                    right
+
+                                                else
+                                                    0
                                         in
                                         if
-                                            (feedEnv.newElementsLeft == left)
-                                                && (feedEnv.newElementsRight == right)
+                                            (feedEnv.newElementsLeft == storedLeft)
+                                                && (feedEnv.newElementsRight == storedRight)
                                         then
                                             feedEnvs
 
                                         else
                                             Dict.insert feedId
                                                 { feedEnv
-                                                    | newElementsLeft = left
-                                                    , newElementsRight = right
+                                                    | newElementsLeft = storedLeft
+                                                    , newElementsRight = storedRight
                                                 }
                                                 feedEnvs
                                 )
 
         feedEnvs2 =
-            loop 0 news feeds model.feedEnvs
+            loop 0 0 news feeds model.feedEnvs
     in
     { model | feedEnvs = feedEnvs2 }
 
