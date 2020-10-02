@@ -202,6 +202,7 @@ import Mastodon.Entity as Entity
         , Group
         , ListEntity
         , Mention
+        , Meta(..)
         , Notification
         , NotificationType(..)
         , Privacy(..)
@@ -12071,7 +12072,26 @@ renderAttachment renderEnv attachment =
                 preview_url =
                     case attachment.preview_url of
                         Just url ->
-                            url
+                            case attachment.meta of
+                                Just (ImageMeta { small }) ->
+                                    case small of
+                                        Just { width } ->
+                                            case width of
+                                                Just w ->
+                                                    if w < renderEnv.columnWidth then
+                                                        attachment.url
+
+                                                    else
+                                                        url
+
+                                                Nothing ->
+                                                    url
+
+                                        _ ->
+                                            url
+
+                                _ ->
+                                    url
 
                         Nothing ->
                             attachment.url
