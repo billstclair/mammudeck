@@ -6877,7 +6877,7 @@ appendFeedElementsTruncated maybeMax useMerge fe1 fe2 default =
                     in
                     ( truncate l
                         |> NotificationElements
-                    , 0
+                    , newcnt
                     )
 
                 _ ->
