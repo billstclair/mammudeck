@@ -335,6 +335,7 @@ type alias Feed =
     { feedType : FeedType
     , elements : FeedElements
     , newElements : Int
+    , undisplayedElements : Maybe FeedElements
     }
 
 
@@ -380,6 +381,7 @@ feedSetDefinitionToFeedSet { name, feedTypes } =
                 { feedType = feedType
                 , elements = feedTypeToElements feedType
                 , newElements = 0
+                , undisplayedElements = Nothing
                 }
             )
             feedTypes
