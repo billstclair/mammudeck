@@ -194,6 +194,7 @@ import Mastodon.Entity as Entity
         , FilterContext(..)
         , Focus
         , Group
+        , Instance
         , ListEntity
         , Mention
         , Meta(..)
@@ -485,6 +486,31 @@ type alias ScrollColumns =
     }
 
 
+type StreamingApi
+    = UnknownApi
+    | NoApi
+    | UrlApi String
+
+
+type alias TokenApi =
+    { token : Maybe String
+    , api : StreamingApi
+    }
+
+
+emptyTokenApi : TokenApi
+emptyTokenApi =
+    { token = Nothing
+    , api = UnknownApi
+    }
+
+
+type alias LastInstance =
+    { server : String
+    , instance : Instance
+    }
+
+
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -546,6 +572,7 @@ type alias Model =
     , hashtagInput : String
 
     -- Non-persistent below here
+    , lastInstance : Maybe LastInstance
     , initialPage : InitialPage
     , popupExplorer : PopupExplorer
     , dialog : Dialog
@@ -600,7 +627,7 @@ type alias Model =
     , key : Key
     , url : Url
     , hideClientId : Bool
-    , tokens : Dict String String
+    , tokens : Dict String TokenApi
     , account : Maybe Account
     , displayName : String
     , note : String
@@ -685,7 +712,7 @@ type GlobalMsg
     | ClearAll
     | ReceiveRedirect (Result ( String, Error ) ( String, App, Cmd Msg ))
     | ReceiveAuthorization (Result ( String, Error ) ( String, Authorization, Account ))
-    | ReceiveInstance (Result Error Response)
+    | ReceiveInstance String (Result Error Response)
     | ReceiveFetchAccount (Result ( String, Error ) ( String, String, Account ))
     | ReceiveGetVerifyCredentials (Result Error Response)
     | ReceiveAccountIdRelationships Bool (Result Error Response)
@@ -1269,6 +1296,7 @@ init value url key =
     , hashtagInput = ""
 
     -- Non-persistent below here
+    , lastInstance = Nothing
     , initialPage = initialPage
     , popupExplorer = NoPopupExplorer
     , dialog = NoDialog
@@ -1498,7 +1526,7 @@ getInstance model =
             , token = Nothing
             }
     in
-    Request.serverRequest (\id -> GlobalMsg << ReceiveInstance)
+    Request.serverRequest (\id -> GlobalMsg << ReceiveInstance model.server)
         []
         serverInfo
         ()
@@ -1778,9 +1806,62 @@ removeFeedEnv feedType model =
     { model | feedEnvs = Dict.remove feedId model.feedEnvs }
 
 
+encodeStreamingApi : StreamingApi -> Value
+encodeStreamingApi api =
+    case api of
+        UnknownApi ->
+            JE.null
+
+        NoApi ->
+            JE.string ""
+
+        UrlApi url ->
+            JE.string url
+
+
+streamingApiDecoder : Decoder StreamingApi
+streamingApiDecoder =
+    JD.nullable JD.string
+        |> JD.andThen
+            (\s ->
+                case s of
+                    Nothing ->
+                        JD.succeed UnknownApi
+
+                    Just url ->
+                        if url == "" then
+                            JD.succeed NoApi
+
+                        else
+                            JD.succeed <| UrlApi url
+            )
+
+
+encodeTokenApi : TokenApi -> Value
+encodeTokenApi { token, api } =
+    JE.object
+        [ ( "token", ED.encodeMaybe JE.string token )
+        , ( "api", encodeStreamingApi api )
+        ]
+
+
+tokenApiDecoder : Decoder TokenApi
+tokenApiDecoder =
+    JD.oneOf
+        [ JD.succeed TokenApi
+            |> required "token" (JD.nullable JD.string)
+            |> required "api" streamingApiDecoder
+        , JD.string
+            |> JD.andThen
+                (\token ->
+                    JD.succeed { emptyTokenApi | token = Just token }
+                )
+        ]
+
+
 handleGetToken : String -> Value -> Model -> ( Model, Cmd Msg )
 handleGetToken key value model =
-    case JD.decodeValue JD.string value of
+    case JD.decodeValue tokenApiDecoder value of
         Err err ->
             let
                 ignore =
@@ -1788,17 +1869,25 @@ handleGetToken key value model =
             in
             model |> withNoCmd
 
-        Ok token ->
+        Ok tokenApi ->
             let
                 tokens =
                     model.tokens
+
+                cmd =
+                    case tokenApi.api of
+                        UnknownApi ->
+                            getInstance model
+
+                        _ ->
+                            Cmd.none
 
                 server =
                     Debug.log "Received token for server" <|
                         tokenStorageKeyServer key
             in
-            { model | tokens = Dict.insert server token tokens }
-                |> withCmd (fetchFeatures server model)
+            { model | tokens = Dict.insert server tokenApi tokens }
+                |> withCmds [ cmd, fetchFeatures server model ]
 
 
 pkAccountIdsLength : Int
@@ -2642,8 +2731,16 @@ globalMsg msg model =
 
                 mdl =
                     { model | dialog = NoDialog }
+
+                token =
+                    case Dict.get model.server model.tokens of
+                        Just tokenApi ->
+                            tokenApi.token
+
+                        _ ->
+                            Nothing
             in
-            case Login.loginTask sau <| Dict.get model.server model.tokens of
+            case Login.loginTask sau token of
                 Redirect task ->
                     ( mdl, Task.attempt (GlobalMsg << ReceiveRedirect) task )
 
@@ -2835,27 +2932,14 @@ globalMsg msg model =
                             , fetchFeatures loginServer mdl3
                             ]
 
-        ReceiveInstance result ->
+        ReceiveInstance server result ->
             case result of
                 Err _ ->
                     -- We'll get lots of errors, for non-existant domains
                     model |> withNoCmd
 
                 Ok response ->
-                    case response.entity of
-                        InstanceEntity instance ->
-                            { model
-                                | msg = Nothing
-                                , request = Just response.rawRequest
-                                , metadata = Just response.metadata
-                                , response = Just instance.v
-                                , entity = Just response.entity
-                            }
-                                |> updateJsonTrees
-                                |> withNoCmd
-
-                        _ ->
-                            model |> withNoCmd
+                    receiveInstance server response model
 
         ReceiveGetVerifyCredentials result ->
             case result of
@@ -2954,6 +3038,49 @@ globalMsg msg model =
 
                         _ ->
                             model |> withNoCmd
+
+
+receiveInstance : String -> Response -> Model -> ( Model, Cmd Msg )
+receiveInstance server response model =
+    case response.entity of
+        InstanceEntity instance ->
+            let
+                tokens =
+                    model.tokens
+
+                ( newTokens, cmd ) =
+                    case Dict.get server tokens of
+                        Nothing ->
+                            ( tokens, Cmd.none )
+
+                        Just tokenApi ->
+                            case instance.urls of
+                                Nothing ->
+                                    ( tokens, Cmd.none )
+
+                                Just { streaming_api } ->
+                                    let
+                                        newTokenApi =
+                                            { tokenApi | api = UrlApi streaming_api }
+                                    in
+                                    ( Dict.insert server newTokenApi tokens
+                                    , putToken server <| Just newTokenApi
+                                    )
+            in
+            { model
+                | msg = Nothing
+                , lastInstance = Just { server = server, instance = instance }
+                , tokens = newTokens
+                , request = Just response.rawRequest
+                , metadata = Just response.metadata
+                , response = Just instance.v
+                , entity = Just response.entity
+            }
+                |> updateJsonTrees
+                |> withCmd cmd
+
+        _ ->
+            model |> withNoCmd
 
 
 switchHomeToColumns : Page -> Page
@@ -5349,7 +5476,7 @@ probeGroupsFeature server model =
         Nothing ->
             model |> withNoCmd
 
-        justToken ->
+        Just tokenApi ->
             let
                 renderEnv =
                     model.renderEnv
@@ -5358,7 +5485,7 @@ probeGroupsFeature server model =
                     { model
                         | renderEnv =
                             { renderEnv | loginServer = Just server }
-                        , token = justToken
+                        , token = tokenApi.token
                     }
 
                 request =
@@ -9838,17 +9965,48 @@ saveAuthorization server authorization model =
         tokens =
             model.tokens
 
+        tokenApi =
+            case Dict.get server tokens of
+                Nothing ->
+                    { emptyTokenApi | token = Just authorization.token }
+
+                Just api ->
+                    { api | token = Just authorization.token }
+
+        ( newTokenApi, cmd ) =
+            case tokenApi.api of
+                UnknownApi ->
+                    case model.lastInstance of
+                        Nothing ->
+                            ( tokenApi, getInstance model )
+
+                        Just lastInstance ->
+                            if lastInstance.server == server then
+                                case lastInstance.instance.urls of
+                                    Just { streaming_api } ->
+                                        ( { tokenApi | api = UrlApi streaming_api }
+                                        , Cmd.none
+                                        )
+
+                                    Nothing ->
+                                        ( tokenApi, getInstance model )
+
+                            else
+                                ( tokenApi, getInstance model )
+
+                _ ->
+                    ( tokenApi, Cmd.none )
+
         mdl =
             { model
                 | tokens =
-                    Dict.insert server
-                        authorization.token
-                        tokens
+                    Dict.insert server newTokenApi tokens
             }
     in
     mdl
         |> withCmds
-            [ putToken server <| Just authorization.token
+            [ putToken server <| Just newTokenApi
+            , cmd
             , fetchFeatures server mdl
             ]
 
@@ -16378,6 +16536,7 @@ type alias SavedModel =
     { renderEnv : RenderEnv
     , page : Page
     , token : Maybe String
+    , streaming_api : Maybe String
     , server : String
     , feedSetDefinition : FeedSetDefinition
     , supportsAccountByUsername : Dict String Bool
@@ -16436,6 +16595,7 @@ modelToSavedModel model =
     { renderEnv = model.renderEnv
     , page = model.page
     , token = model.token
+    , streaming_api = model.streaming_api
     , server = model.server
     , feedSetDefinition = model.feedSetDefinition
     , supportsAccountByUsername = model.supportsAccountByUsername
@@ -16508,6 +16668,7 @@ savedModelToModel savedModel model =
             }
         , page = savedModel.page
         , token = savedModel.token
+        , streaming_api = savedModel.streaming_api
         , server = savedModel.server
         , feedSetDefinition = savedModel.feedSetDefinition
         , supportsAccountByUsername = savedModel.supportsAccountByUsername
@@ -16841,6 +17002,10 @@ encodeSavedModel savedModel =
                 savedModel.token
                 (ED.encodeMaybe JE.string)
                 Nothing
+            , encodePropertyAsList "streaming_api"
+                savedModel.streaming_api
+                (ED.encodeMaybe JE.string)
+                Nothing
             , [ ( "server", JE.string savedModel.server ) ]
             , encodePropertyAsList "feedSetDefinition"
                 savedModel.feedSetDefinition
@@ -17035,6 +17200,7 @@ savedModelDecoder =
         |> optional "renderEnv" renderEnvDecoder emptyRenderEnv
         |> required "page" pageDecoder
         |> optional "token" (JD.nullable JD.string) Nothing
+        |> optional "streaming_api" (JD.nullable JD.string) Nothing
         |> required "server" JD.string
         |> optional "feedSetDefinition"
             MED.feedSetDefinitionDecoder
@@ -17127,15 +17293,15 @@ getToken server =
     getLabeled pk.token <| tokenStorageKey server
 
 
-putToken : String -> Maybe String -> Cmd Msg
-putToken server token =
+putToken : String -> Maybe TokenApi -> Cmd Msg
+putToken server tokenApi =
     put (tokenStorageKey server) <|
-        case token of
+        case tokenApi of
             Nothing ->
                 Nothing
 
             Just tok ->
-                Just <| JE.string tok
+                Just <| encodeTokenApi tok
 
 
 getFeedSetDefinition : String -> Cmd Msg
