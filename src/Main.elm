@@ -1874,19 +1874,35 @@ handleGetToken key value model =
                 tokens =
                     model.tokens
 
-                cmd =
+                ( savedApi, cmd ) =
                     case tokenApi.api of
                         UnknownApi ->
-                            getInstance model
+                            ( Nothing, getInstance model )
+
+                        UrlApi api ->
+                            ( Just api, Cmd.none )
 
                         _ ->
-                            Cmd.none
+                            ( Nothing, Cmd.none )
 
                 server =
                     Debug.log "Received token for server" <|
                         tokenStorageKeyServer key
+
+                streaming_api =
+                    if
+                        (savedApi /= Nothing)
+                            && (model.renderEnv.loginServer == Just server)
+                    then
+                        savedApi
+
+                    else
+                        model.streaming_api
             in
-            { model | tokens = Dict.insert server tokenApi tokens }
+            { model
+                | tokens = Dict.insert server tokenApi tokens
+                , streaming_api = streaming_api
+            }
                 |> withCmds [ cmd, fetchFeatures server model ]
 
 
@@ -1976,6 +1992,13 @@ socketHandler response state mdl =
                         state
                         model
 
+                WebSocket.SocketConnectingError key ->
+                    { model
+                        | webSocketFeeds =
+                            Set.remove key model.webSocketFeeds
+                    }
+                        |> withNoCmd
+
                 _ ->
                     { model | msg = Just <| WebSocket.errorToString error }
                         |> withNoCmd
@@ -2018,6 +2041,7 @@ webSocketMessageReveived key message model =
                 ConnectedEvent string ->
                     { model
                         | webSocketFeeds =
+                            -- This is not really necessary. Done at connect time.
                             Set.insert string model.webSocketFeeds
                     }
                         |> withNoCmd
@@ -2076,43 +2100,47 @@ webSocketUpdate key status model =
 
 webSocketNotification : String -> Notification -> Model -> ( Model, Cmd Msg )
 webSocketNotification key notification model =
-    case Types.feedIdToType key of
-        Nothing ->
-            model |> withNoCmd
+    if key /= "home" then
+        model |> withNoCmd
 
-        Just feedType ->
-            let
-                feedSet =
-                    model.feedSet
-            in
-            case findFeed feedType feedSet of
-                Nothing ->
-                    model |> withNoCmd
+    else
+        case Types.feedIdToType "notifications" of
+            Nothing ->
+                model |> withNoCmd
 
-                Just feed ->
-                    let
-                        newFeed =
-                            case feed.undisplayedElements of
-                                Nothing ->
-                                    { feed
-                                        | undisplayedElements =
-                                            Just <| NotificationElements [ notification ]
-                                    }
+            Just feedType ->
+                let
+                    feedSet =
+                        model.feedSet
+                in
+                case findFeed feedType feedSet of
+                    Nothing ->
+                        model |> withNoCmd
 
-                                Just (NotificationElements notifications) ->
-                                    { feed
-                                        | undisplayedElements =
-                                            Just <| NotificationElements (notification :: notifications)
-                                    }
+                    Just feed ->
+                        let
+                            newFeed =
+                                case feed.undisplayedElements of
+                                    Nothing ->
+                                        { feed
+                                            | undisplayedElements =
+                                                Just <| NotificationElements [ notification ]
+                                        }
 
-                                _ ->
-                                    feed
-                    in
-                    { model
-                        | feedSet =
-                            replaceFeed newFeed feedSet
-                    }
-                        |> withNoCmd
+                                    Just (NotificationElements notifications) ->
+                                        { feed
+                                            | undisplayedElements =
+                                                Just <| NotificationElements (notification :: notifications)
+                                        }
+
+                                    _ ->
+                                        feed
+                        in
+                        { model
+                            | feedSet =
+                                replaceFeed newFeed feedSet
+                        }
+                            |> withNoCmd
 
 
 emptyJsonTree : Result JD.Error JsonTree.Node
@@ -2692,6 +2720,7 @@ globalMsg msg model =
                             | renderEnv =
                                 { renderEnv | loginServer = Just server }
                             , token = Nothing
+                            , streaming_api = Nothing
                             , account = Nothing
                         }
                             |> updatePatchCredentialsInputs
@@ -2758,6 +2787,7 @@ globalMsg msg model =
                         , account = Nothing
                         , tokens = Dict.remove server model.tokens
                         , token = Nothing
+                        , streaming_api = Nothing
                         , request = Nothing
                         , response = Nothing
                         , entity = Nothing
@@ -2794,6 +2824,7 @@ globalMsg msg model =
                             { renderEnv | loginServer = Nothing }
                         , account = Nothing
                         , token = Nothing
+                        , streaming_api = Nothing
                         , request = Nothing
                         , response = Nothing
                         , entity = Nothing
@@ -2827,7 +2858,7 @@ globalMsg msg model =
 
                 Ok ( server, authorization, account ) ->
                     let
-                        ( mdl, cmd ) =
+                        ( streaming_api, mdl, cmd ) =
                             saveAuthorization server authorization model
 
                         serverInfo =
@@ -2840,6 +2871,7 @@ globalMsg msg model =
                                 | msg = Nothing
                                 , page = switchHomeToColumns model.page
                                 , token = Just authorization.token
+                                , streaming_api = streaming_api
                                 , renderEnv =
                                     { renderEnv | loginServer = Just server }
                                 , account = Just account
@@ -3048,27 +3080,33 @@ receiveInstance server response model =
                 tokens =
                     model.tokens
 
-                ( newTokens, cmd ) =
+                ( maybeStreamingApi, newTokens, cmd ) =
                     case Dict.get server tokens of
                         Nothing ->
-                            ( tokens, Cmd.none )
+                            ( model.streaming_api, tokens, Cmd.none )
 
                         Just tokenApi ->
                             case instance.urls of
                                 Nothing ->
-                                    ( tokens, Cmd.none )
+                                    ( model.streaming_api, tokens, Cmd.none )
 
                                 Just { streaming_api } ->
                                     let
                                         newTokenApi =
                                             { tokenApi | api = UrlApi streaming_api }
                                     in
-                                    ( Dict.insert server newTokenApi tokens
+                                    ( if Just server == model.renderEnv.loginServer then
+                                        Just streaming_api
+
+                                      else
+                                        model.streaming_api
+                                    , Dict.insert server newTokenApi tokens
                                     , putToken server <| Just newTokenApi
                                     )
             in
             { model
                 | msg = Nothing
+                , streaming_api = maybeStreamingApi
                 , lastInstance = Just { server = server, instance = instance }
                 , tokens = newTokens
                 , request = Just response.rawRequest
@@ -6699,9 +6737,7 @@ receiveFeed request paging feedType result model =
                                                         feed
                                                 )
                                                 feedSet.feeds
-                                            , ( mdl
-                                              , webSocketConnect feedType mdl
-                                              )
+                                            , webSocketConnect feedType mdl
                                             , updateFeedEnvReferences
                                                 receiveType
                                                 elem
@@ -6762,38 +6798,41 @@ feedTypeToStreamType feedType =
             Nothing
 
 
-webSocketConnect : FeedType -> Model -> Cmd Msg
+webSocketConnect : FeedType -> Model -> ( Model, Cmd Msg )
 webSocketConnect feedType model =
     let
         wsFeedType =
-            case feedType of
-                NotificationFeed _ ->
-                    HomeFeed
+            Debug.log "webSocketConnect, wsFeedType" <|
+                case feedType of
+                    NotificationFeed _ ->
+                        HomeFeed
 
-                _ ->
-                    feedType
+                    _ ->
+                        feedType
 
         feedId =
             Types.feedID wsFeedType
+
+        webSocketFeeds =
+            model.webSocketFeeds
     in
-    if not <| Set.member feedId model.webSocketFeeds then
-        Cmd.none
+    if Set.member feedId webSocketFeeds then
+        ( model, Cmd.none )
 
     else
         case feedTypeToStreamType wsFeedType of
             Nothing ->
-                Cmd.none
+                ( model, Cmd.none )
 
             Just streamType ->
                 case model.token of
                     Nothing ->
-                        Cmd.none
+                        ( model, Cmd.none )
 
                     Just _ ->
-                        -- TODO: This property is currently never set.
                         case model.streaming_api of
                             Nothing ->
-                                Cmd.none
+                                ( model, Cmd.none )
 
                             Just api ->
                                 let
@@ -6802,8 +6841,14 @@ webSocketConnect feedType model =
                                             model.token
                                             streamType
                                 in
-                                WebSocket.makeOpenWithKey feedId url
+                                ( { model
+                                    | webSocketFeeds =
+                                        Set.insert feedId webSocketFeeds
+                                  }
+                                , WebSocket.makeOpenWithKey feedId
+                                    (Debug.log "Open WebSocket" url)
                                     |> webSocketSend
+                                )
 
 
 updateNewElementsLeftRight : Model -> Model
@@ -9959,7 +10004,7 @@ sendGeneralRequest tagger request model =
                     (Request.rawRequestToCmd tagger rawRequest)
 
 
-saveAuthorization : String -> Authorization -> Model -> ( Model, Cmd Msg )
+saveAuthorization : String -> Authorization -> Model -> ( Maybe String, Model, Cmd Msg )
 saveAuthorization server authorization model =
     let
         tokens =
@@ -9973,29 +10018,30 @@ saveAuthorization server authorization model =
                 Just api ->
                     { api | token = Just authorization.token }
 
-        ( newTokenApi, cmd ) =
+        ( newTokenApi, maybeStreaming_api, cmd ) =
             case tokenApi.api of
                 UnknownApi ->
                     case model.lastInstance of
                         Nothing ->
-                            ( tokenApi, getInstance model )
+                            ( tokenApi, Nothing, getInstance model )
 
                         Just lastInstance ->
                             if lastInstance.server == server then
                                 case lastInstance.instance.urls of
                                     Just { streaming_api } ->
                                         ( { tokenApi | api = UrlApi streaming_api }
+                                        , Just streaming_api
                                         , Cmd.none
                                         )
 
                                     Nothing ->
-                                        ( tokenApi, getInstance model )
+                                        ( tokenApi, Nothing, getInstance model )
 
                             else
-                                ( tokenApi, getInstance model )
+                                ( tokenApi, Nothing, getInstance model )
 
                 _ ->
-                    ( tokenApi, Cmd.none )
+                    ( tokenApi, Nothing, Cmd.none )
 
         mdl =
             { model
@@ -10003,12 +10049,14 @@ saveAuthorization server authorization model =
                     Dict.insert server newTokenApi tokens
             }
     in
-    mdl
-        |> withCmds
-            [ putToken server <| Just newTokenApi
-            , cmd
-            , fetchFeatures server mdl
-            ]
+    ( maybeStreaming_api
+    , mdl
+    , Cmd.batch
+        [ putToken server <| Just newTokenApi
+        , cmd
+        , fetchFeatures server mdl
+        ]
+    )
 
 
 serverOption : String -> String -> Html Msg
@@ -13931,6 +13979,7 @@ statusesSelectedUI model =
                 , visibilityRadio (Just UnlistedVisibility) model
                 , visibilityRadio (Just PrivateVisibility) model
                 , visibilityRadio (Just DirectVisibility) model
+                , visibilityRadio (Just PrivateGroupVisibility) model
                 , br
                 , textInput "scheduled at: "
                     40
@@ -14136,6 +14185,9 @@ visibilityToString visibility =
 
                 DirectVisibility ->
                     "direct "
+
+                PrivateGroupVisibility ->
+                    "private_group "
 
 
 visibilityRadio : Maybe Visibility -> Model -> Html Msg
@@ -15633,6 +15685,7 @@ saveRestoreDialogRows model =
                                 | feedSetDefinition =
                                     { name = "", feedTypes = [] }
                                 , token = Nothing
+                                , streaming_api = Nothing
                                 , postState = initialPostState
                             }
                     in
