@@ -23,7 +23,6 @@
 See ../TODO.md for the full list.
 
 * Auto-refresh:
-    Scroll to top of feed when showing undisplayed posts.
     "Show all undisplayed", maybe on "u".
     Periodic auto-update of user feeds.
     Manual update of user feed should include the undisplayed posts as new.
@@ -739,6 +738,7 @@ type ColumnsUIMsg
     | ReloadAllColumns
     | MarkFeedRead FeedType
     | ShowUndisplayed FeedType
+    | ShowAllUndisplayed
     | RefreshFeed FeedType
     | FeedRendered Value
     | Tick Posix
@@ -1030,6 +1030,7 @@ keyMsgDict =
         [ ( "p", ShowPostDialog Nothing )
         , ( "r", ReloadAllColumns )
         , ( "R", ReloadAllColumns )
+        , ( "u", ShowAllUndisplayed )
         , ( ".", ShowSettingsDialog )
         , ( "t", ToggleStyle )
         , ( ",", ShowSettingsDialog )
@@ -3623,6 +3624,18 @@ columnsUIMsg msg model =
         ShowUndisplayed feedType ->
             showUndisplayed feedType model
 
+        ShowAllUndisplayed ->
+            let
+                showOne : FeedType -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+                showOne feedType ( mdl, cmd ) =
+                    let
+                        ( mdl2, cmd2 ) =
+                            showUndisplayed feedType mdl
+                    in
+                    mdl2 |> withCmds [ cmd, cmd2 ]
+            in
+            List.foldl showOne ( model, Cmd.none ) model.feedSetDefinition.feedTypes
+
         RefreshFeed feedType ->
             case findFeed feedType model.feedSet of
                 Nothing ->
@@ -4407,8 +4420,15 @@ showUndisplayed feedType model =
             model |> withNoCmd
 
         Just feed ->
+            let
+                feedId =
+                    Types.feedID feedType
+            in
             showUndisplayedFeed feed model
-                |> withNoCmd
+                |> withCmd
+                    (Dom.setViewportOf feedId 0 0
+                        |> Task.attempt (\_ -> Noop)
+                    )
 
 
 showUndisplayedFeed : Feed -> Model -> Model
@@ -11018,6 +11038,8 @@ renderLeftColumn renderEnv =
         , p []
             [ button (ColumnsUIMsg ReloadAllColumns) "reload" ]
         , p []
+            [ button (ColumnsUIMsg ShowAllUndisplayed) "display all" ]
+        , p []
             [ button (ColumnsUIMsg <| ShowPostDialog Nothing) "post" ]
         ]
 
@@ -11083,6 +11105,9 @@ settingsDialogContent model =
         , br
         , button (ColumnsUIMsg ReloadAllColumns)
             "Reload All Columns"
+        , br
+        , button (ColumnsUIMsg ShowAllUndisplayed)
+            "Show All Undisplayed"
         , br
         , button (ColumnsUIMsg <| ShowPostDialog Nothing)
             "Post Dialog"
@@ -12951,7 +12976,7 @@ renderScrollPill model =
 
         th =
             if model.showFullScrollPill then
-                3 * w - 2
+                4 * w - 2
 
             else
                 w
@@ -12971,15 +12996,19 @@ renderScrollPill model =
                 ReloadAllColumns
                 "Reload All Columns [r]"
             , squareButton ( l, 2 * w - 2 )
+                "icon-spin4"
+                ShowAllUndisplayed
+                "Show All Undisplayed [u]"
+            , squareButton ( l, 3 * w - 3 )
                 "icon-pencil"
                 (ShowPostDialog Nothing)
                 "Show Post Dialog [p]"
             , triangleButton LeftButton
-                ( 1, 2 * w - 2 )
+                ( 1, 3 * w - 3 )
                 (ScrollPage ScrollLeft)
                 "Scroll One Page Left"
             , triangleButton RightButton
-                ( l + w - 2, 2 * w - 2 )
+                ( l + w - 2, 3 * w - 3 )
                 (ScrollPage ScrollRight)
                 "Scroll One Page Right"
             ]
