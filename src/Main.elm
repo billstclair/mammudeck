@@ -22,6 +22,13 @@
 
 See ../TODO.md for the full list.
 
+* Auto-refresh:
+    Scroll to top of feed when showing undisplayed posts.
+    "Show all undisplayed", maybe on "u".
+    Periodic auto-update of user feeds.
+    Manual update of user feed should include the undisplayed posts as new.
+        (may be hard to do and I'll skip it).
+
 * Refresh:
     <Shift> is a bad choice for the non-incremental indicator.
         It sometimes selects text.
@@ -174,6 +181,7 @@ import Mammudeck.Types as Types
         , PublicFeedFlags
           --, Renderer
         , ScrollNotification
+        , UndisplayedElements(..)
         , UserFeedFlags
         , UserFeedParams
         )
@@ -587,7 +595,6 @@ type alias Model =
     , accountIdDict : Dict String (List AccountId)
     , dropZone : DropZone.Model
     , loadingFeeds : Set String --feed ids
-    , newElements : Dict String FeedElements
     , groupDict : Dict String Group
     , feedEnvs : Dict String FeedEnv
     , showFullScrollPill : Bool
@@ -1311,7 +1318,6 @@ init value url key =
     , accountIdDict = Dict.empty
     , dropZone = DropZone.init
     , loadingFeeds = Set.empty
-    , newElements = Dict.empty
     , groupDict = Dict.empty
     , feedEnvs = Dict.empty
     , showFullScrollPill = False
@@ -1977,6 +1983,79 @@ handleGetAccountIds key maybeValue model =
                         }
 
 
+webSocketFeedTypes : String -> List FeedType
+webSocketFeedTypes feedId =
+    case Types.feedIdToType feedId of
+        Nothing ->
+            []
+
+        Just feedType ->
+            case feedType of
+                HomeFeed ->
+                    [ HomeFeed, Types.defaultNotificationFeedType ]
+
+                _ ->
+                    [ feedType ]
+
+
+addWebSocketFeed : String -> Model -> Model
+addWebSocketFeed feedId model =
+    let
+        enableUndisplayed : FeedType -> FeedSet -> FeedSet
+        enableUndisplayed feedType feedSet =
+            case findFeed feedType feedSet of
+                Nothing ->
+                    feedSet
+
+                Just feed ->
+                    let
+                        newFeed =
+                            case feed.undisplayedElements of
+                                NeverUndisplayed ->
+                                    { feed | undisplayedElements = NoUndisplayed }
+
+                                _ ->
+                                    feed
+                    in
+                    replaceFeed newFeed feedSet
+    in
+    { model
+        | webSocketFeeds =
+            Set.insert feedId model.webSocketFeeds
+        , feedSet =
+            List.foldr enableUndisplayed
+                model.feedSet
+            <|
+                webSocketFeedTypes feedId
+    }
+
+
+removeWebSocketFeed : String -> Model -> Model
+removeWebSocketFeed feedId model =
+    let
+        disableUndisplayed feedType feedSet =
+            case findFeed feedType feedSet of
+                Nothing ->
+                    feedSet
+
+                Just feed ->
+                    let
+                        newFeed =
+                            { feed | undisplayedElements = NeverUndisplayed }
+                    in
+                    replaceFeed newFeed feedSet
+    in
+    { model
+        | webSocketFeeds =
+            Set.remove feedId model.webSocketFeeds
+        , feedSet =
+            List.foldr disableUndisplayed
+                model.feedSet
+            <|
+                webSocketFeedTypes feedId
+    }
+
+
 socketHandler : WebSocket.Response -> State -> Model -> ( Model, Cmd Msg )
 socketHandler response state mdl =
     let
@@ -1993,10 +2072,7 @@ socketHandler response state mdl =
                         model
 
                 WebSocket.SocketConnectingError key ->
-                    { model
-                        | webSocketFeeds =
-                            Set.remove key model.webSocketFeeds
-                    }
+                    removeWebSocketFeed key model
                         |> withNoCmd
 
                 _ ->
@@ -2004,13 +2080,10 @@ socketHandler response state mdl =
                         |> withNoCmd
 
         WebSocket.MessageReceivedResponse { key, message } ->
-            webSocketMessageReveived key message model
+            webSocketMessageReceived key message model
 
         WebSocket.ClosedResponse { key } ->
-            { model
-                | webSocketFeeds =
-                    Set.remove key model.webSocketFeeds
-            }
+            removeWebSocketFeed key model
                 |> withNoCmd
 
         WebSocket.ConnectedResponse _ ->
@@ -2020,8 +2093,8 @@ socketHandler response state mdl =
             model |> withNoCmd
 
 
-webSocketMessageReveived : String -> String -> Model -> ( Model, Cmd Msg )
-webSocketMessageReveived key message model =
+webSocketMessageReceived : String -> String -> Model -> ( Model, Cmd Msg )
+webSocketMessageReceived key message model =
     case Mastodon.WebSocket.decodeEvent message of
         Err _ ->
             model |> withNoCmd
@@ -2038,23 +2111,41 @@ webSocketMessageReveived key message model =
                 NotificationEvent notification ->
                     webSocketNotification key notification model
 
-                ConnectedEvent string ->
-                    { model
-                        | webSocketFeeds =
-                            -- This is not really necessary. Done at connect time.
-                            Set.insert string model.webSocketFeeds
-                    }
-                        |> withNoCmd
-
                 ClosedEvent string ->
-                    { model
-                        | webSocketFeeds =
-                            Set.remove string model.webSocketFeeds
-                    }
+                    removeWebSocketFeed string model
                         |> withNoCmd
 
                 _ ->
                     model |> withNoCmd
+
+
+statusSatisfiesFeedParams : FeedType -> Status -> Bool
+statusSatisfiesFeedParams feedType status =
+    let
+        ( local, only_media ) =
+            case feedType of
+                PublicFeed params ->
+                    case params.flags of
+                        Nothing ->
+                            ( True, False )
+
+                        Just p ->
+                            ( p.local, p.only_media )
+
+                ProFeed params ->
+                    case params.flags of
+                        Nothing ->
+                            ( False, False )
+
+                        Just p ->
+                            ( False, p.only_media )
+
+                -- UserFeed has parameters, but there's no stream for that
+                _ ->
+                    ( False, False )
+    in
+    (not local || (not <| String.contains "@" status.account.acct))
+        && (not only_media || [] /= status.media_attachments)
 
 
 webSocketUpdate : String -> Status -> Model -> ( Model, Cmd Msg )
@@ -2064,38 +2155,48 @@ webSocketUpdate key status model =
             model |> withNoCmd
 
         Just feedType ->
-            let
-                feedSet =
-                    model.feedSet
-            in
-            case findFeed feedType feedSet of
-                Nothing ->
-                    model |> withNoCmd
+            if not <| statusSatisfiesFeedParams feedType status then
+                model |> withNoCmd
 
-                Just feed ->
-                    let
-                        newFeed =
-                            case feed.undisplayedElements of
-                                Nothing ->
-                                    { feed
-                                        | undisplayedElements =
-                                            Just <| StatusElements [ status ]
-                                    }
+            else
+                let
+                    feedSet =
+                        model.feedSet
+                in
+                case findFeed (Debug.log "webSocketUpdate" feedType) feedSet of
+                    Nothing ->
+                        model |> withNoCmd
 
-                                Just (StatusElements statuses) ->
-                                    { feed
-                                        | undisplayedElements =
-                                            Just <| StatusElements (status :: statuses)
-                                    }
+                    Just feed ->
+                        let
+                            newFeed =
+                                case Debug.log "undisplayedElements" feed.undisplayedElements of
+                                    NoUndisplayed ->
+                                        { feed
+                                            | undisplayedElements =
+                                                Undisplayed <| StatusElements [ status ]
+                                        }
 
-                                _ ->
-                                    feed
-                    in
-                    { model
-                        | feedSet =
-                            replaceFeed newFeed feedSet
-                    }
-                        |> withNoCmd
+                                    Undisplayed (StatusElements statuses) ->
+                                        let
+                                            new =
+                                                (status :: statuses)
+                                                    |> List.take maxFeedLength
+                                        in
+                                        { feed
+                                            | undisplayedElements =
+                                                Undisplayed <| StatusElements new
+                                        }
+
+                                    _ ->
+                                        feed
+                        in
+                        { model
+                            | feedSet =
+                                replaceFeed newFeed feedSet
+                        }
+                            |> updateNewElementsLeftRight
+                            |> withNoCmd
 
 
 webSocketNotification : String -> Notification -> Model -> ( Model, Cmd Msg )
@@ -2109,6 +2210,7 @@ webSocketNotification key notification model =
                 model |> withNoCmd
 
             Just feedType ->
+                -- TODO: add notificationSatisfiesFeedParams if there ever are any.
                 let
                     feedSet =
                         model.feedSet
@@ -2121,16 +2223,21 @@ webSocketNotification key notification model =
                         let
                             newFeed =
                                 case feed.undisplayedElements of
-                                    Nothing ->
+                                    NoUndisplayed ->
                                         { feed
                                             | undisplayedElements =
-                                                Just <| NotificationElements [ notification ]
+                                                Undisplayed <| NotificationElements [ notification ]
                                         }
 
-                                    Just (NotificationElements notifications) ->
+                                    Undisplayed (NotificationElements notifications) ->
+                                        let
+                                            new =
+                                                (notification :: notifications)
+                                                    |> List.take maxFeedLength
+                                        in
                                         { feed
                                             | undisplayedElements =
-                                                Just <| NotificationElements (notification :: notifications)
+                                                Undisplayed <| NotificationElements new
                                         }
 
                                     _ ->
@@ -3502,16 +3609,19 @@ columnsUIMsg msg model =
                 ( mdl3, cmd3 ) =
                     dismissDialog model
 
-                ( mdl4, cmd4 ) =
-                    List.foldl getFeed ( mdl3, Cmd.none ) mdl3.feedSet.feeds
+                mdl4 =
+                    List.foldl showUndisplayedFeed mdl3 mdl3.feedSet.feeds
+
+                ( mdl5, cmd5 ) =
+                    List.foldl getFeed ( mdl4, Cmd.none ) mdl4.feedSet.feeds
             in
-            mdl4 |> withCmds [ cmd3, cmd4 ]
+            mdl5 |> withCmds [ cmd3, cmd5 ]
 
         MarkFeedRead feedType ->
             markFeedRead feedType model
 
         ShowUndisplayed feedType ->
-            model |> withNoCmd
+            showUndisplayed feedType model
 
         RefreshFeed feedType ->
             case findFeed feedType model.feedSet of
@@ -4288,6 +4398,69 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+
+showUndisplayed : FeedType -> Model -> ( Model, Cmd Msg )
+showUndisplayed feedType model =
+    case findFeed feedType model.feedSet of
+        Nothing ->
+            model |> withNoCmd
+
+        Just feed ->
+            showUndisplayedFeed feed model
+                |> withNoCmd
+
+
+showUndisplayedFeed : Feed -> Model -> Model
+showUndisplayedFeed feed model =
+    let
+        feedSet =
+            model.feedSet
+
+        ( newElements, count, didit ) =
+            case feed.undisplayedElements of
+                Undisplayed (StatusElements newStatuses) ->
+                    case feed.elements of
+                        StatusElements statuses ->
+                            ( List.append newStatuses statuses
+                                |> List.take maxFeedLength
+                                |> StatusElements
+                            , List.length newStatuses
+                            , True
+                            )
+
+                        elements ->
+                            ( elements, feed.newElements, False )
+
+                Undisplayed (NotificationElements newNotifications) ->
+                    case feed.elements of
+                        NotificationElements notifications ->
+                            ( List.append newNotifications notifications
+                                |> List.take maxFeedLength
+                                |> NotificationElements
+                            , List.length newNotifications
+                            , True
+                            )
+
+                        elements ->
+                            ( elements, feed.newElements, False )
+
+                _ ->
+                    ( feed.elements, feed.newElements, False )
+
+        newFeed =
+            { feed
+                | elements = newElements
+                , newElements = count
+                , undisplayedElements =
+                    if didit then
+                        NoUndisplayed
+
+                    else
+                        feed.undisplayedElements
+            }
+    in
+    { model | feedSet = replaceFeed newFeed feedSet }
 
 
 markFeedRead : FeedType -> Model -> ( Model, Cmd Msg )
@@ -5743,6 +5916,18 @@ scrollToNew direction feedType model =
             scrollRightToNew feedType model
 
 
+feedHasNew : Feed -> Bool
+feedHasNew feed =
+    (feed.newElements > 0)
+        || (case feed.undisplayedElements of
+                Undisplayed elements ->
+                    Types.feedElementsCount elements > 0
+
+                _ ->
+                    False
+           )
+
+
 scrollLeftToNew : FeedType -> Model -> Cmd Msg
 scrollLeftToNew feedType model =
     let
@@ -5765,7 +5950,7 @@ scrollLeftToNew feedType model =
                             Nothing ->
                                 idx
 
-                    else if feed.newElements > 0 then
+                    else if feedHasNew feed then
                         findIndex (idx + 1) (Just idx) tail
 
                     else
@@ -5813,7 +5998,7 @@ scrollRightToNew feedType model =
                 feed :: tail ->
                     case found of
                         Just foundIdx ->
-                            if feed.newElements > 0 then
+                            if feedHasNew feed then
                                 idx
 
                             else
@@ -6117,7 +6302,7 @@ addFeedType feedType model =
                 { feedType = Debug.log "addFeedType" feedType
                 , elements = Types.feedTypeToElements feedType
                 , newElements = 0
-                , undisplayedElements = Nothing
+                , undisplayedElements = NeverUndisplayed
                 }
 
             newFeedSet =
@@ -6725,6 +6910,9 @@ receiveFeed request paging feedType result model =
                                             let
                                                 receiveType =
                                                     pagingToReceiveType paging
+
+                                                ( mdl5, cmd5 ) =
+                                                    webSocketConnect feedType mdl
                                             in
                                             ( LE.updateIf
                                                 (\feed ->
@@ -6736,12 +6924,12 @@ receiveFeed request paging feedType result model =
                                                         elem
                                                         feed
                                                 )
-                                                feedSet.feeds
-                                            , webSocketConnect feedType mdl
+                                                mdl5.feedSet.feeds
+                                            , ( mdl5, cmd5 )
                                             , updateFeedEnvReferences
                                                 receiveType
                                                 elem
-                                                model.references
+                                                mdl5.references
                                                 feedEnv
                                             )
 
@@ -6802,13 +6990,12 @@ webSocketConnect : FeedType -> Model -> ( Model, Cmd Msg )
 webSocketConnect feedType model =
     let
         wsFeedType =
-            Debug.log "webSocketConnect, wsFeedType" <|
-                case feedType of
-                    NotificationFeed _ ->
-                        HomeFeed
+            case feedType of
+                NotificationFeed _ ->
+                    HomeFeed
 
-                    _ ->
-                        feedType
+                _ ->
+                    feedType
 
         feedId =
             Types.feedID wsFeedType
@@ -6841,10 +7028,7 @@ webSocketConnect feedType model =
                                             model.token
                                             streamType
                                 in
-                                ( { model
-                                    | webSocketFeeds =
-                                        Set.insert feedId webSocketFeeds
-                                  }
+                                ( addWebSocketFeed feedId model
                                 , WebSocket.makeOpenWithKey feedId
                                     (Debug.log "Open WebSocket" url)
                                     |> webSocketSend
@@ -6863,23 +7047,40 @@ updateNewElementsLeftRight model =
         rightColumn =
             model.scrollColumns.right
 
+        undisplayedPairs =
+            List.map computeUndisplayed feeds
+
+        undisplayedCounts =
+            List.map Tuple.first undisplayedPairs
+
+        totalUndisplayed =
+            List.foldr (+) 0 undisplayedCounts
+
         news =
             List.map .newElements feeds
 
         totalNews =
-            List.foldr (+) 0 news
+            totalUndisplayed + List.foldr (+) 0 news
 
         totalCols =
             List.foldr
-                (\n tot ->
-                    if n > 0 then
+                (\( n, m ) tot ->
+                    if n > 0 || m > 0 then
                         tot + 1
 
                     else
                         tot
                 )
                 0
-                news
+                (List.map2 Tuple.pair news undisplayedCounts)
+
+        computeUndisplayed feed =
+            case feed.undisplayedElements of
+                Undisplayed elements ->
+                    ( Types.feedElementsCount elements, 1 )
+
+                _ ->
+                    ( 0, 0 )
 
         loop : Int -> Int -> Int -> List Int -> List Feed -> Dict String FeedEnv -> Dict String FeedEnv
         loop colidx left cols newsTail feedsTail feedEnvs =
@@ -6897,15 +7098,18 @@ updateNewElementsLeftRight model =
                                 feedId =
                                     Types.feedID feed.feedType
 
+                                ( undisplayed, undisplayedCount ) =
+                                    computeUndisplayed feed
+
                                 newElements =
-                                    feed.newElements
+                                    feed.newElements + undisplayed
 
                                 newCols =
                                     if feed.newElements > 0 then
                                         1
 
                                     else
-                                        0
+                                        undisplayedCount
                             in
                             loop (colidx + 1)
                                 (left + newElements)
@@ -7095,6 +7299,11 @@ addNotificationReferences notification references =
            )
 
 
+maxFeedLength : Int
+maxFeedLength =
+    100
+
+
 updateReceivedFeed : ReceiveFeedType -> FeedElements -> Feed -> Feed
 updateReceivedFeed receiveType elements feed =
     let
@@ -7110,7 +7319,7 @@ updateReceivedFeed receiveType elements feed =
                     )
 
                 ReceiveNewFeed ->
-                    appendFeedElementsTruncated (Just 100)
+                    appendFeedElementsTruncated (Just maxFeedLength)
                         True
                         elements
                         feed.elements
@@ -9229,7 +9438,7 @@ applyProTimelineSideEffects response model =
                                     , elements =
                                         StatusElements statuses
                                     , newElements = 0
-                                    , undisplayedElements = Nothing
+                                    , undisplayedElements = NoUndisplayed
                                     }
 
                                 newFeedSet =
@@ -10993,8 +11202,13 @@ headerFeedId feedId =
     feedId ++ " [header]"
 
 
-renderFeed : Bool -> Int -> RenderEnv -> FeedEnv -> Feed -> Html Msg
-renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
+undisplayedElementsColor : String
+undisplayedElementsColor =
+    "red"
+
+
+renderFeed : Bool -> RenderEnv -> FeedEnv -> Feed -> Html Msg
+renderFeed isFeedLoading renderEnv feedEnv feed =
     let
         bodyEnv =
             feedEnv.bodyEnv
@@ -11074,28 +11288,41 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
             [ if isFeedLoading then
                 feedLoadingEmojiSpan True True
 
-              else if newPostCount > 0 then
-                a
-                    [ href "#"
-                    , onClick (ColumnsUIMsg <| ShowNewFeedStatuses feedType)
-                    , Html.Attributes.title "Show new"
-
-                    --, style "border" <| "2px solid " ++ color
-                    ]
-                    [ text <|
-                        special.nbsp
-                            ++ String.fromInt newPostCount
-                            ++ special.nbsp
-                    ]
-
               else
-                Html.i
-                    [ onClick <| ColumnsUIMsg (RefreshFeed feedType)
-                    , style "cursor" "pointer"
-                    , style "font-size" smallTextFontSize
-                    , class "icon-spin3"
-                    ]
-                    []
+                case feed.undisplayedElements of
+                    NoUndisplayed ->
+                        Html.i
+                            [ style "font-size" smallTextFontSize
+                            , class "icon-spin4"
+                            ]
+                            []
+
+                    NeverUndisplayed ->
+                        Html.i
+                            [ onClick <| ColumnsUIMsg (RefreshFeed feedType)
+                            , style "cursor" "pointer"
+                            , style "font-size" smallTextFontSize
+                            , class "icon-spin3"
+                            ]
+                            []
+
+                    Undisplayed elements ->
+                        let
+                            count =
+                                Types.feedElementsCount elements
+                        in
+                        span
+                            [ onClick (ColumnsUIMsg <| ShowUndisplayed feedType)
+                            , style "cursor" "pointer"
+                            , style "color" undisplayedElementsColor
+                            , Html.Attributes.title "Show undisplayed."
+                            ]
+                            [ text <|
+                                special.nbsp
+                                    ++ "+"
+                                    ++ String.fromInt count
+                                    ++ special.nbsp
+                            ]
             , text " "
             , title
             , case postToFeedMsg feedType renderEnv of
@@ -11141,7 +11368,8 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
                 _ ->
                     text ""
             , renderNewElementsRow feed.newElements feedType feedEnv
-            , renderUndisplayedElementsRow feed.undisplayedElements feedType feedEnv
+
+            --, renderUndisplayedElementsRow feed.undisplayedElements feedType feedEnv
             ]
         , div
             [ style "overflow-y" "auto"
@@ -11168,13 +11396,10 @@ renderFeed isFeedLoading newPostCount renderEnv feedEnv feed =
         ]
 
 
-renderUndisplayedElementsRow : Maybe FeedElements -> FeedType -> FeedEnv -> Html Msg
+renderUndisplayedElementsRow : UndisplayedElements -> FeedType -> FeedEnv -> Html Msg
 renderUndisplayedElementsRow undisplayedElements feedType feedEnv =
     case undisplayedElements of
-        Nothing ->
-            text ""
-
-        Just elements ->
+        Undisplayed elements ->
             let
                 count =
                     Types.feedElementsCount elements
@@ -11196,6 +11421,9 @@ renderUndisplayedElementsRow undisplayedElements feedType feedEnv =
                             ++ special.nbsp
                     ]
                 ]
+
+        _ ->
+            text ""
 
 
 renderNewElementsRow : Int -> FeedType -> FeedEnv -> Html Msg
@@ -12889,22 +13117,6 @@ renderColumns model =
                                 isFeedLoading =
                                     Set.member id model.loadingFeeds
 
-                                newCount =
-                                    case Dict.get id model.newElements of
-                                        Nothing ->
-                                            0
-
-                                        Just elements ->
-                                            case elements of
-                                                StatusElements statuses ->
-                                                    List.length statuses
-
-                                                NotificationElements notifications ->
-                                                    List.length notifications
-
-                                                _ ->
-                                                    0
-
                                 feedEnv =
                                     getFeedEnv feed.feedType model
                             in
@@ -12912,9 +13124,8 @@ renderColumns model =
                                 [ style "vertical-align" "top"
                                 , style "padding" "0"
                                 ]
-                                [ Lazy.lazy5 renderFeed
+                                [ Lazy.lazy4 renderFeed
                                     isFeedLoading
-                                    newCount
                                     renderEnv
                                     feedEnv
                                     feed

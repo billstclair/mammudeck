@@ -1,4 +1,4 @@
-----------------------------------------------------------------------
+---------------------------------------------------------------------
 --
 -- Types.elm
 -- Shared types for Mammudeck.
@@ -27,6 +27,7 @@ module Mammudeck.Types exposing
        --, Renderer
 
     , ScrollNotification
+    , UndisplayedElements(..)
     , UserFeedFlags
     , UserFeedParams
     , accountToAccountId
@@ -37,6 +38,7 @@ module Mammudeck.Types exposing
     , defaultHashtagFeedType
     , defaultListFeedType
     , defaultNotificationExclusions
+    , defaultNotificationFeedType
     , defaultProFeedFlags
     , defaultPublicFeedFlags
     , defaultUserFeedFlags
@@ -121,6 +123,12 @@ allButMentionNotificationExclusions =
     , FavouriteNotification
     , PollNotification
     ]
+
+
+defaultNotificationFeedType : FeedType
+defaultNotificationFeedType =
+    NotificationFeed
+        { accountId = Nothing, exclusions = [] }
 
 
 type alias UserFeedParams =
@@ -271,7 +279,7 @@ feedIdToType id =
         Just <| ListFeed (String.dropLeft 6 id)
 
     else if "notifications" == id then
-        Just <| NotificationFeed { accountId = Nothing, exclusions = [] }
+        Just <| defaultNotificationFeedType
 
     else if "conversations" == id then
         Just ConversationsFeed
@@ -331,11 +339,17 @@ feedTypeToElements feedType =
             StatusElements []
 
 
+type UndisplayedElements
+    = NeverUndisplayed
+    | NoUndisplayed
+    | Undisplayed FeedElements
+
+
 type alias Feed =
     { feedType : FeedType
     , elements : FeedElements
     , newElements : Int
-    , undisplayedElements : Maybe FeedElements
+    , undisplayedElements : UndisplayedElements
     }
 
 
@@ -381,7 +395,7 @@ feedSetDefinitionToFeedSet { name, feedTypes } =
                 { feedType = feedType
                 , elements = feedTypeToElements feedType
                 , newElements = 0
-                , undisplayedElements = Nothing
+                , undisplayedElements = NeverUndisplayed
                 }
             )
             feedTypes
