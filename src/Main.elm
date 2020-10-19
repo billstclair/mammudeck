@@ -15866,6 +15866,7 @@ keyboardShortcutsDialogRows model =
     , table []
         [ row "p" "Show Post dialog" Nothing
         , row "r" "Reload all columns" Nothing
+        , row "u" "Show all undisplayed" Nothing
         , row "," "Show Settings dialog" Nothing
         , row "t" "Toggle Dark Mode" Nothing
         , row "o" "Save/Restore Dialog" Nothing
