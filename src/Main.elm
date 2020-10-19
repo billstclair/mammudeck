@@ -2164,14 +2164,14 @@ webSocketUpdate key status model =
                     feedSet =
                         model.feedSet
                 in
-                case findFeed (Debug.log "webSocketUpdate" feedType) feedSet of
+                case findFeed feedType feedSet of
                     Nothing ->
                         model |> withNoCmd
 
                     Just feed ->
                         let
                             newFeed =
-                                case Debug.log "undisplayedElements" feed.undisplayedElements of
+                                case feed.undisplayedElements of
                                     NoUndisplayed ->
                                         { feed
                                             | undisplayedElements =
