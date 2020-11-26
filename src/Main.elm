@@ -485,6 +485,25 @@ type alias ScrollColumns =
     }
 
 
+type StreamingApi
+    = UnknownApi
+    | NoApi
+    | UrlApi String
+
+
+type alias TokenApi =
+    { token : Maybe String
+    , api : StreamingApi
+    }
+
+
+emptyTokenApi : TokenApi
+emptyTokenApi =
+    { token = Nothing
+    , api = NoApi
+    }
+
+
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -600,7 +619,7 @@ type alias Model =
     , key : Key
     , url : Url
     , hideClientId : Bool
-    , tokens : Dict String String
+    , tokens : Dict String TokenApi
     , account : Maybe Account
     , displayName : String
     , note : String
@@ -768,6 +787,7 @@ type ColumnsUIMsg
     | SetPostReplyType ReplyType
     | ClearPostStateReplyTo
     | Post
+    | ClearPostState
     | ProbeGroupsFeature String
     | ToggleShowLeftColumn
     | ToggleShowScrollPill
@@ -1778,9 +1798,62 @@ removeFeedEnv feedType model =
     { model | feedEnvs = Dict.remove feedId model.feedEnvs }
 
 
+encodeStreamingApi : StreamingApi -> Value
+encodeStreamingApi api =
+    case api of
+        UnknownApi ->
+            JE.null
+
+        NoApi ->
+            JE.string ""
+
+        UrlApi url ->
+            JE.string url
+
+
+streamingApiDecoder : Decoder StreamingApi
+streamingApiDecoder =
+    JD.nullable JD.string
+        |> JD.andThen
+            (\s ->
+                case s of
+                    Nothing ->
+                        JD.succeed UnknownApi
+
+                    Just url ->
+                        if url == "" then
+                            JD.succeed NoApi
+
+                        else
+                            JD.succeed <| UrlApi url
+            )
+
+
+encodeTokenApi : TokenApi -> Value
+encodeTokenApi { token, api } =
+    JE.object
+        [ ( "token", ED.encodeMaybe JE.string token )
+        , ( "api", encodeStreamingApi api )
+        ]
+
+
+tokenApiDecoder : Decoder TokenApi
+tokenApiDecoder =
+    JD.oneOf
+        [ JD.succeed TokenApi
+            |> required "token" (JD.nullable JD.string)
+            |> required "api" streamingApiDecoder
+        , JD.string
+            |> JD.andThen
+                (\token ->
+                    JD.succeed { emptyTokenApi | token = Just token }
+                )
+        ]
+
+
 handleGetToken : String -> Value -> Model -> ( Model, Cmd Msg )
 handleGetToken key value model =
-    case JD.decodeValue JD.string value of
+    case JD.decodeValue tokenApiDecoder value of
         Err err ->
             let
                 ignore =
@@ -1788,17 +1861,25 @@ handleGetToken key value model =
             in
             model |> withNoCmd
 
-        Ok token ->
+        Ok tokenApi ->
             let
                 tokens =
                     model.tokens
+
+                cmd =
+                    case tokenApi.api of
+                        UnknownApi ->
+                            getInstance model
+
+                        _ ->
+                            Cmd.none
 
                 server =
                     Debug.log "Received token for server" <|
                         tokenStorageKeyServer key
             in
-            { model | tokens = Dict.insert server token tokens }
-                |> withCmd (fetchFeatures server model)
+            { model | tokens = Dict.insert server tokenApi tokens }
+                |> withCmds [ cmd, fetchFeatures server model ]
 
 
 pkAccountIdsLength : Int
@@ -2642,8 +2723,16 @@ globalMsg msg model =
 
                 mdl =
                     { model | dialog = NoDialog }
+
+                token =
+                    case Dict.get model.server model.tokens of
+                        Just tokenApi ->
+                            tokenApi.token
+
+                        _ ->
+                            Nothing
             in
-            case Login.loginTask sau <| Dict.get model.server model.tokens of
+            case Login.loginTask sau token of
                 Redirect task ->
                     ( mdl, Task.attempt (GlobalMsg << ReceiveRedirect) task )
 
@@ -4079,7 +4168,11 @@ columnsUIMsg msg model =
             in
             sendRequest
                 (StatusesRequest <| Request.PostStatus post)
-                model
+                { model | postState = { postState | posting = True } }
+
+        ClearPostState ->
+            { model | postState = initialPostState }
+                |> withNoCmd
 
         ProbeGroupsFeature server ->
             probeGroupsFeature server model
@@ -5349,7 +5442,7 @@ probeGroupsFeature server model =
         Nothing ->
             model |> withNoCmd
 
-        justToken ->
+        Just tokenApi ->
             let
                 renderEnv =
                     model.renderEnv
@@ -5358,7 +5451,7 @@ probeGroupsFeature server model =
                     { model
                         | renderEnv =
                             { renderEnv | loginServer = Just server }
-                        , token = justToken
+                        , token = tokenApi.token
                     }
 
                 request =
@@ -9838,17 +9931,32 @@ saveAuthorization server authorization model =
         tokens =
             model.tokens
 
+        tokenApi =
+            case Dict.get server tokens of
+                Nothing ->
+                    { emptyTokenApi | token = Just authorization.token }
+
+                Just api ->
+                    { api | token = Just authorization.token }
+
+        cmd =
+            case tokenApi.api of
+                UnknownApi ->
+                    getInstance model
+
+                _ ->
+                    Cmd.none
+
         mdl =
             { model
                 | tokens =
-                    Dict.insert server
-                        authorization.token
-                        tokens
+                    Dict.insert server tokenApi tokens
             }
     in
     mdl
         |> withCmds
-            [ putToken server <| Just authorization.token
+            [ putToken server <| Just tokenApi
+            , cmd
             , fetchFeatures server mdl
             ]
 
@@ -15585,6 +15693,7 @@ type alias PostState =
     , fileUrls : List String
     , groupName : String
     , group_id : Maybe String
+    , posting : Bool
     }
 
 
@@ -15600,6 +15709,7 @@ initialPostState =
     , fileUrls = []
     , groupName = ""
     , group_id = Nothing
+    , posting = False
     }
 
 
@@ -15640,18 +15750,22 @@ postDialog model =
                 model.dropZone
                 postState
         , actionBar =
-            [ enabledButton
-                ((postState.text /= "" || postState.media_ids /= [])
-                    && (List.length postState.fileNames == List.length postState.media_ids)
-                )
-                (ColumnsUIMsg Post)
-                "Post"
+            [ if postState.posting then
+                button (ColumnsUIMsg ClearPostState) "Clear"
+
+              else
+                enabledButton
+                    ((postState.text /= "" || postState.media_ids /= [])
+                        && (List.length postState.fileNames == List.length postState.media_ids)
+                    )
+                    (ColumnsUIMsg Post)
+                    "Post"
             , if model.showLeftColumn || model.scrollPillState.showScrollPill then
                 text ""
 
               else
                 button (ColumnsUIMsg ToggleShowScrollPill) "Show Scroll Pill"
-            , button (ColumnsUIMsg DismissDialog) "Cancel"
+            , button (ColumnsUIMsg DismissDialog) "Hide"
             ]
         }
         True
@@ -16792,6 +16906,8 @@ postStateDecoder =
         |> required "fileUrls" (JD.list JD.string)
         |> optional "groupName" JD.string ""
         |> optional "group_id" (JD.nullable JD.string) Nothing
+        -- "posting"
+        |> custom (JD.succeed False)
         |> JD.andThen
             (fixDecodedPostState >> JD.succeed)
 
@@ -17127,15 +17243,15 @@ getToken server =
     getLabeled pk.token <| tokenStorageKey server
 
 
-putToken : String -> Maybe String -> Cmd Msg
-putToken server token =
+putToken : String -> Maybe TokenApi -> Cmd Msg
+putToken server tokenApi =
     put (tokenStorageKey server) <|
-        case token of
+        case tokenApi of
             Nothing ->
                 Nothing
 
             Just tok ->
-                Just <| JE.string tok
+                Just <| encodeTokenApi tok
 
 
 getFeedSetDefinition : String -> Cmd Msg
