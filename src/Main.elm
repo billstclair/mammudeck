@@ -6133,7 +6133,12 @@ adjustColumnsForPost status model =
         , dialog =
             case model.dialog of
                 PostDialog ->
-                    NoDialog
+                    if model.postState.posting then
+                        NoDialog
+
+                    else
+                        -- Don't hide if user clicked "Clear"
+                        PostDialog
 
                 d ->
                     d
@@ -7013,6 +7018,11 @@ feedTypeToStreamType feedType =
 
 webSocketConnect : FeedType -> Model -> ( Model, Cmd Msg )
 webSocketConnect feedType model =
+    model |> withNoCmd
+
+
+webSocketConnectNotYet : FeedType -> Model -> ( Model, Cmd Msg )
+webSocketConnectNotYet feedType model =
     let
         wsFeedType =
             case feedType of
