@@ -123,16 +123,19 @@ import Html
         , textarea
         , th
         , tr
+        , video
         )
 import Html.Attributes
     exposing
         ( alt
         , autocomplete
         , autofocus
+        , autoplay
         , checked
         , class
         , cols
         , colspan
+        , controls
         , disabled
         , draggable
         , height
@@ -316,6 +319,7 @@ type Dialog
     | EditColumnsDialog
     | ServerDialog
     | PostDialog
+    | AttachmentDialog AttachmentView
     | SettingsDialog
     | KeyboardShortcutsDialog
     | SaveRestoreDialog
@@ -754,6 +758,7 @@ type ColumnsUIMsg
     | ShowPostDialog (Maybe Status)
     | PostWithMention String
     | PostWithGroupId String
+    | ShowAttachmentDialog Int Status
     | ShowSettingsDialog
     | ShowKeyboardShortcutsDialog
     | ShowSaveRestoreDialog
@@ -797,6 +802,7 @@ type ColumnsUIMsg
     | PostAttachmentUrl String
     | DeletePostAttachment Int
     | TogglePostSensitive
+    | IncrementAttachmentIndex Int
     | ShowNewFeedStatuses FeedType
     | ShowStatusImages String
     | SetPostReplyType ReplyType
@@ -2753,15 +2759,24 @@ globalMsg msg model =
                             else
                                 Set.remove key model.keysDown
                     }
+
+                isDialog =
+                    case model.dialog of
+                        NoDialog ->
+                            False
+
+                        AttachmentDialog _ ->
+                            False
+
+                        _ ->
+                            True
             in
             mdl
                 |> withCmd
                     (if
                         not isDown
                             || ((key /= keyboard.escape)
-                                    && (isSpecialKeyDown mdl
-                                            || (model.dialog /= NoDialog)
-                                       )
+                                    && (isSpecialKeyDown mdl || isDialog)
                                )
                             || (model.page /= ColumnsPage)
                      then
@@ -3822,6 +3837,16 @@ columnsUIMsg msg model =
                         }
                 }
 
+        ShowAttachmentDialog index status ->
+            { model
+                | dialog =
+                    AttachmentDialog
+                        { attachments = status.media_attachments
+                        , index = index
+                        }
+            }
+                |> withNoCmd
+
         ShowSettingsDialog ->
             { model | dialog = SettingsDialog }
                 |> withNoCmd
@@ -4279,6 +4304,22 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+        IncrementAttachmentIndex delta ->
+            case model.dialog of
+                AttachmentDialog attachmentView ->
+                    { model
+                        | dialog =
+                            AttachmentDialog
+                                { attachmentView
+                                    | index =
+                                        attachmentView.index + delta
+                                }
+                    }
+                        |> withNoCmd
+
+                _ ->
+                    model |> withNoCmd
 
         ShowNewFeedStatuses feedType ->
             -- TODO
@@ -4924,7 +4965,7 @@ isReplyChain statuses =
 -}
 scrollThreadExplorer : ThreadExplorerState -> Bool -> ScrollDirection -> Model -> ( Model, Cmd Msg )
 scrollThreadExplorer state allTheWay direction model =
-    if Debug.log "scrollThreadExplorer" allTheWay then
+    if allTheWay then
         let
             ribbon =
                 List.drop (List.length state.ribbon - 1) state.ribbon
@@ -5771,10 +5812,49 @@ scrollPage direction now model =
     in
     case model.popupExplorer of
         NoPopupExplorer ->
-            scrollPageInternal allTheWay direction mdl
+            case model.dialog of
+                AttachmentDialog attachmentView ->
+                    scrollAttachmentDialog allTheWay direction attachmentView mdl
+
+                _ ->
+                    scrollPageInternal allTheWay direction mdl
 
         ThreadPopupExplorer state ->
             scrollThreadExplorer state allTheWay direction mdl
+
+
+scrollAttachmentDialog : Bool -> ScrollDirection -> AttachmentView -> Model -> ( Model, Cmd Msg )
+scrollAttachmentDialog allTheWay direction attachmentView model =
+    let
+        attachmentCnt =
+            List.length attachmentView.attachments
+
+        attachmentIndex =
+            attachmentView.index
+
+        newIndex =
+            if allTheWay then
+                case direction of
+                    ScrollLeft ->
+                        0
+
+                    ScrollRight ->
+                        attachmentCnt - 1
+
+            else
+                case direction of
+                    ScrollLeft ->
+                        max 0 (attachmentIndex - 1)
+
+                    ScrollRight ->
+                        min (attachmentIndex + 1) (attachmentCnt - 1)
+    in
+    { model
+        | dialog =
+            AttachmentDialog
+                { attachmentView | index = newIndex }
+    }
+        |> withNoCmd
 
 
 isScrollAllTheWay : ScrollDirection -> Posix -> Model -> Bool
@@ -12592,7 +12672,7 @@ renderMediaAttachments renderEnv status =
 
     else
         p [] <|
-            List.map (renderAttachment renderEnv)
+            List.indexedMap (renderAttachment renderEnv status)
                 status.media_attachments
 
 
@@ -12766,8 +12846,44 @@ formatIso8601 zone iso8601 =
                 posix
 
 
-renderAttachment : RenderEnv -> Attachment -> Html Msg
-renderAttachment renderEnv attachment =
+renderAttachment : RenderEnv -> Status -> Int -> Attachment -> Html Msg
+renderAttachment renderEnv status index attachment =
+    let
+        showAttachmentMsg =
+            ColumnsUIMsg (ShowAttachmentDialog index status)
+
+        standardDiv imageType =
+            div []
+                [ span [ style "font-size" smallTextFontSize ]
+                    [ text "["
+                    , a
+                        [ href "#"
+                        , onClick showAttachmentMsg
+                        ]
+                        [ text imageType ]
+                    , text "]"
+                    ]
+                , case attachment.preview_url of
+                    Nothing ->
+                        text ""
+
+                    Just preview_url ->
+                        span []
+                            [ br
+                            , a
+                                [ href "#"
+                                , onClick showAttachmentMsg
+                                ]
+                                [ img
+                                    [ src preview_url
+                                    , alt "image"
+                                    , style "width" "100%"
+                                    ]
+                                    []
+                                ]
+                            ]
+                ]
+    in
     case attachment.type_ of
         ImageAttachment ->
             let
@@ -12798,7 +12914,10 @@ renderAttachment renderEnv attachment =
                         Nothing ->
                             attachment.url
             in
-            a [ href attachment.url ]
+            a
+                [ href "#"
+                , onClick showAttachmentMsg
+                ]
                 [ img
                     [ src preview_url
                     , alt "image"
@@ -12807,31 +12926,11 @@ renderAttachment renderEnv attachment =
                     []
                 ]
 
-        VideoAttachment ->
-            div []
-                [ span [ style "font-size" smallTextFontSize ]
-                    [ text "["
-                    , a [ href attachment.url ]
-                        [ text "video" ]
-                    , text "]"
-                    ]
-                , case attachment.preview_url of
-                    Nothing ->
-                        text ""
+        GifvAttachment ->
+            standardDiv "gif"
 
-                    Just preview_url ->
-                        span []
-                            [ br
-                            , a [ href attachment.url ]
-                                [ img
-                                    [ src preview_url
-                                    , alt "image"
-                                    , style "width" "100%"
-                                    ]
-                                    []
-                                ]
-                            ]
-                ]
+        VideoAttachment ->
+            standardDiv "video"
 
         _ ->
             text ""
@@ -15335,6 +15434,9 @@ renderDialog model =
         PostDialog ->
             postDialog model
 
+        AttachmentDialog attachmentView ->
+            attachmentDialog attachmentView model
+
         SettingsDialog ->
             settingsDialog model
 
@@ -16424,6 +16526,188 @@ dollarButtonNameToSendName useElmButtonNames dollarButtonName =
 
     else
         name
+
+
+type alias AttachmentView =
+    { attachments : List Attachment
+    , index : Int
+    }
+
+
+emptyAttachmentView : AttachmentView
+emptyAttachmentView =
+    { attachments = []
+    , index = 0
+    }
+
+
+attachmentDialog : AttachmentView -> Model -> Html Msg
+attachmentDialog attachmentView model =
+    let
+        postState =
+            model.postState
+
+        renderEnv =
+            model.renderEnv
+    in
+    case attachmentDialogEmbed renderEnv attachmentView of
+        Nothing ->
+            text ""
+
+        Just embed ->
+            div
+                [ style "position" "fixed"
+                , style "inset" "0px"
+                , style "z-index" "10"
+                , style "justify-content" "center"
+                , style "align-items" "center"
+                , style "display" "flex"
+                , style "font-size" "200%"
+                ]
+                (embed :: attachmentButtons attachmentView)
+
+
+attachmentButtons : AttachmentView -> List (Html Msg)
+attachmentButtons attachmentView =
+    let
+        attachmentCnt =
+            List.length attachmentView.attachments
+
+        attachmentIndex =
+            attachmentView.index
+
+        rightEnabled =
+            attachmentIndex < attachmentCnt - 1
+
+        rightIncrement =
+            if rightEnabled then
+                1
+
+            else
+                0
+
+        rightMsg =
+            ColumnsUIMsg <| IncrementAttachmentIndex rightIncrement
+
+        leftEnabled =
+            attachmentIndex > 0
+
+        leftIncrement =
+            if leftEnabled then
+                -1
+
+            else
+                0
+
+        leftMsg =
+            ColumnsUIMsg <| IncrementAttachmentIndex leftIncrement
+    in
+    [ div
+        [ style "position" "fixed"
+        , style "top" "20%"
+        , style "right" "0"
+        , style "height" "60%"
+        , style "width" "20%"
+        , style "background-color" "rgba(0,0,0,0)"
+        , style "display" "flex"
+        , style "align-items" "center"
+        , style "justify-content" "center"
+        , onClick rightMsg
+        ]
+        [ enabledButton rightEnabled rightMsg ">" ]
+    , div
+        [ style "position" "fixed"
+        , style "top" "20%"
+        , style "left" "0"
+        , style "height" "60%"
+        , style "width" "20%"
+        , style "background-color" "rgba(0,0,0,0)"
+        , style "display" "flex"
+        , style "align-items" "center"
+        , style "justify-content" "center"
+        , onClick leftMsg
+        ]
+        [ enabledButton leftEnabled leftMsg "<" ]
+    , div
+        [ style "position" "fixed"
+        , style "top" "20%"
+        , style "left" "30%"
+        , style "height" "60%"
+        , style "width" "40%"
+        , style "background-color" "rgba(0,0,0,0)"
+        , onClick (ColumnsUIMsg DismissDialog)
+        ]
+        []
+    ]
+
+
+attachmentDialogEmbed : RenderEnv -> AttachmentView -> Maybe (Html Msg)
+attachmentDialogEmbed renderEnv attachmentView =
+    let
+        ( w, h ) =
+            renderEnv.windowSize
+
+        maxws =
+            String.fromInt (w - 20)
+
+        maxhs =
+            String.fromInt (h - 20)
+    in
+    case LE.getAt attachmentView.index attachmentView.attachments of
+        Nothing ->
+            Nothing
+
+        Just attachment ->
+            case attachment.type_ of
+                ImageAttachment ->
+                    img
+                        (src attachment.url
+                            :: magicFitAttributes maxws maxhs
+                        )
+                        []
+                        |> Just
+
+                GifvAttachment ->
+                    video
+                        (List.concat
+                            [ [ src attachment.url
+                              , controls True
+                              , autoplay True
+                              ]
+                            , magicFitAttributes maxws maxhs
+                            ]
+                        )
+                        []
+                        |> Just
+
+                VideoAttachment ->
+                    video
+                        (List.concat
+                            [ [ src attachment.url
+                              , controls True
+                              , autoplay True
+                              ]
+                            , magicFitAttributes maxws maxhs
+                            ]
+                        )
+                        []
+                        |> Just
+
+                _ ->
+                    Nothing
+
+
+{-| Pure black magic.
+-}
+magicFitAttributes : String -> String -> List (Attribute Msg)
+magicFitAttributes maxws maxhs =
+    [ style "object-fit" "contain"
+    , style "max-width" maxws
+    , style "max-height" maxhs
+    , style "border" "2px solid black"
+    , style "width" "auto"
+    , style "height" "auto"
+    ]
 
 
 replaceSendButtonNames : Bool -> String -> String
