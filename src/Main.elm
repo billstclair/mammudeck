@@ -16557,6 +16557,10 @@ attachmentDialog attachmentView model =
         Just embed ->
             div
                 [ style "position" "fixed"
+                , style "left" "0"
+                , style "right" "0"
+                , style "top" "0"
+                , style "bottom" "0"
                 , style "inset" "0px"
                 , style "z-index" "10"
                 , style "justify-content" "center"
@@ -16614,7 +16618,7 @@ attachmentButtons attachmentView =
         , style "justify-content" "center"
         , onClick rightMsg
         ]
-        [ enabledButton rightEnabled rightMsg ">" ]
+        [ enabledButton rightEnabled Noop ">" ]
     , div
         [ style "position" "fixed"
         , style "top" "20%"
@@ -16627,7 +16631,7 @@ attachmentButtons attachmentView =
         , style "justify-content" "center"
         , onClick leftMsg
         ]
-        [ enabledButton leftEnabled leftMsg "<" ]
+        [ enabledButton leftEnabled Noop "<" ]
     , div
         [ style "position" "fixed"
         , style "top" "20%"
