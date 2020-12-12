@@ -16606,43 +16606,50 @@ attachmentButtons attachmentView =
         leftMsg =
             ColumnsUIMsg <| IncrementAttachmentIndex leftIncrement
     in
-    [ div
-        [ style "position" "fixed"
-        , style "top" "20%"
-        , style "right" "0"
-        , style "height" "60%"
-        , style "width" "20%"
-        , style "background-color" "rgba(0,0,0,0)"
-        , style "display" "flex"
-        , style "align-items" "center"
-        , style "justify-content" "center"
-        , onClick rightMsg
+    List.concat
+        [ if attachmentCnt <= 1 then
+            []
+
+          else
+            [ div
+                [ style "position" "fixed"
+                , style "top" "20%"
+                , style "right" "0"
+                , style "height" "60%"
+                , style "width" "20%"
+                , style "background-color" "rgba(0,0,0,0)"
+                , style "display" "flex"
+                , style "align-items" "center"
+                , style "justify-content" "center"
+                , onClick rightMsg
+                ]
+                [ enabledButton rightEnabled Noop ">" ]
+            , div
+                [ style "position" "fixed"
+                , style "top" "20%"
+                , style "left" "0"
+                , style "height" "60%"
+                , style "width" "20%"
+                , style "background-color" "rgba(0,0,0,0)"
+                , style "display" "flex"
+                , style "align-items" "center"
+                , style "justify-content" "center"
+                , onClick leftMsg
+                ]
+                [ enabledButton leftEnabled Noop "<" ]
+            ]
+        , [ div
+                [ style "position" "fixed"
+                , style "top" "20%"
+                , style "left" "30%"
+                , style "height" "60%"
+                , style "width" "40%"
+                , style "background-color" "rgba(0,0,0,0)"
+                , onClick (ColumnsUIMsg DismissDialog)
+                ]
+                []
+          ]
         ]
-        [ enabledButton rightEnabled Noop ">" ]
-    , div
-        [ style "position" "fixed"
-        , style "top" "20%"
-        , style "left" "0"
-        , style "height" "60%"
-        , style "width" "20%"
-        , style "background-color" "rgba(0,0,0,0)"
-        , style "display" "flex"
-        , style "align-items" "center"
-        , style "justify-content" "center"
-        , onClick leftMsg
-        ]
-        [ enabledButton leftEnabled Noop "<" ]
-    , div
-        [ style "position" "fixed"
-        , style "top" "20%"
-        , style "left" "30%"
-        , style "height" "60%"
-        , style "width" "40%"
-        , style "background-color" "rgba(0,0,0,0)"
-        , onClick (ColumnsUIMsg DismissDialog)
-        ]
-        []
-    ]
 
 
 attachmentDialogEmbed : RenderEnv -> AttachmentView -> Maybe (Html Msg)
