@@ -12857,15 +12857,21 @@ renderAttachment renderEnv status index attachment =
                 [ span [ style "font-size" smallTextFontSize ]
                     [ text "["
                     , a
-                        [ href "#"
-                        , onClick showAttachmentMsg
+                        [ href attachment.url
                         ]
                         [ text imageType ]
                     , text "]"
                     ]
                 , case attachment.preview_url of
                     Nothing ->
-                        text ""
+                        span []
+                            [ br
+                            , a
+                                [ href "#"
+                                , onClick showAttachmentMsg
+                                ]
+                                [ text "popup" ]
+                            ]
 
                     Just preview_url ->
                         span []
@@ -12914,16 +12920,26 @@ renderAttachment renderEnv status index attachment =
                         Nothing ->
                             attachment.url
             in
-            a
-                [ href "#"
-                , onClick showAttachmentMsg
-                ]
-                [ img
-                    [ src preview_url
-                    , alt "image"
-                    , style "width" "100%"
+            div []
+                [ span [ style "font-size" smallTextFontSize ]
+                    [ text "["
+                    , a
+                        [ href attachment.url ]
+                        [ text "image" ]
+                    , text "]"
                     ]
-                    []
+                , br
+                , a
+                    [ href "#"
+                    , onClick showAttachmentMsg
+                    ]
+                    [ img
+                        [ src preview_url
+                        , alt "image"
+                        , style "width" "100%"
+                        ]
+                        []
+                    ]
                 ]
 
         GifvAttachment ->
