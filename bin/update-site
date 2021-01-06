@@ -3,5 +3,3 @@
 elm make src/Main.elm --output site/elm.js
 cd site
 rsyncit
-cd ..
-git push gitea
