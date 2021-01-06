@@ -323,6 +323,9 @@ type Dialog
     | SettingsDialog
     | KeyboardShortcutsDialog
     | SaveRestoreDialog
+    | MyEllipsisDialog Status
+    | OtherGuyEllipsisDialog Status
+    | ReportDialog Status
 
 
 type Popup
@@ -506,6 +509,7 @@ type StreamingApi
 type alias TokenApi =
     { token : Maybe String
     , api : StreamingApi
+    , max_toot_chars : Int
     }
 
 
@@ -513,6 +517,7 @@ emptyTokenApi : TokenApi
 emptyTokenApi =
     { token = Nothing
     , api = UnknownApi
+    , max_toot_chars = 500
     }
 
 
@@ -527,6 +532,7 @@ type alias Model =
     , page : Page
     , token : Maybe String
     , streaming_api : Maybe String
+    , max_toot_chars : Int
     , server : String
 
     -- Columns page state
@@ -621,6 +627,7 @@ type alias Model =
 
     -- API Explorer state
     , keysDown : Set String
+    , clickPosition : ( Int, Int )
     , request : Maybe RawRequest
     , response : Maybe Value
     , entity : Maybe Entity
@@ -713,6 +720,7 @@ type GlobalMsg
     | SelectTreeNode WhichJson JsonTree.KeyPath
     | SetDialog Dialog
     | OnKeyPress Bool String
+    | OnMouseClick ( Int, Int )
     | SetServer String
     | Process Value
     | SetLoginServer
@@ -1082,6 +1090,19 @@ keyDecoder keyDown =
         |> JD.map (GlobalMsg << OnKeyPress keyDown)
 
 
+mouseDecoder : Decoder Msg
+mouseDecoder =
+    JD.field "screenX" JD.int
+        |> JD.andThen
+            (\screenX ->
+                JD.field "screenY" JD.int
+                    |> JD.andThen
+                        (\screenY ->
+                            JD.succeed (GlobalMsg <| OnMouseClick ( screenX, screenY ))
+                        )
+            )
+
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
@@ -1091,6 +1112,7 @@ subscriptions model =
         , focusNotify FocusNotify
         , Events.onKeyDown <| keyDecoder True
         , Events.onKeyUp <| keyDecoder False
+        , Events.onClick mouseDecoder
         ]
 
 
@@ -1259,6 +1281,7 @@ init value url key =
     , page = HomePage
     , token = Nothing
     , streaming_api = Nothing
+    , max_toot_chars = 500
     , server = ""
     , feedSetDefinition = Types.emptyFeedSetDefinition
     , supportsAccountByUsername = Dict.empty
@@ -1347,6 +1370,7 @@ init value url key =
     , lists = []
     , selectedList = Nothing
     , keysDown = Set.empty
+    , clickPosition = ( 0, 0 )
     , request = Nothing
     , response = Nothing
     , entity = Nothing
@@ -1852,10 +1876,11 @@ streamingApiDecoder =
 
 
 encodeTokenApi : TokenApi -> Value
-encodeTokenApi { token, api } =
+encodeTokenApi { token, api, max_toot_chars } =
     JE.object
         [ ( "token", ED.encodeMaybe JE.string token )
         , ( "api", encodeStreamingApi api )
+        , ( "max_toot_chars", JE.int max_toot_chars )
         ]
 
 
@@ -1865,6 +1890,7 @@ tokenApiDecoder =
         [ JD.succeed TokenApi
             |> required "token" (JD.nullable JD.string)
             |> required "api" streamingApiDecoder
+            |> optional "max_toot_chars" JD.int 500
         , JD.string
             |> JD.andThen
                 (\token ->
@@ -1912,10 +1938,18 @@ handleGetToken key value model =
 
                     else
                         model.streaming_api
+
+                max_toot_chars =
+                    if model.renderEnv.loginServer == Just server then
+                        tokenApi.max_toot_chars
+
+                    else
+                        model.max_toot_chars
             in
             { model
                 | tokens = Dict.insert server tokenApi tokens
                 , streaming_api = streaming_api
+                , max_toot_chars = max_toot_chars
             }
                 |> withCmds [ cmd, fetchFeatures server model ]
 
@@ -2791,6 +2825,10 @@ globalMsg msg model =
                                 Task.perform ColumnsUIMsg <| Task.succeed cmd
                     )
 
+        OnMouseClick ( x, y ) ->
+            { model | clickPosition = ( x, y ) }
+                |> withNoCmd
+
         SetServer server ->
             let
                 mdl =
@@ -3196,6 +3234,16 @@ globalMsg msg model =
                             model |> withNoCmd
 
 
+verifyCredentialsRepeatCnt : Int
+verifyCredentialsRepeatCnt =
+    5
+
+
+verifyCredentialsRetryDelay : Int -> Float
+verifyCredentialsRetryDelay cnt =
+    10 * (toFloat cnt ^ 2)
+
+
 receiveInstance : String -> Response -> Model -> ( Model, Cmd Msg )
 receiveInstance server response model =
     case response.entity of
@@ -3204,26 +3252,35 @@ receiveInstance server response model =
                 tokens =
                     model.tokens
 
-                ( maybeStreamingApi, newTokens, cmd ) =
+                ( ( maybeStreamingApi, maxTootChars ), newTokens, cmd ) =
                     case Dict.get server tokens of
                         Nothing ->
-                            ( model.streaming_api, tokens, Cmd.none )
+                            ( ( model.streaming_api, model.max_toot_chars )
+                            , tokens
+                            , Cmd.none
+                            )
 
                         Just tokenApi ->
                             case instance.urls of
                                 Nothing ->
-                                    ( model.streaming_api, tokens, Cmd.none )
+                                    ( ( model.streaming_api, model.max_toot_chars )
+                                    , tokens
+                                    , Cmd.none
+                                    )
 
                                 Just { streaming_api } ->
                                     let
                                         newTokenApi =
                                             { tokenApi | api = UrlApi streaming_api }
+
+                                        isServer =
+                                            Just server == model.renderEnv.loginServer
                                     in
-                                    ( if Just server == model.renderEnv.loginServer then
-                                        Just streaming_api
+                                    ( if isServer then
+                                        ( Just streaming_api, instance.max_toot_chars )
 
                                       else
-                                        model.streaming_api
+                                        ( model.streaming_api, model.max_toot_chars )
                                     , Dict.insert server newTokenApi tokens
                                     , putToken server <| Just newTokenApi
                                     )
@@ -3231,6 +3288,7 @@ receiveInstance server response model =
             { model
                 | msg = Nothing
                 , streaming_api = maybeStreamingApi
+                , max_toot_chars = maxTootChars
                 , lastInstance = Just { server = server, instance = instance }
                 , tokens = newTokens
                 , request = Just response.rawRequest
@@ -4114,11 +4172,7 @@ columnsUIMsg msg model =
             explorerSendMsg mes mdl
 
         StatusEllipsisDialog status ->
-            { model
-                | dialog =
-                    AlertDialog "Ellipsis Dialog not yet supported."
-            }
-                |> withNoCmd
+            showEllipsisDialog status model
 
         ClearFeedsText ->
             { model | feedsText = Nothing }
@@ -5821,6 +5875,34 @@ scrollPage direction now model =
 
         ThreadPopupExplorer state ->
             scrollThreadExplorer state allTheWay direction mdl
+
+
+showEllipsisDialog : Status -> Model -> ( Model, Cmd Msg )
+showEllipsisDialog status model =
+    { model
+        | dialog =
+            if status.account.id == model.accountId then
+                MyEllipsisDialog status
+
+            else
+                OtherGuyEllipsisDialog status
+    }
+        |> withNoCmd
+
+
+myEllipsisDialog : Status -> Model -> Html Msg
+myEllipsisDialog status model =
+    alertDialog "My Ellipsis Dialog not yet supported." model
+
+
+otherGuyEllipsisDialog : Status -> Model -> Html Msg
+otherGuyEllipsisDialog status model =
+    alertDialog "OtherGuy Ellipsis Dialog not yet supported." model
+
+
+reportDialog : Status -> Model -> Html Msg
+reportDialog status model =
+    alertDialog "Report Dialog not yet supported." model
 
 
 scrollAttachmentDialog : Bool -> ScrollDirection -> AttachmentView -> Model -> ( Model, Cmd Msg )
@@ -10972,6 +11054,8 @@ renderHome model =
           else
             primaryServerLine model
         , loginSelectedUI False model
+        , p [ style "color" "red" ]
+            [ Maybe.withDefault "" model.msg |> text ]
         , Markdown.toHtml []
             """
 Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a work in progress. Keep an eye on the "Columns" page for new features. Use the "API Explorer" page to do low-level API hacking.
@@ -15462,24 +15546,17 @@ renderDialog model =
         SaveRestoreDialog ->
             saveRestoreDialog model
 
+        MyEllipsisDialog status ->
+            myEllipsisDialog status model
+
+        OtherGuyEllipsisDialog status ->
+            otherGuyEllipsisDialog status model
+
+        ReportDialog status ->
+            reportDialog status model
+
         AlertDialog content ->
-            dialogRender
-                model.renderEnv
-                { styles =
-                    [ ( "width", "40%" )
-                    , ( "font-size", fspct model.renderEnv )
-                    ]
-                , title = "Alert"
-                , content = [ text content ]
-                , actionBar =
-                    [ Html.button
-                        [ onClick (ColumnsUIMsg DismissDialog)
-                        , id nodeIds.cancelButton
-                        ]
-                        [ b "OK" ]
-                    ]
-                }
-                (model.dialog /= NoDialog)
+            alertDialog content model
 
         ConfirmDialog content okButtonText msg ->
             dialogRender
@@ -15516,6 +15593,27 @@ dialogRender renderEnv config visible =
                     config.styles
         }
         visible
+
+
+alertDialog : String -> Model -> Html Msg
+alertDialog content model =
+    dialogRender
+        model.renderEnv
+        { styles =
+            [ ( "width", "40%" )
+            , ( "font-size", fspct model.renderEnv )
+            ]
+        , title = "Alert"
+        , content = [ text content ]
+        , actionBar =
+            [ Html.button
+                [ onClick (ColumnsUIMsg DismissDialog)
+                , id nodeIds.cancelButton
+                ]
+                [ b "OK" ]
+            ]
+        }
+        (model.dialog /= NoDialog)
 
 
 serverDialog : Model -> Html Msg
@@ -16225,6 +16323,7 @@ postDialog model =
             postDialogContent ( hasQuoteFeature, hasGroupsFeature )
                 model.renderEnv
                 model.dropZone
+                model.max_toot_chars
                 postState
         , actionBar =
             [ if postState.posting then
@@ -16298,8 +16397,8 @@ maximumPostAttachments =
     4
 
 
-postDialogContent : ( Bool, Bool ) -> RenderEnv -> DropZone.Model -> PostState -> List (Html Msg)
-postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone postState =
+postDialogContent : ( Bool, Bool ) -> RenderEnv -> DropZone.Model -> Int -> PostState -> List (Html Msg)
+postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone maxlen postState =
     let
         { inputBackground, color } =
             getStyle renderEnv.style
@@ -16391,7 +16490,14 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone postS
                 []
             , br
             ]
-    , p []
+    , let
+        len =
+            String.length postState.text
+
+        lenstr =
+            String.fromInt len
+      in
+      p []
         [ textarea
             [ id nodeIds.postDialogText
             , rows 20
@@ -16402,6 +16508,15 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone postS
             , value postState.text
             ]
             []
+        , br
+        , if len > maxlen then
+            span [ style "color" "red" ]
+                [ text lenstr ]
+
+          else
+            text lenstr
+        , text " / "
+        , text (String.fromInt maxlen)
         ]
     , p []
         [ let
@@ -17163,6 +17278,7 @@ type alias SavedModel =
     , page : Page
     , token : Maybe String
     , streaming_api : Maybe String
+    , max_toot_chars : Int
     , server : String
     , feedSetDefinition : FeedSetDefinition
     , supportsAccountByUsername : Dict String Bool
@@ -17222,6 +17338,7 @@ modelToSavedModel model =
     , page = model.page
     , token = model.token
     , streaming_api = model.streaming_api
+    , max_toot_chars = model.max_toot_chars
     , server = model.server
     , feedSetDefinition = model.feedSetDefinition
     , supportsAccountByUsername = model.supportsAccountByUsername
@@ -17295,6 +17412,7 @@ savedModelToModel savedModel model =
         , page = savedModel.page
         , token = savedModel.token
         , streaming_api = savedModel.streaming_api
+        , max_toot_chars = savedModel.max_toot_chars
         , server = savedModel.server
         , feedSetDefinition = savedModel.feedSetDefinition
         , supportsAccountByUsername = savedModel.supportsAccountByUsername
@@ -17634,6 +17752,10 @@ encodeSavedModel savedModel =
                 savedModel.streaming_api
                 (ED.encodeMaybe JE.string)
                 Nothing
+            , encodePropertyAsList "max_toot_chars"
+                savedModel.max_toot_chars
+                JE.int
+                500
             , [ ( "server", JE.string savedModel.server ) ]
             , encodePropertyAsList "feedSetDefinition"
                 savedModel.feedSetDefinition
@@ -17829,6 +17951,7 @@ savedModelDecoder =
         |> required "page" pageDecoder
         |> optional "token" (JD.nullable JD.string) Nothing
         |> optional "streaming_api" (JD.nullable JD.string) Nothing
+        |> optional "max_toot_chars" JD.int 500
         |> required "server" JD.string
         |> optional "feedSetDefinition"
             MED.feedSetDefinitionDecoder
