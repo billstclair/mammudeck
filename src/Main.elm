@@ -509,7 +509,6 @@ type StreamingApi
 type alias TokenApi =
     { token : Maybe String
     , api : StreamingApi
-    , max_toot_chars : Int
     }
 
 
@@ -517,7 +516,6 @@ emptyTokenApi : TokenApi
 emptyTokenApi =
     { token = Nothing
     , api = UnknownApi
-    , max_toot_chars = 500
     }
 
 
@@ -589,6 +587,7 @@ type alias Model =
     , hashtagInput : String
 
     -- Non-persistent below here
+    , maxTootCharsString : Maybe String
     , lastInstance : Maybe LastInstance
     , initialPage : InitialPage
     , popupExplorer : PopupExplorer
@@ -713,6 +712,7 @@ type GlobalMsg
     = WindowResize Int Int
     | Here Zone
     | SetPage String
+    | SetMaxTootChars String
     | SetResponseState JsonTree.State
     | SetEntityState JsonTree.State
     | ExpandAll WhichJson
@@ -1281,7 +1281,7 @@ init value url key =
     , page = HomePage
     , token = Nothing
     , streaming_api = Nothing
-    , max_toot_chars = 500
+    , max_toot_chars = 300
     , server = ""
     , feedSetDefinition = Types.emptyFeedSetDefinition
     , supportsAccountByUsername = Dict.empty
@@ -1334,6 +1334,7 @@ init value url key =
     , hashtagInput = ""
 
     -- Non-persistent below here
+    , maxTootCharsString = Nothing
     , lastInstance = Nothing
     , initialPage = initialPage
     , popupExplorer = NoPopupExplorer
@@ -1705,8 +1706,14 @@ handleGetModelInternal maybeValue model =
 
                         Just server ->
                             let
+                                mdl22 =
+                                    { mdl2
+                                        | maxTootCharsString =
+                                            Just <| String.fromInt mdl2.max_toot_chars
+                                    }
+
                                 ( mdl3, cmd3 ) =
-                                    sendCustomEmojisRequest mdl2
+                                    sendCustomEmojisRequest mdl22
 
                                 ( mdl4, cmd4 ) =
                                     getVerifyCredentials mdl3
@@ -1876,11 +1883,10 @@ streamingApiDecoder =
 
 
 encodeTokenApi : TokenApi -> Value
-encodeTokenApi { token, api, max_toot_chars } =
+encodeTokenApi { token, api } =
     JE.object
         [ ( "token", ED.encodeMaybe JE.string token )
         , ( "api", encodeStreamingApi api )
-        , ( "max_toot_chars", JE.int max_toot_chars )
         ]
 
 
@@ -1890,7 +1896,6 @@ tokenApiDecoder =
         [ JD.succeed TokenApi
             |> required "token" (JD.nullable JD.string)
             |> required "api" streamingApiDecoder
-            |> optional "max_toot_chars" JD.int 500
         , JD.string
             |> JD.andThen
                 (\token ->
@@ -1938,18 +1943,10 @@ handleGetToken key value model =
 
                     else
                         model.streaming_api
-
-                max_toot_chars =
-                    if model.renderEnv.loginServer == Just server then
-                        tokenApi.max_toot_chars
-
-                    else
-                        model.max_toot_chars
             in
             { model
                 | tokens = Dict.insert server tokenApi tokens
                 , streaming_api = streaming_api
-                , max_toot_chars = max_toot_chars
             }
                 |> withCmds [ cmd, fetchFeatures server model ]
 
@@ -1964,6 +1961,11 @@ pkFeedSetDefinitionLength =
     String.length pk.feedSetDefinition
 
 
+pkMaxTootCharsLength : Int
+pkMaxTootCharsLength =
+    String.length pk.maxTootChars
+
+
 handleGetResponse : Maybe String -> String -> Maybe Value -> Model -> ( Model, Cmd Msg )
 handleGetResponse maybeLabel key maybeValue model =
     case maybeLabel of
@@ -1976,6 +1978,9 @@ handleGetResponse maybeLabel key maybeValue model =
 
             else if pk.accountIds == String.left pkAccountIdsLength key then
                 handleGetAccountIds key maybeValue model
+
+            else if pk.maxTootChars == String.left pkMaxTootCharsLength key then
+                handleGetMaxTootChars key maybeValue model
 
             else
                 model |> withNoCmd
@@ -2023,6 +2028,42 @@ handleGetAccountIds key maybeValue model =
                             | accountIdDict =
                                 Dict.insert server accountIds model.accountIdDict
                         }
+
+
+handleGetMaxTootChars : String -> Maybe Value -> Model -> ( Model, Cmd Msg )
+handleGetMaxTootChars key maybeValue model =
+    case maybeValue of
+        Nothing ->
+            model |> withNoCmd
+
+        Just value ->
+            let
+                server =
+                    String.dropLeft (pkMaxTootCharsLength + 1) key
+            in
+            case JD.decodeValue JD.string value of
+                Err _ ->
+                    model |> withNoCmd
+
+                Ok maxTootCharsString ->
+                    let
+                        max_toot_chars =
+                            if Just server /= model.renderEnv.loginServer then
+                                model.max_toot_chars
+
+                            else
+                                case String.toInt maxTootCharsString of
+                                    Just mtc ->
+                                        mtc
+
+                                    Nothing ->
+                                        model.max_toot_chars
+                    in
+                    { model
+                        | maxTootCharsString = Just maxTootCharsString
+                        , max_toot_chars = max_toot_chars
+                    }
+                        |> withNoCmd
 
 
 webSocketFeedTypes : String -> List FeedType
@@ -2688,6 +2729,10 @@ globalMsg msg model =
                         Cmd.none
                     )
 
+        SetMaxTootChars maxTootCharsString ->
+            { model | maxTootCharsString = Just maxTootCharsString }
+                |> withNoCmd
+
         SetResponseState state ->
             { model | responseState = state }
                 |> withNoCmd
@@ -2832,12 +2877,18 @@ globalMsg msg model =
         SetServer server ->
             let
                 mdl =
-                    { model | server = server }
+                    { model
+                        | server = server
+                        , maxTootCharsString = Nothing
+                    }
             in
             mdl
                 |> withCmd
                     (if String.contains "." server then
-                        getInstance mdl
+                        Cmd.batch
+                            [ getInstance mdl
+                            , getMaxTootChars server
+                            ]
 
                      else
                         Cmd.none
@@ -2930,13 +2981,24 @@ globalMsg msg model =
 
                         _ ->
                             Nothing
+
+                putMaxTootCharsCmd =
+                    putMaxTootChars model.server model.maxTootCharsString
             in
             case Login.loginTask sau token of
                 Redirect task ->
-                    ( mdl, Task.attempt (GlobalMsg << ReceiveRedirect) task )
+                    mdl
+                        |> withCmds
+                            [ Task.attempt (GlobalMsg << ReceiveRedirect) task
+                            , putMaxTootCharsCmd
+                            ]
 
                 FetchAccount task ->
-                    ( mdl, Task.attempt (GlobalMsg << ReceiveFetchAccount) task )
+                    mdl
+                        |> withCmds
+                            [ Task.attempt (GlobalMsg << ReceiveFetchAccount) task
+                            , putMaxTootCharsCmd
+                            ]
 
         Logout ->
             case model.renderEnv.loginServer of
@@ -3070,6 +3132,7 @@ globalMsg msg model =
                             , getAccountIdRelationships False mdl4
                             , getFeedSetDefinition server
                             , fetchFeatures server mdl4
+                            , getMaxTootChars server
                             ]
 
         ReceiveFetchAccount result ->
@@ -3124,6 +3187,7 @@ globalMsg msg model =
                             , getAccountIdRelationships False mdl3
                             , getFeedSetDefinition loginServer
                             , fetchFeatures loginServer mdl3
+                            , getMaxTootChars loginServer
                             ]
 
         ReceiveInstance server result ->
@@ -3252,10 +3316,10 @@ receiveInstance server response model =
                 tokens =
                     model.tokens
 
-                ( ( maybeStreamingApi, maxTootChars ), newTokens, cmd ) =
+                ( maybeStreamingApi, newTokens, cmd ) =
                     case Dict.get server tokens of
                         Nothing ->
-                            ( ( model.streaming_api, model.max_toot_chars )
+                            ( model.streaming_api
                             , tokens
                             , Cmd.none
                             )
@@ -3263,10 +3327,7 @@ receiveInstance server response model =
                         Just tokenApi ->
                             case instance.urls of
                                 Nothing ->
-                                    ( ( model.streaming_api, model.max_toot_chars )
-                                    , tokens
-                                    , Cmd.none
-                                    )
+                                    ( model.streaming_api, tokens, Cmd.none )
 
                                 Just { streaming_api } ->
                                     let
@@ -3277,10 +3338,10 @@ receiveInstance server response model =
                                             Just server == model.renderEnv.loginServer
                                     in
                                     ( if isServer then
-                                        ( Just streaming_api, instance.max_toot_chars )
+                                        Just streaming_api
 
                                       else
-                                        ( model.streaming_api, model.max_toot_chars )
+                                        model.streaming_api
                                     , Dict.insert server newTokenApi tokens
                                     , putToken server <| Just newTokenApi
                                     )
@@ -3288,13 +3349,23 @@ receiveInstance server response model =
             { model
                 | msg = Nothing
                 , streaming_api = maybeStreamingApi
-                , max_toot_chars = maxTootChars
                 , lastInstance = Just { server = server, instance = instance }
                 , tokens = newTokens
                 , request = Just response.rawRequest
                 , metadata = Just response.metadata
                 , response = Just instance.v
                 , entity = Just response.entity
+                , maxTootCharsString =
+                    if model.maxTootCharsString /= Nothing then
+                        model.maxTootCharsString
+
+                    else
+                        case instance.max_toot_chars of
+                            Nothing ->
+                                model.maxTootCharsString
+
+                            Just max_toot_chars ->
+                                Just <| String.fromInt max_toot_chars
             }
                 |> updateJsonTrees
                 |> withCmd cmd
@@ -10435,13 +10506,18 @@ saveAuthorization server authorization model =
                             if lastInstance.server == server then
                                 case lastInstance.instance.urls of
                                     Just { streaming_api } ->
-                                        ( { tokenApi | api = UrlApi streaming_api }
+                                        ( { tokenApi
+                                            | api = UrlApi streaming_api
+                                          }
                                         , Just streaming_api
                                         , Cmd.none
                                         )
 
                                     Nothing ->
-                                        ( tokenApi, Nothing, getInstance model )
+                                        ( tokenApi
+                                        , Nothing
+                                        , getInstance model
+                                        )
 
                             else
                                 ( tokenApi, Nothing, getInstance model )
@@ -14999,6 +15075,14 @@ loginSelectedUI showSetServerButton model =
             ]
             []
         , br
+        , b "Max Toot Chars: "
+        , input
+            [ size 5
+            , onInput (GlobalMsg << SetMaxTootChars)
+            , value <| Maybe.withDefault "300" model.maxTootCharsString
+            ]
+            []
+        , br
         , renderLoginButton model
         , if showSetServerButton then
             span []
@@ -16398,7 +16482,7 @@ maximumPostAttachments =
 
 
 postDialogContent : ( Bool, Bool ) -> RenderEnv -> DropZone.Model -> Int -> PostState -> List (Html Msg)
-postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone maxlen postState =
+postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone max_toot_chars postState =
     let
         { inputBackground, color } =
             getStyle renderEnv.style
@@ -16509,14 +16593,14 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone maxle
             ]
             []
         , br
-        , if len > maxlen then
+        , if len > max_toot_chars then
             span [ style "color" "red" ]
                 [ text lenstr ]
 
           else
             text lenstr
         , text " / "
-        , text (String.fromInt maxlen)
+        , text (String.fromInt max_toot_chars)
         ]
     , p []
         [ let
@@ -17755,7 +17839,7 @@ encodeSavedModel savedModel =
             , encodePropertyAsList "max_toot_chars"
                 savedModel.max_toot_chars
                 JE.int
-                500
+                300
             , [ ( "server", JE.string savedModel.server ) ]
             , encodePropertyAsList "feedSetDefinition"
                 savedModel.feedSetDefinition
@@ -17951,7 +18035,7 @@ savedModelDecoder =
         |> required "page" pageDecoder
         |> optional "token" (JD.nullable JD.string) Nothing
         |> optional "streaming_api" (JD.nullable JD.string) Nothing
-        |> optional "max_toot_chars" JD.int 500
+        |> optional "max_toot_chars" JD.int 300
         |> required "server" JD.string
         |> optional "feedSetDefinition"
             MED.feedSetDefinitionDecoder
@@ -18086,6 +18170,25 @@ putAccountIds server accountIds =
     put (pk.accountIds ++ "." ++ server) (Just <| MED.encodeAccountIds accountIds)
 
 
+getMaxTootChars : String -> Cmd Msg
+getMaxTootChars server =
+    get <| pk.maxTootChars ++ "." ++ server
+
+
+putMaxTootChars : String -> Maybe String -> Cmd Msg
+putMaxTootChars server maxTootChars =
+    let
+        v =
+            case maxTootChars of
+                Nothing ->
+                    Nothing
+
+                Just s ->
+                    Just <| JE.string s
+    in
+    put (pk.maxTootChars ++ "." ++ server) v
+
+
 clear : Cmd Msg
 clear =
     localStorageSend (LocalStorage.clear "")
@@ -18137,6 +18240,7 @@ pk =
     , token = "token"
     , feedSetDefinition = "feedSetDefinition"
     , accountIds = "accountIds"
+    , maxTootChars = "maxTootChars"
     }
 
 
