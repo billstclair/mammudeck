@@ -6566,6 +6566,7 @@ addFeedType feedType model =
                 , elements = Types.feedTypeToElements feedType
                 , newElements = 0
                 , undisplayedElements = NeverUndisplayed
+                , error = Nothing
                 }
 
             newFeedSet =
@@ -7103,8 +7104,22 @@ receiveFeed request paging feedType result model =
             receiveResponse request result model2
     in
     case mdl.msg of
-        Just _ ->
-            mdl |> withCmd cmd
+        Just msg ->
+            let
+                feedSet =
+                    model.feedSet
+            in
+            case findFeed feedType feedSet of
+                Nothing ->
+                    mdl |> withCmd cmd
+
+                Just feed ->
+                    { mdl
+                        | msg = Nothing
+                        , feedSet =
+                            replaceFeed { feed | error = Just msg } feedSet
+                    }
+                        |> withCmd cmd
 
         Nothing ->
             case mdl.entity of
@@ -7185,7 +7200,7 @@ receiveFeed request paging feedType result model =
                                                     updateReceivedFeed
                                                         receiveType
                                                         elem
-                                                        feed
+                                                        { feed | error = Nothing }
                                                 )
                                                 mdl5.feedSet.feeds
                                             , ( mdl5, cmd5 )
@@ -9707,6 +9722,7 @@ applyProTimelineSideEffects response model =
                                         StatusElements statuses
                                     , newElements = 0
                                     , undisplayedElements = NoUndisplayed
+                                    , error = Nothing
                                     }
 
                                 newFeedSet =
@@ -11658,7 +11674,8 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
             , style "height" innerHeight
             ]
           <|
-            [ Lazy.lazy5 renderFeedElements
+            [ Lazy.lazy6 renderFeedElements
+                feed.error
                 feed.newElements
                 feedType
                 renderEnv
@@ -11788,18 +11805,37 @@ renderNewElementsRow newElements feedType feedEnv =
             ]
 
 
-renderFeedElements : Int -> FeedType -> RenderEnv -> FeedBodyEnv -> FeedElements -> Html Msg
-renderFeedElements newElements feedType renderEnv bodyEnv elements =
+renderFeedElements : Maybe String -> Int -> FeedType -> RenderEnv -> FeedBodyEnv -> FeedElements -> Html Msg
+renderFeedElements error newElements feedType renderEnv bodyEnv elements =
     let
         feedId =
             Types.feedID <| Debug.log "  renderFeedElements" feedType
+
+        errorElements =
+            case error of
+                Nothing ->
+                    []
+
+                Just msg ->
+                    let
+                        { color } =
+                            getStyle renderEnv.style
+                    in
+                    [ div [ style "border" <| "1px solid " ++ color ]
+                        [ p [ style "color" "red" ]
+                            [ text msg ]
+                        ]
+                    ]
     in
     case elements of
         StatusElements statuses ->
             div [] <|
-                List.indexedMap
-                    (renderStatusWithNewMarker feedType renderEnv bodyEnv newElements)
-                    statuses
+                List.concat
+                    [ errorElements
+                    , List.indexedMap
+                        (renderStatusWithNewMarker feedType renderEnv bodyEnv newElements)
+                        statuses
+                    ]
 
         NotificationElements notifications ->
             let
@@ -11807,12 +11843,15 @@ renderFeedElements newElements feedType renderEnv bodyEnv elements =
                     gangNotifications newElements notifications
             in
             div [] <|
-                List.indexedMap
-                    (renderGangedNotificationWithNewMarker feedType
-                        renderEnv
-                        newElements2
-                    )
-                    gangedNotifications
+                List.concat
+                    [ errorElements
+                    , List.indexedMap
+                        (renderGangedNotificationWithNewMarker feedType
+                            renderEnv
+                            newElements2
+                        )
+                        gangedNotifications
+                    ]
 
         _ ->
             text ""

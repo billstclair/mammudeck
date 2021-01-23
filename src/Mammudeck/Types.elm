@@ -350,6 +350,7 @@ type alias Feed =
     , elements : FeedElements
     , newElements : Int
     , undisplayedElements : UndisplayedElements
+    , error : Maybe String
     }
 
 
@@ -396,6 +397,7 @@ feedSetDefinitionToFeedSet { name, feedTypes } =
                 , elements = feedTypeToElements feedType
                 , newElements = 0
                 , undisplayedElements = NeverUndisplayed
+                , error = Nothing
                 }
             )
             feedTypes
