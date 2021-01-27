@@ -547,6 +547,7 @@ type alias Model =
     , username : String
     , accountId : String
     , accountIds : String
+    , timestamps : Dict String String
     , showMetadata : Bool
     , q : String
     , resolve : Bool
@@ -1294,6 +1295,7 @@ init value url key =
     , username = ""
     , accountId = ""
     , accountIds = ""
+    , timestamps = Dict.empty
     , showMetadata = False
     , q = ""
     , resolve = False
@@ -1484,6 +1486,7 @@ storageHandler response state model =
                 Cmd.batch
                     [ get pk.model
                     , listKeysLabeled pk.token (pk.token ++ ".")
+                    , listKeysLabeled pk.timestamp (pk.timestamp ++ ".")
                     ]
 
             else
@@ -1613,7 +1616,7 @@ handleListKeysResponse maybeLabel prefix keys model =
             model |> withNoCmd
 
         Just label ->
-            -- label will be pk.token,
+            -- label will be pk.token or pk.timestamp,
             -- but we won't care about that until the value comes in
             -- to handleGetResponse below.
             model |> withCmds (List.map (getLabeled label) keys)
@@ -1994,8 +1997,33 @@ handleGetResponse maybeLabel key maybeValue model =
                     if label == pk.token then
                         handleGetToken key value model
 
+                    else if label == pk.timestamp then
+                        handleGetTimestamp key value model
+
                     else
                         model |> withNoCmd
+
+
+handleGetTimestamp : String -> Value -> Model -> ( Model, Cmd Msg )
+handleGetTimestamp key value model =
+    case JD.decodeValue JD.string value of
+        Err err ->
+            let
+                ignore =
+                    Debug.log ("Error decoding " ++ key) err
+            in
+            model |> withNoCmd
+
+        Ok statusid ->
+            let
+                feedid =
+                    String.dropLeft (pkTimestampLength + 1) key
+            in
+            { model
+                | timestamps =
+                    Dict.insert feedid statusid model.timestamps
+            }
+                |> withNoCmd
 
 
 handleGetAccountIds : String -> Maybe Value -> Model -> ( Model, Cmd Msg )
@@ -7191,6 +7219,15 @@ receiveFeed request paging feedType result model =
 
                                                 ( mdl5, cmd5 ) =
                                                     webSocketConnect feedType mdl
+
+                                                ( mdl6, cmd6 ) =
+                                                    updateTimestamp feedId
+                                                        receiveType
+                                                        elem
+                                                        mdl5
+
+                                                timestamp =
+                                                    Dict.get feedId model.timestamps
                                             in
                                             ( LE.updateIf
                                                 (\feed ->
@@ -7200,10 +7237,11 @@ receiveFeed request paging feedType result model =
                                                     updateReceivedFeed
                                                         receiveType
                                                         elem
+                                                        timestamp
                                                         { feed | error = Nothing }
                                                 )
-                                                mdl5.feedSet.feeds
-                                            , ( mdl5, cmd5 )
+                                                mdl6.feedSet.feeds
+                                            , mdl6 |> withCmds [ cmd5, cmd6 ]
                                             , updateFeedEnvReferences
                                                 receiveType
                                                 elem
@@ -7237,6 +7275,42 @@ receiveFeed request paging feedType result model =
                             [ cmd
                             , cmd2
                             ]
+
+
+updateTimestamp : String -> ReceiveFeedType -> FeedElements -> Model -> ( Model, Cmd Msg )
+updateTimestamp feedid receiveType elem model =
+    case receiveType of
+        ReceiveMoreFeed ->
+            model |> withNoCmd
+
+        _ ->
+            case elem of
+                StatusElements statuses ->
+                    case List.head statuses of
+                        Nothing ->
+                            model |> withNoCmd
+
+                        Just status ->
+                            { model
+                                | timestamps =
+                                    Dict.insert feedid status.id model.timestamps
+                            }
+                                |> withCmd (putTimestamp feedid <| Just status.id)
+
+                NotificationElements notifications ->
+                    case List.head notifications of
+                        Nothing ->
+                            model |> withNoCmd
+
+                        Just notification ->
+                            { model
+                                | timestamps =
+                                    Dict.insert feedid notification.id model.timestamps
+                            }
+                                |> withCmd (putTimestamp feedid <| Just notification.id)
+
+                _ ->
+                    model |> withNoCmd
 
 
 feedTypeToStreamType : FeedType -> Maybe StreamType
@@ -7587,13 +7661,18 @@ maxFeedLength =
     100
 
 
-updateReceivedFeed : ReceiveFeedType -> FeedElements -> Feed -> Feed
-updateReceivedFeed receiveType elements feed =
+updateReceivedFeed : ReceiveFeedType -> FeedElements -> Maybe String -> Feed -> Feed
+updateReceivedFeed receiveType elements timestamp feed =
     let
         ( elements2, newElements ) =
             case receiveType of
                 ReceiveWholeFeed ->
-                    ( elements, 0 )
+                    ( elements
+                    , timestampNewElements timestamp
+                        elements
+                      <|
+                        Types.feedElementsCount elements
+                    )
 
                 ReceiveMoreFeed ->
                     ( appendFeedElements feed.elements elements feed.elements
@@ -7602,11 +7681,15 @@ updateReceivedFeed receiveType elements feed =
                     )
 
                 ReceiveNewFeed ->
-                    appendFeedElementsTruncated (Just maxFeedLength)
-                        True
-                        elements
-                        feed.elements
-                        feed.elements
+                    let
+                        ( elements3, cnt ) =
+                            appendFeedElementsTruncated (Just maxFeedLength)
+                                True
+                                elements
+                                feed.elements
+                                feed.elements
+                    in
+                    ( elements3, timestampNewElements timestamp elements3 cnt )
     in
     if
         (elements2 == feed.elements)
@@ -7619,6 +7702,34 @@ updateReceivedFeed receiveType elements feed =
             | elements = elements2
             , newElements = newElements
         }
+
+
+timestampNewElements : Maybe String -> FeedElements -> Int -> Int
+timestampNewElements timestamp elements default =
+    case timestamp of
+        Nothing ->
+            default
+
+        Just ts ->
+            case elements of
+                StatusElements statuses ->
+                    case LE.findIndex (\s -> s.id == ts) statuses of
+                        Nothing ->
+                            default
+
+                        Just idx ->
+                            idx
+
+                NotificationElements notifications ->
+                    case LE.findIndex (\s -> s.id == ts) notifications of
+                        Nothing ->
+                            default
+
+                        Just idx ->
+                            idx
+
+                _ ->
+                    default
 
 
 {-| Prepend the first list to the second, stopping when you get to
@@ -18228,6 +18339,25 @@ putMaxTootChars server maxTootChars =
     put (pk.maxTootChars ++ "." ++ server) v
 
 
+getTimestamp : String -> Cmd Msg
+getTimestamp feedid =
+    getLabeled pk.timestamp <| pk.timestamp ++ "." ++ feedid
+
+
+putTimestamp : String -> Maybe String -> Cmd Msg
+putTimestamp feedid statusid =
+    let
+        v =
+            case statusid of
+                Nothing ->
+                    Nothing
+
+                Just sid ->
+                    Just <| JE.string sid
+    in
+    put (pk.timestamp ++ "." ++ feedid) v
+
+
 clear : Cmd Msg
 clear =
     localStorageSend (LocalStorage.clear "")
@@ -18280,7 +18410,13 @@ pk =
     , feedSetDefinition = "feedSetDefinition"
     , accountIds = "accountIds"
     , maxTootChars = "maxTootChars"
+    , timestamp = "timestamp"
     }
+
+
+pkTimestampLength : Int
+pkTimestampLength =
+    String.length pk.timestamp
 
 
 
