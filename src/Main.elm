@@ -15685,6 +15685,7 @@ renderThreadExplorer state model =
                 , PopupPicker.top <| px margin
                 , PopupPicker.left lpx
                 , PopupPicker.zIndex zIndices.explorer
+                , fsStyle renderEnv2
                 ]
                 [ div
                     [ id nodeIds.threadExplorerHeader
