@@ -323,8 +323,6 @@ type Dialog
     | SettingsDialog
     | KeyboardShortcutsDialog
     | SaveRestoreDialog
-    | MyEllipsisDialog Status
-    | OtherGuyEllipsisDialog Status
     | ReportDialog Status
 
 
@@ -335,6 +333,7 @@ type Popup
     | HashtagPopup
     | PostGroupPopup
     | PostTextPopup PostPopupSearch
+    | CommandsPopup String
 
 
 type alias FocusInput =
@@ -485,6 +484,21 @@ type alias ReferenceDict =
     Dict String Reference
 
 
+type Command
+    = MuteConversationCommand
+    | PinOnProfileCommand
+    | DeleteStatusCommand
+    | DeleteAndRedraftCommand
+      -- other user
+    | MentionCommand String
+    | MuteCommand String
+    | BlockCommand String
+    | ReportCommand String
+      --
+    | SeparatorCommand
+    | CancelCommand
+
+
 type PopupChoice
     = AccountChoice Account
     | GroupChoice Group
@@ -492,6 +506,7 @@ type PopupChoice
     | PostGroupChoice Group
     | PostEmojiChoice Emoji
     | PostEmojiCharChoice EmojiChar
+    | CommandChoice Command Status
 
 
 type alias ScrollColumns =
@@ -797,7 +812,7 @@ type ColumnsUIMsg
     | ReceiveHeaderElement String (Result Dom.Error Dom.Element)
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
-    | StatusEllipsisDialog Status
+    | StatusEllipsisPopup String Status
     | ClearFeedsText
     | ClearModelText
     | SetFeedsText String
@@ -4270,8 +4285,8 @@ columnsUIMsg msg model =
             in
             explorerSendMsg mes mdl
 
-        StatusEllipsisDialog status ->
-            showEllipsisDialog status model
+        StatusEllipsisPopup ellipsisId status ->
+            showEllipsisPopup ellipsisId status model
 
         ClearFeedsText ->
             { model | feedsText = Nothing }
@@ -5416,23 +5431,48 @@ popupChoose choice model =
                         _ ->
                             ( model, Types.defaultUserFeedType, False )
 
-        cmds =
-            case model.popup of
-                PostTextPopup _ ->
-                    [ Task.attempt (\_ -> Noop) <|
-                        -- Probably extraneous, since mobileFocus does this again.
-                        Dom.focus nodeIds.postDialogText
-                    , mobileFocus nodeIds.postDialogText
-                    ]
+                CommandChoice _ _ ->
+                    ( model, Types.defaultUserFeedType, False )
+
+        ( mdl3, cmds ) =
+            case choice of
+                CommandChoice command status ->
+                    case model.popup of
+                        CommandsPopup _ ->
+                            let
+                                ( mdl4, cmd ) =
+                                    commandChoice command status model
+                            in
+                            ( mdl4, [ cmd ] )
+
+                        _ ->
+                            ( mdl2, [] )
 
                 _ ->
-                    []
+                    case model.popup of
+                        PostTextPopup _ ->
+                            ( mdl2
+                            , [ Task.attempt (\_ -> Noop) <|
+                                    -- Probably extraneous, since mobileFocus does this again.
+                                    Dom.focus nodeIds.postDialogText
+                              , mobileFocus nodeIds.postDialogText
+                              ]
+                            )
+
+                        _ ->
+                            ( mdl2, [] )
     in
     if addTheFeed then
-        addFeedType (fillinFeedType feedType mdl2) mdl2
+        addFeedType (fillinFeedType feedType mdl3) mdl3
 
     else
-        mdl2 |> withCmds cmds
+        mdl3 |> withCmds cmds
+
+
+commandChoice : Command -> Status -> Model -> ( Model, Cmd Msg )
+commandChoice command status model =
+    -- TODO
+    model |> withNoCmd
 
 
 insertPostSearch : String -> PostPopupSearch -> Model -> Model
@@ -5976,27 +6016,59 @@ scrollPage direction now model =
             scrollThreadExplorer state allTheWay direction mdl
 
 
-showEllipsisDialog : Status -> Model -> ( Model, Cmd Msg )
-showEllipsisDialog status model =
+showEllipsisPopup : String -> Status -> Model -> ( Model, Cmd Msg )
+showEllipsisPopup ellipsisId status model =
     { model
-        | dialog =
-            if status.account.id == model.accountId then
-                MyEllipsisDialog status
+        | popup = CommandsPopup ellipsisId
+        , popupElement = Nothing -- TODO (unique ID for each status rendering)
+        , popupChoices =
+            let
+                accountId =
+                    case model.account of
+                        Just account ->
+                            account.id
+
+                        Nothing ->
+                            ""
+            in
+            if status.account.id == accountId then
+                myEllipsisChoices status model
 
             else
-                OtherGuyEllipsisDialog status
+                otherGuyEllipsisChoices status model
     }
-        |> withNoCmd
+        |> withCmd
+            (Task.attempt (ColumnsUIMsg << ReceivePopupElement)
+                (Dom.getElement ellipsisId)
+            )
 
 
-myEllipsisDialog : Status -> Model -> Html Msg
-myEllipsisDialog status model =
-    alertDialog "My Ellipsis Dialog not yet supported." model
+myEllipsisChoices : Status -> Model -> List PopupChoice
+myEllipsisChoices status model =
+    List.map (\command -> CommandChoice command status)
+        [ MuteConversationCommand
+        , PinOnProfileCommand
+        , DeleteStatusCommand
+        , DeleteAndRedraftCommand
+        , SeparatorCommand
+        , CancelCommand
+        ]
 
 
-otherGuyEllipsisDialog : Status -> Model -> Html Msg
-otherGuyEllipsisDialog status model =
-    alertDialog "OtherGuy Ellipsis Dialog not yet supported." model
+otherGuyEllipsisChoices : Status -> Model -> List PopupChoice
+otherGuyEllipsisChoices status model =
+    let
+        username =
+            status.account.username
+    in
+    List.map (\command -> CommandChoice command status)
+        [ MentionCommand username
+        , MuteCommand username
+        , BlockCommand username
+        , ReportCommand username
+        , SeparatorCommand
+        , CancelCommand
+        ]
 
 
 reportDialog : Status -> Model -> Html Msg
@@ -11970,18 +12042,22 @@ renderFeedElements error newElements feedType renderEnv bodyEnv elements =
 
 renderGangedNotificationWithNewMarker : FeedType -> RenderEnv -> Int -> Int -> GangedNotification -> Html Msg
 renderGangedNotificationWithNewMarker feedType renderEnv newElements index gangedNotification =
+    let
+        feedId =
+            Types.feedID feedType
+    in
     if newElements > 0 && newElements == index then
         div []
             [ renderNewMarker feedType renderEnv
-            , renderGangedNotification renderEnv gangedNotification
+            , renderGangedNotification feedId renderEnv gangedNotification
             ]
 
     else
-        renderGangedNotification renderEnv gangedNotification
+        renderGangedNotification feedId renderEnv gangedNotification
 
 
-renderGangedNotification : RenderEnv -> GangedNotification -> Html Msg
-renderGangedNotification renderEnv gangedNotification =
+renderGangedNotification : String -> RenderEnv -> GangedNotification -> Html Msg
+renderGangedNotification ellipsisPrefix renderEnv gangedNotification =
     let
         notification =
             gangedNotification.notification
@@ -11989,20 +12065,21 @@ renderGangedNotification renderEnv gangedNotification =
     case gangedNotification.accounts of
         account :: others ->
             if others == [] then
-                renderNotification renderEnv notification
+                renderNotification renderEnv ellipsisPrefix notification
 
             else
                 renderMultiNotification renderEnv
                     account
                     others
+                    ellipsisPrefix
                     notification
 
         _ ->
-            renderNotification renderEnv notification
+            renderNotification renderEnv ellipsisPrefix notification
 
 
-renderMultiNotification : RenderEnv -> Account -> List Account -> Notification -> Html Msg
-renderMultiNotification renderEnv account others notification =
+renderMultiNotification : RenderEnv -> Account -> List Account -> String -> Notification -> Html Msg
+renderMultiNotification renderEnv account others ellipsisPrefix notification =
     let
         { color } =
             getStyle renderEnv.style
@@ -12048,7 +12125,7 @@ renderMultiNotification renderEnv account others notification =
                 |> List.intersperse (text " ")
                 |> span []
             ]
-        , renderNotificationBody renderEnv notification
+        , renderNotificationBody renderEnv ellipsisPrefix notification
         ]
 
 
@@ -12179,8 +12256,8 @@ headerFontSizeStyle =
     style "font-size" headerFontSize
 
 
-renderNotification : RenderEnv -> Notification -> Html Msg
-renderNotification renderEnv notification =
+renderNotification : RenderEnv -> String -> Notification -> Html Msg
+renderNotification renderEnv ellipsisPrefix notification =
     let
         description =
             notificationDescription notification renderEnv
@@ -12199,7 +12276,7 @@ renderNotification renderEnv notification =
                     notification.created_at
                     Nothing
                 ]
-            , renderNotificationBody renderEnv notification
+            , renderNotificationBody renderEnv ellipsisPrefix notification
             ]
         ]
 
@@ -12374,8 +12451,8 @@ smallTextFontSize =
     "80%"
 
 
-renderNotificationBody : RenderEnv -> Notification -> Html Msg
-renderNotificationBody renderEnv notification =
+renderNotificationBody : RenderEnv -> String -> Notification -> Html Msg
+renderNotificationBody renderEnv ellipsisPrefix notification =
     let
         { color } =
             getStyle renderEnv.style
@@ -12407,7 +12484,7 @@ renderNotificationBody renderEnv notification =
                         , body
                         ]
                 , renderMediaAttachments renderEnv status
-                , renderStatusActions renderEnv status
+                , renderStatusActions renderEnv ellipsisPrefix status
                 ]
 
 
@@ -12696,23 +12773,27 @@ renderNewMarker feedType renderEnv =
 
 renderStatusWithNewMarker : FeedType -> RenderEnv -> FeedBodyEnv -> Int -> Int -> Status -> Html Msg
 renderStatusWithNewMarker feedType renderEnv bodyEnv newElements index status =
+    let
+        feedId =
+            Types.feedID feedType
+    in
     if newElements > 0 && newElements == index then
         div []
             [ renderNewMarker feedType renderEnv
-            , renderStatus renderEnv bodyEnv status
+            , renderStatus renderEnv bodyEnv feedId status
             ]
 
     else
-        renderStatus renderEnv bodyEnv status
+        renderStatus renderEnv bodyEnv feedId status
 
 
-renderStatus : RenderEnv -> FeedBodyEnv -> Status -> Html Msg
+renderStatus : RenderEnv -> FeedBodyEnv -> String -> Status -> Html Msg
 renderStatus =
     renderStatusWithId Nothing
 
 
-renderStatusWithId : Maybe String -> RenderEnv -> FeedBodyEnv -> Status -> Html Msg
-renderStatusWithId maybeNodeid renderEnv bodyEnv statusIn =
+renderStatusWithId : Maybe String -> RenderEnv -> FeedBodyEnv -> String -> Status -> Html Msg
+renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
     let
         ( status, account, reblogAccount ) =
             case statusIn.reblog of
@@ -12844,15 +12925,15 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv statusIn =
                 ]
                 body
             , renderMediaAttachments renderEnv status
-            , renderStatusQuote renderEnv bodyEnv status
+            , renderStatusQuote renderEnv bodyEnv ellipsisPrefix status
             , renderStatusCard renderEnv status
-            , renderStatusActions renderEnv status
+            , renderStatusActions renderEnv ellipsisPrefix status
             ]
         ]
 
 
-renderStatusQuote : RenderEnv -> FeedBodyEnv -> Status -> Html Msg
-renderStatusQuote renderEnv bodyEnv status =
+renderStatusQuote : RenderEnv -> FeedBodyEnv -> String -> Status -> Html Msg
+renderStatusQuote renderEnv bodyEnv ellipsisPrefix status =
     case status.quote of
         Nothing ->
             text ""
@@ -12873,6 +12954,7 @@ renderStatusQuote renderEnv bodyEnv status =
                                         renderEnv.columnWidth - 16
                                 }
                                 bodyEnv
+                                (ellipsisPrefix ++ ".quote")
                                 wrappedStatus
                             ]
                         ]
@@ -12994,14 +13076,11 @@ statusButton attributes theText msg =
         ]
 
 
-renderStatusActions : RenderEnv -> Status -> Html Msg
-renderStatusActions renderEnv status =
+renderStatusActions : RenderEnv -> String -> Status -> Html Msg
+renderStatusActions renderEnv ellipsisPrefix status =
     let
         { color } =
             getStyle renderEnv.style
-
-        id =
-            status.id
 
         replies_count =
             status.replies_count
@@ -13109,10 +13188,16 @@ renderStatusActions renderEnv status =
 
           else
             text ""
-        , statusButton
-            [ class "icon-ellipsis" ]
+        , let
+            ellipsisId =
+                ellipsisPrefix ++ "." ++ status.id
+          in
+          statusButton
+            [ class "icon-ellipsis"
+            , id ellipsisId
+            ]
             ""
-            (ColumnsUIMsg <| StatusEllipsisDialog status)
+            (ColumnsUIMsg <| StatusEllipsisPopup ellipsisId status)
         ]
 
 
@@ -15498,6 +15583,53 @@ renderPopupChoice renderEnv choice =
         PostEmojiCharChoice emojiChar ->
             text <| emojiChar.char ++ " " ++ emojiChar.name
 
+        CommandChoice command _ ->
+            case command of
+                SeparatorCommand ->
+                    Html.hr [ style "margin" "0" ] []
+
+                _ ->
+                    span
+                        [ class (getStyle renderEnv.style |> .popupChoiceClass)
+                        ]
+                        [ text <| commandText command ]
+
+
+commandText : Command -> String
+commandText command =
+    case command of
+        -- This user
+        MuteConversationCommand ->
+            "Mute Conversation"
+
+        PinOnProfileCommand ->
+            "Pin on Profile"
+
+        DeleteStatusCommand ->
+            "Delete"
+
+        DeleteAndRedraftCommand ->
+            "Delete & Redraft"
+
+        -- other user
+        MentionCommand user ->
+            "Mention @" ++ user
+
+        MuteCommand user ->
+            "Mute @" ++ user
+
+        BlockCommand user ->
+            "Block @" ++ user
+
+        ReportCommand user ->
+            "Report @" ++ user
+
+        CancelCommand ->
+            "Cancel"
+
+        _ ->
+            "Shouldn't happen"
+
 
 renderPopup : Model -> Html Msg
 renderPopup model =
@@ -15533,6 +15665,9 @@ renderPopup model =
 
                                         _ ->
                                             300
+
+                                CommandsPopup _ ->
+                                    300
 
                                 NoPopup ->
                                     300
@@ -15628,10 +15763,18 @@ renderThreadExplorer state model =
                     let
                         nodeid =
                             threadExplorerStatusId idx
+
+                        ellipsisId =
+                            "threadExplorer." ++ String.fromInt idx
                     in
                     if s.id == status.id then
                         div [ style "background-color" highlightStatusColor ]
-                            [ renderStatusWithId (Just nodeid) renderEnv2 bodyEnv s ]
+                            [ renderStatusWithId (Just nodeid)
+                                renderEnv2
+                                bodyEnv
+                                ellipsisId
+                                s
+                            ]
 
                     else if not replyChain && s.replies_count > 0 then
                         div
@@ -15642,10 +15785,19 @@ renderThreadExplorer state model =
                                 else
                                     repliedToStatusColor
                             ]
-                            [ renderStatusWithId (Just nodeid) renderEnv2 bodyEnv s ]
+                            [ renderStatusWithId (Just nodeid)
+                                renderEnv2
+                                bodyEnv
+                                ellipsisId
+                                s
+                            ]
 
                     else
-                        renderStatusWithId (Just nodeid) renderEnv2 bodyEnv s
+                        renderStatusWithId (Just nodeid)
+                            renderEnv2
+                            bodyEnv
+                            ellipsisId
+                            s
 
                 loop : Int -> Bool -> List Status -> List (Html Msg) -> List (Html Msg)
                 loop idx replyChain statuses res =
@@ -15780,12 +15932,6 @@ renderDialog model =
 
         SaveRestoreDialog ->
             saveRestoreDialog model
-
-        MyEllipsisDialog status ->
-            myEllipsisDialog status model
-
-        OtherGuyEllipsisDialog status ->
-            otherGuyEllipsisDialog status model
 
         ReportDialog status ->
             reportDialog status model
