@@ -5471,8 +5471,66 @@ popupChoose choice model =
 
 commandChoice : Command -> Status -> Model -> ( Model, Cmd Msg )
 commandChoice command status model =
-    -- TODO
-    model |> withNoCmd
+    let
+        mdl =
+            { model
+                | popup = NoPopup
+                , popupElement = Nothing
+                , popupChoices = []
+            }
+    in
+    case command of
+        -- my post
+        MuteConversationCommand ->
+            sendRequest
+                (MutesRequest <|
+                    Request.PostStatusMute { id = status.id }
+                )
+                mdl
+
+        PinOnProfileCommand ->
+            sendRequest
+                (StatusesRequest <|
+                    Request.PostPinStatus { id = status.id }
+                )
+                mdl
+
+        DeleteStatusCommand ->
+            sendRequest
+                (StatusesRequest <|
+                    Request.DeleteStatus { id = status.id }
+                )
+                mdl
+
+        DeleteAndRedraftCommand ->
+            mdl |> withNoCmd
+
+        -- other user's post
+        MentionCommand username ->
+            mdl |> withNoCmd
+
+        MuteCommand username ->
+            sendRequest
+                (MutesRequest <|
+                    Request.PostAccountMute
+                        { id = status.account.id
+                        , notifications = True
+                        }
+                )
+                mdl
+
+        BlockCommand name ->
+            sendRequest
+                (BlocksRequest <|
+                    Request.PostBlock { id = status.account.id }
+                )
+                mdl
+
+        ReportCommand name ->
+            mdl |> withNoCmd
+
+        _ ->
+            mdl |> withNoCmd
 
 
 insertPostSearch : String -> PostPopupSearch -> Model -> Model
