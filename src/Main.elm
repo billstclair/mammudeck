@@ -211,6 +211,7 @@ import Mastodon.Entity as Entity
         , Notification
         , NotificationType(..)
         , Privacy(..)
+        , Relationship
         , Status
         , UrlString
         , Visibility(..)
@@ -313,8 +314,8 @@ type PopupExplorer
 
 
 type AreYouSureReason
-    = AreYouSureBlock
-    | AreYouSureMute
+    = AreYouSureBlock (Maybe Relationship)
+    | AreYouSureMute (Maybe Relationship)
     | AreYouSureDeleteStatus
 
 
@@ -497,10 +498,10 @@ type Command
     | DeleteStatusCommand
     | DeleteAndRedraftCommand
       -- other user
-    | MentionCommand String
-    | MuteCommand String
-    | BlockCommand String
-    | ReportCommand String
+    | MentionCommand
+    | MuteCommand (Maybe Relationship)
+    | BlockCommand (Maybe Relationship)
+    | ReportCommand
       --
     | SeparatorCommand
     | CancelCommand
@@ -4642,22 +4643,50 @@ yesImSure : AreYouSureReason -> Status -> Model -> ( Model, Cmd Msg )
 yesImSure reason status model =
     sendRequest
         (case reason of
-            AreYouSureBlock ->
-                BlocksRequest <|
-                    Request.PostBlock { id = status.account.id }
+            AreYouSureBlock relationship ->
+                let
+                    blocked =
+                        case relationship of
+                            Just { blocking } ->
+                                blocking
 
-            AreYouSureMute ->
-                MutesRequest <|
-                    Request.PostAccountMute
-                        { id = status.account.id
-                        , notifications = model.muteNotifications
-                        }
+                            _ ->
+                                False
+                in
+                if blocked then
+                    BlocksRequest <|
+                        Request.PostUnblock { id = status.account.id }
+
+                else
+                    BlocksRequest <|
+                        Request.PostBlock { id = status.account.id }
+
+            AreYouSureMute relationship ->
+                let
+                    muted =
+                        case relationship of
+                            Just { muting } ->
+                                muting
+
+                            _ ->
+                                False
+                in
+                if muted then
+                    MutesRequest <|
+                        Request.PostAccountUnmute { id = status.account.id }
+
+                else
+                    MutesRequest <|
+                        Request.PostAccountMute
+                            { id = status.account.id
+                            , notifications = model.muteNotifications
+                            }
 
             AreYouSureDeleteStatus ->
                 StatusesRequest <|
                     Request.DeleteStatus { id = status.id }
         )
-        model
+        { model | dialog = NoDialog }
 
 
 showUndisplayed : FeedType -> Model -> ( Model, Cmd Msg )
@@ -5512,30 +5541,48 @@ commandChoice command status model =
                 , popupChoices = []
             }
 
+        setAreYouSureDialog : AreYouSureReason -> Model
         setAreYouSureDialog reason =
             { mdl
                 | dialog = AreYouSureDialog reason status
                 , muteNotifications =
-                    if reason == AreYouSureMute then
-                        True
+                    case reason of
+                        AreYouSureMute _ ->
+                            True
 
-                    else
-                        mdl.muteNotifications
+                        _ ->
+                            mdl.muteNotifications
             }
     in
     case command of
         -- my post
         MuteConversationCommand ->
+            let
+                req =
+                    if status.muted then
+                        Request.PostStatusUnmute
+
+                    else
+                        Request.PostStatusMute
+            in
             sendRequest
                 (MutesRequest <|
-                    Request.PostStatusMute { id = status.id }
+                    req { id = status.id }
                 )
                 mdl
 
         PinOnProfileCommand ->
+            let
+                req =
+                    if status.pinned then
+                        Request.PostUnpinStatus
+
+                    else
+                        Request.PostPinStatus
+            in
             sendRequest
                 (StatusesRequest <|
-                    Request.PostPinStatus { id = status.id }
+                    req { id = status.id }
                 )
                 mdl
 
@@ -5547,18 +5594,40 @@ commandChoice command status model =
             mdl |> withNoCmd
 
         -- other user's post
-        MentionCommand username ->
+        MentionCommand ->
             mdl |> withNoCmd
 
-        MuteCommand username ->
-            setAreYouSureDialog AreYouSureMute
-                |> withNoCmd
+        MuteCommand relationship ->
+            if
+                case relationship of
+                    Just req ->
+                        req.muting
 
-        BlockCommand name ->
-            setAreYouSureDialog AreYouSureBlock
-                |> withNoCmd
+                    Nothing ->
+                        False
+            then
+                yesImSure (AreYouSureMute relationship) status mdl
 
-        ReportCommand name ->
+            else
+                setAreYouSureDialog (AreYouSureMute relationship)
+                    |> withNoCmd
+
+        BlockCommand relationship ->
+            if
+                case relationship of
+                    Just req ->
+                        req.blocking
+
+                    Nothing ->
+                        False
+            then
+                yesImSure (AreYouSureBlock relationship) status mdl
+
+            else
+                setAreYouSureDialog (AreYouSureBlock relationship)
+                    |> withNoCmd
+
+        ReportCommand ->
             mdl |> withNoCmd
 
         _ ->
@@ -6108,36 +6177,51 @@ scrollPage direction now model =
 
 showEllipsisPopup : String -> Status -> Model -> ( Model, Cmd Msg )
 showEllipsisPopup ellipsisId status model =
+    let
+        accountId =
+            case model.account of
+                Just account ->
+                    account.id
+
+                Nothing ->
+                    ""
+
+        isMyPost =
+            status.account.id == accountId
+    in
     { model
         | popup = CommandsPopup ellipsisId
         , popupElement = Nothing -- TODO (unique ID for each status rendering)
         , popupChoices =
-            let
-                accountId =
-                    case model.account of
-                        Just account ->
-                            account.id
-
-                        Nothing ->
-                            ""
-            in
-            if status.account.id == accountId then
+            if isMyPost then
                 myEllipsisChoices status model
 
             else
                 otherGuyEllipsisChoices status model
     }
-        |> withCmd
-            (Task.attempt (ColumnsUIMsg << ReceivePopupElement)
+        |> withCmds
+            [ Task.attempt (ColumnsUIMsg << ReceivePopupElement)
                 (Dom.getElement ellipsisId)
-            )
+            , if isMyPost then
+                Cmd.none
+
+              else
+                sendRequest
+                    (AccountsRequest <|
+                        Request.GetRelationships { ids = [ status.account.id ] }
+                    )
+                    model
+                    |> Tuple.second
+            ]
 
 
 myEllipsisChoices : Status -> Model -> List PopupChoice
 myEllipsisChoices status model =
     List.map (\command -> CommandChoice command status)
         [ MuteConversationCommand
+        , SeparatorCommand
         , PinOnProfileCommand
+        , SeparatorCommand
         , DeleteStatusCommand
         , DeleteAndRedraftCommand
         , SeparatorCommand
@@ -6147,15 +6231,14 @@ myEllipsisChoices status model =
 
 otherGuyEllipsisChoices : Status -> Model -> List PopupChoice
 otherGuyEllipsisChoices status model =
-    let
-        username =
-            status.account.username
-    in
     List.map (\command -> CommandChoice command status)
-        [ MentionCommand username
-        , MuteCommand username
-        , BlockCommand username
-        , ReportCommand username
+        [ MuteConversationCommand
+        , SeparatorCommand
+        , MentionCommand
+        , SeparatorCommand
+        , MuteCommand Nothing
+        , BlockCommand Nothing
+        , ReportCommand
         , SeparatorCommand
         , CancelCommand
         ]
@@ -10078,6 +10161,38 @@ applyResponseSideEffects response model =
                 _ ->
                     model
 
+        AccountsRequest (Request.GetRelationships _) ->
+            case response.entity of
+                RelationshipListEntity [ relationship ] ->
+                    { model
+                        | popupChoices =
+                            List.map
+                                (\choice ->
+                                    case choice of
+                                        CommandChoice command status ->
+                                            case command of
+                                                MuteCommand _ ->
+                                                    CommandChoice
+                                                        (MuteCommand <| Just relationship)
+                                                        status
+
+                                                BlockCommand _ ->
+                                                    CommandChoice
+                                                        (BlockCommand <| Just relationship)
+                                                        status
+
+                                                _ ->
+                                                    choice
+
+                                        _ ->
+                                            choice
+                                )
+                                model.popupChoices
+                    }
+
+                _ ->
+                    model
+
         AccountsRequest (Request.GetStatuses { paging }) ->
             statusSmartPaging response.entity paging model
 
@@ -10200,6 +10315,22 @@ applyResponseSideEffects response model =
                 , groupCoverImage = Nothing
             }
 
+        MutesRequest (Request.PostStatusMute _) ->
+            case response.entity of
+                StatusEntity status ->
+                    modifyColumnsStatus status.id (\_ -> status) model
+
+                _ ->
+                    model
+
+        MutesRequest (Request.PostStatusUnmute _) ->
+            case response.entity of
+                StatusEntity status ->
+                    modifyColumnsStatus status.id (\_ -> status) model
+
+                _ ->
+                    model
+
         NotificationsRequest (Request.GetNotifications { paging }) ->
             notificationsSmartPaging response.entity paging model
 
@@ -10297,6 +10428,22 @@ applyResponseSideEffects response model =
                         , pollOptions = [ "", "" ]
                     }
                         |> adjustColumnsForPost status
+
+                _ ->
+                    model
+
+        StatusesRequest (Request.PostPinStatus _) ->
+            case response.entity of
+                StatusEntity status ->
+                    modifyColumnsStatus status.id (\_ -> status) model
+
+                _ ->
+                    model
+
+        StatusesRequest (Request.PostUnpinStatus _) ->
+            case response.entity of
+                StatusEntity status ->
+                    modifyColumnsStatus status.id (\_ -> status) model
 
                 _ ->
                     model
@@ -15673,7 +15820,7 @@ renderPopupChoice renderEnv choice =
         PostEmojiCharChoice emojiChar ->
             text <| emojiChar.char ++ " " ++ emojiChar.name
 
-        CommandChoice command _ ->
+        CommandChoice command status ->
             case command of
                 SeparatorCommand ->
                     Html.hr [ style "margin" "0" ] []
@@ -15682,18 +15829,26 @@ renderPopupChoice renderEnv choice =
                     span
                         [ class (getStyle renderEnv.style |> .popupChoiceClass)
                         ]
-                        [ text <| commandText command ]
+                        [ text <| commandText command status ]
 
 
-commandText : Command -> String
-commandText command =
+commandText : Command -> Status -> String
+commandText command status =
     case command of
         -- This user
         MuteConversationCommand ->
-            "Mute Conversation"
+            if status.muted then
+                "Unmute Conversation"
+
+            else
+                "Mute Conversation"
 
         PinOnProfileCommand ->
-            "Pin on Profile"
+            if status.pinned then
+                "Unpin from Profile"
+
+            else
+                "Pin on Profile"
 
         DeleteStatusCommand ->
             "Delete"
@@ -15702,17 +15857,43 @@ commandText command =
             "Delete & Redraft"
 
         -- other user
-        MentionCommand user ->
-            "Mention @" ++ user
+        MentionCommand ->
+            "Mention @" ++ status.account.username
 
-        MuteCommand user ->
-            "Mute @" ++ user
+        MuteCommand relationship ->
+            let
+                which =
+                    case relationship of
+                        Just rel ->
+                            if rel.muting then
+                                "Unmute"
 
-        BlockCommand user ->
-            "Block @" ++ user
+                            else
+                                "Mute"
 
-        ReportCommand user ->
-            "Report @" ++ user
+                        Nothing ->
+                            "Mute"
+            in
+            which ++ " @" ++ status.account.username
+
+        BlockCommand relationship ->
+            let
+                which =
+                    case relationship of
+                        Just rel ->
+                            if rel.blocking then
+                                "Unblock"
+
+                            else
+                                "Block"
+
+                        Nothing ->
+                            "Block"
+            in
+            which ++ " @" ++ status.account.username
+
+        ReportCommand ->
+            "Report @" ++ status.account.username
 
         CancelCommand ->
             "Cancel"
@@ -16074,11 +16255,33 @@ areYouSureDialog reason status model =
     let
         which =
             case reason of
-                AreYouSureBlock ->
-                    "block"
+                AreYouSureBlock relationship ->
+                    if
+                        case relationship of
+                            Just { blocking } ->
+                                blocking
 
-                AreYouSureMute ->
-                    "mute"
+                            _ ->
+                                False
+                    then
+                        "unblock"
+
+                    else
+                        "block"
+
+                AreYouSureMute relationship ->
+                    if
+                        case relationship of
+                            Just { muting } ->
+                                muting
+
+                            _ ->
+                                False
+                    then
+                        "unmute"
+
+                    else
+                        "mute"
 
                 AreYouSureDeleteStatus ->
                     "delete"
@@ -16102,16 +16305,17 @@ areYouSureDialog reason status model =
                                 ++ status.account.username
                                 ++ "?"
                        )
-            , if reason /= AreYouSureMute then
-                text ""
+            , case reason of
+                AreYouSureMute _ ->
+                    span []
+                        [ br
+                        , checkBox (ExplorerUIMsg ToggleMuteNotifications)
+                            model.muteNotifications
+                            "Hide notifications from this user?"
+                        ]
 
-              else
-                span []
-                    [ br
-                    , checkBox (ExplorerUIMsg ToggleMuteNotifications)
-                        model.muteNotifications
-                        "Hide notifications from this user?"
-                    ]
+                _ ->
+                    text ""
             ]
         , actionBar =
             [ Html.button
