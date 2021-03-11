@@ -312,6 +312,12 @@ type PopupExplorer
     | ThreadPopupExplorer ThreadExplorerState
 
 
+type AreYouSureReason
+    = AreYouSureBlock
+    | AreYouSureMute
+    | AreYouSureDeleteStatus
+
+
 type Dialog
     = NoDialog
     | AlertDialog String
@@ -324,6 +330,7 @@ type Dialog
     | KeyboardShortcutsDialog
     | SaveRestoreDialog
     | ReportDialog Status
+    | AreYouSureDialog AreYouSureReason Status
 
 
 type Popup
@@ -786,6 +793,7 @@ type ColumnsUIMsg
     | ShowSettingsDialog
     | ShowKeyboardShortcutsDialog
     | ShowSaveRestoreDialog
+    | YesImSure AreYouSureReason Status
     | DismissDialog
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
@@ -4031,6 +4039,9 @@ columnsUIMsg msg model =
             { model | dialog = SaveRestoreDialog }
                 |> withNoCmd
 
+        YesImSure reason status ->
+            yesImSure reason status model
+
         DismissDialog ->
             dismissDialog model
 
@@ -4625,6 +4636,28 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+
+yesImSure : AreYouSureReason -> Status -> Model -> ( Model, Cmd Msg )
+yesImSure reason status model =
+    sendRequest
+        (case reason of
+            AreYouSureBlock ->
+                BlocksRequest <|
+                    Request.PostBlock { id = status.account.id }
+
+            AreYouSureMute ->
+                MutesRequest <|
+                    Request.PostAccountMute
+                        { id = status.account.id
+                        , notifications = model.muteNotifications
+                        }
+
+            AreYouSureDeleteStatus ->
+                StatusesRequest <|
+                    Request.DeleteStatus { id = status.id }
+        )
+        model
 
 
 showUndisplayed : FeedType -> Model -> ( Model, Cmd Msg )
@@ -5478,6 +5511,17 @@ commandChoice command status model =
                 , popupElement = Nothing
                 , popupChoices = []
             }
+
+        setAreYouSureDialog reason =
+            { mdl
+                | dialog = AreYouSureDialog reason status
+                , muteNotifications =
+                    if reason == AreYouSureMute then
+                        True
+
+                    else
+                        mdl.muteNotifications
+            }
     in
     case command of
         -- my post
@@ -5496,11 +5540,8 @@ commandChoice command status model =
                 mdl
 
         DeleteStatusCommand ->
-            sendRequest
-                (StatusesRequest <|
-                    Request.DeleteStatus { id = status.id }
-                )
-                mdl
+            setAreYouSureDialog AreYouSureDeleteStatus
+                |> withNoCmd
 
         DeleteAndRedraftCommand ->
             mdl |> withNoCmd
@@ -5510,21 +5551,12 @@ commandChoice command status model =
             mdl |> withNoCmd
 
         MuteCommand username ->
-            sendRequest
-                (MutesRequest <|
-                    Request.PostAccountMute
-                        { id = status.account.id
-                        , notifications = True
-                        }
-                )
-                mdl
+            setAreYouSureDialog AreYouSureMute
+                |> withNoCmd
 
         BlockCommand name ->
-            sendRequest
-                (BlocksRequest <|
-                    Request.PostBlock { id = status.account.id }
-                )
-                mdl
+            setAreYouSureDialog AreYouSureBlock
+                |> withNoCmd
 
         ReportCommand name ->
             mdl |> withNoCmd
@@ -15994,6 +16026,9 @@ renderDialog model =
         ReportDialog status ->
             reportDialog status model
 
+        AreYouSureDialog reason status ->
+            areYouSureDialog reason status model
+
         AlertDialog content ->
             alertDialog content model
 
@@ -16032,6 +16067,64 @@ dialogRender renderEnv config visible =
                     config.styles
         }
         visible
+
+
+areYouSureDialog : AreYouSureReason -> Status -> Model -> Html Msg
+areYouSureDialog reason status model =
+    let
+        which =
+            case reason of
+                AreYouSureBlock ->
+                    "block"
+
+                AreYouSureMute ->
+                    "mute"
+
+                AreYouSureDeleteStatus ->
+                    "delete"
+    in
+    dialogRender
+        model.renderEnv
+        { styles =
+            [ ( "width", "40%" )
+            , ( "font-size", fspct model.renderEnv )
+            ]
+        , title = "Confirm"
+        , content =
+            [ text <|
+                "Are you sure you want to "
+                    ++ which
+                    ++ (if reason == AreYouSureDeleteStatus then
+                            " delete this status?"
+
+                        else
+                            " @"
+                                ++ status.account.username
+                                ++ "?"
+                       )
+            , if reason /= AreYouSureMute then
+                text ""
+
+              else
+                span []
+                    [ br
+                    , checkBox (ExplorerUIMsg ToggleMuteNotifications)
+                        model.muteNotifications
+                        "Hide notifications from this user?"
+                    ]
+            ]
+        , actionBar =
+            [ Html.button
+                [ onClick (ColumnsUIMsg <| YesImSure reason status) ]
+                [ b <| SE.toSentenceCase which ]
+            , Html.button
+                [ onClick (ColumnsUIMsg DismissDialog)
+                , id nodeIds.cancelButton
+                ]
+                [ b "Cancel" ]
+            ]
+        }
+        (model.dialog /= NoDialog)
 
 
 alertDialog : String -> Model -> Html Msg
