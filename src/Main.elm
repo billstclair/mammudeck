@@ -5591,7 +5591,14 @@ commandChoice command status model =
                 |> withNoCmd
 
         DeleteAndRedraftCommand ->
-            mdl |> withNoCmd
+            mdl
+                |> withCmd
+                    (Task.perform (GlobalMsg << SetDialog) <|
+                        Task.succeed
+                            (AlertDialog
+                                "Delete and Redraft not yet available."
+                            )
+                    )
 
         -- other user's post
         MentionCommand ->
@@ -5632,7 +5639,14 @@ commandChoice command status model =
                     |> withNoCmd
 
         ReportCommand ->
-            mdl |> withNoCmd
+            mdl
+                |> withCmd
+                    (Task.perform (GlobalMsg << SetDialog) <|
+                        Task.succeed
+                            (AlertDialog
+                                "Reporting not yet available."
+                            )
+                    )
 
         _ ->
             mdl |> withNoCmd
