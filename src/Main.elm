@@ -5595,7 +5595,11 @@ commandChoice command status model =
 
         -- other user's post
         MentionCommand ->
-            mdl |> withNoCmd
+            { mdl | postState = initialPostState }
+                |> withCmd
+                    (Task.perform ColumnsUIMsg <|
+                        Task.succeed (PostWithMention status.account.username)
+                    )
 
         MuteCommand relationship ->
             if
