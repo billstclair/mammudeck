@@ -2040,12 +2040,12 @@ handleGetTimestamp key value model =
 
         Ok statusid ->
             let
-                feedid =
+                timestampId =
                     String.dropLeft (pkTimestampLength + 1) key
             in
             { model
                 | timestamps =
-                    Dict.insert feedid statusid model.timestamps
+                    Dict.insert timestampId statusid model.timestamps
             }
                 |> withNoCmd
 
@@ -5596,7 +5596,7 @@ commandChoice command status model =
                     (Task.perform (GlobalMsg << SetDialog) <|
                         Task.succeed
                             (AlertDialog
-                                "Delete and Redraft not yet available."
+                                "Delete & Redraft not yet available."
                             )
                     )
 
@@ -7375,6 +7375,16 @@ debugFeedEnvsMissing feedEnvs =
     feedEnvs
 
 
+getTimestampId : RenderEnv -> String -> Maybe String
+getTimestampId renderEnv feedId =
+    case renderEnv.loginServer of
+        Nothing ->
+            Nothing
+
+        Just loginServer ->
+            Just <| loginServer ++ "." ++ feedId
+
+
 receiveFeed : Request -> Maybe Paging -> FeedType -> Result Error Response -> Model -> ( Model, Cmd Msg )
 receiveFeed request paging feedType result model =
     let
@@ -7483,14 +7493,24 @@ receiveFeed request paging feedType result model =
                                                 ( mdl5, cmd5 ) =
                                                     webSocketConnect feedType mdl
 
-                                                ( mdl6, cmd6 ) =
-                                                    updateTimestamp feedId
-                                                        receiveType
-                                                        elem
-                                                        mdl5
+                                                ( mdl6, cmd6, timestamp ) =
+                                                    case getTimestampId renderEnv feedId of
+                                                        Nothing ->
+                                                            ( mdl5, Cmd.none, Nothing )
 
-                                                timestamp =
-                                                    Dict.get feedId model.timestamps
+                                                        Just timestampId ->
+                                                            let
+                                                                ( mdl7, cmd7 ) =
+                                                                    updateTimestamp
+                                                                        timestampId
+                                                                        receiveType
+                                                                        elem
+                                                                        mdl5
+                                                            in
+                                                            ( mdl7
+                                                            , cmd7
+                                                            , Dict.get timestampId model.timestamps
+                                                            )
                                             in
                                             ( LE.updateIf
                                                 (\feed ->
@@ -7541,7 +7561,7 @@ receiveFeed request paging feedType result model =
 
 
 updateTimestamp : String -> ReceiveFeedType -> FeedElements -> Model -> ( Model, Cmd Msg )
-updateTimestamp feedid receiveType elem model =
+updateTimestamp timestampId receiveType elem model =
     case receiveType of
         ReceiveMoreFeed ->
             model |> withNoCmd
@@ -7556,9 +7576,9 @@ updateTimestamp feedid receiveType elem model =
                         Just status ->
                             { model
                                 | timestamps =
-                                    Dict.insert feedid status.id model.timestamps
+                                    Dict.insert timestampId status.id model.timestamps
                             }
-                                |> withCmd (putTimestamp feedid <| Just status.id)
+                                |> withCmd (putTimestamp timestampId <| Just status.id)
 
                 NotificationElements notifications ->
                     case List.head notifications of
@@ -7568,9 +7588,9 @@ updateTimestamp feedid receiveType elem model =
                         Just notification ->
                             { model
                                 | timestamps =
-                                    Dict.insert feedid notification.id model.timestamps
+                                    Dict.insert timestampId notification.id model.timestamps
                             }
-                                |> withCmd (putTimestamp feedid <| Just notification.id)
+                                |> withCmd (putTimestamp timestampId <| Just notification.id)
 
                 _ ->
                     model |> withNoCmd
@@ -17022,6 +17042,7 @@ type alias PostState =
     , fileUrls : List String
     , groupName : String
     , group_id : Maybe String
+    , deleteAndRedraft : Bool
     , posting : Bool
     }
 
@@ -17038,6 +17059,7 @@ initialPostState =
     , fileUrls = []
     , groupName = ""
     , group_id = Nothing
+    , deleteAndRedraft = False
     , posting = False
     }
 
@@ -18435,6 +18457,7 @@ encodePostState postState =
         , ( "fileUrls", JE.list JE.string postState.fileUrls )
         , ( "groupName", JE.string postState.groupName )
         , ( "group_id", ED.encodeMaybe JE.string postState.group_id )
+        , ( "deleteAndRedraft", JE.bool postState.deleteAndRedraft )
         ]
 
 
@@ -18451,6 +18474,7 @@ postStateDecoder =
         |> required "fileUrls" (JD.list JD.string)
         |> optional "groupName" JD.string ""
         |> optional "group_id" (JD.nullable JD.string) Nothing
+        |> optional "deleteAndRedraft" JD.bool False
         -- "posting"
         |> custom (JD.succeed False)
         |> JD.andThen
