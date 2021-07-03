@@ -2,7 +2,7 @@
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
--- Copyright (c) 2019-2020 Bill St. Clair <billstclair@gmail.com>
+-- Copyright (c) 2019-2021 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
 -- See LICENSE
@@ -612,6 +612,7 @@ type alias Model =
 
     -- Non-persistent below here
     , maxTootCharsString : Maybe String
+    , tokenText : String
     , lastInstance : Maybe LastInstance
     , initialPage : InitialPage
     , popupExplorer : PopupExplorer
@@ -748,6 +749,8 @@ type GlobalMsg
     | SetServer String
     | Process Value
     | SetLoginServer
+    | SetTokenText String
+    | SetTokenFromText
     | Login
     | Logout
     | ClearAllDialog
@@ -1361,6 +1364,7 @@ init value url key =
 
     -- Non-persistent below here
     , maxTootCharsString = Nothing
+    , tokenText = ""
     , lastInstance = Nothing
     , initialPage = initialPage
     , popupExplorer = NoPopupExplorer
@@ -3006,6 +3010,35 @@ globalMsg msg model =
                         [ acctIdsCmd
                         , cmd
                         ]
+
+        SetTokenText text ->
+            { model | tokenText = text } |> withNoCmd
+
+        SetTokenFromText ->
+            let
+                server =
+                    model.server
+
+                tokenApi =
+                    case Dict.get server model.tokens of
+                        Just api ->
+                            { api | token = Just model.tokenText }
+
+                        Nothing ->
+                            { emptyTokenApi | token = Just model.tokenText }
+
+                mdl =
+                    { model
+                        | tokens = Dict.insert server tokenApi model.tokens
+                        , tokenText = ""
+                        , renderEnv =
+                            { renderEnv | loginServer = Just model.server }
+                    }
+
+                cmd =
+                    putToken server (Just tokenApi)
+            in
+            mdl |> withCmd cmd
 
         Login ->
             let
@@ -15598,6 +15631,18 @@ loginSelectedUI showSetServerButton model =
             span []
                 [ text " "
                 , button (GlobalMsg SetLoginServer) "Set Server"
+                , br
+                , input
+                    [ size 30
+                    , onInput (GlobalMsg << SetTokenText)
+                    , placeholder "Bearer ..."
+                    , value model.tokenText
+                    ]
+                    []
+                , text " "
+                , enabledButton ((model.tokenText /= "") && (model.server /= ""))
+                    (GlobalMsg SetTokenFromText)
+                    "Set Token"
                 ]
 
           else
@@ -17948,6 +17993,8 @@ The selector to the right of the "Server" input area shows the servers to which 
 The "Login" button logs in to the displayed "Server". This will use a saved token, if there is one, or redirect to the server's authorization page, where you will need to enter your userid/email and password, or, if there are cookies for that in your browser, just click to approve access. Your `Account` entity will be fetched and displayed.
 
 The "Set Server" button uses the "server" for API requests without logging in. Only a few API requests work without logging in, but this lets you do some exploration of a server without having an account there. The server's `Instance` entity will be fetched and displayed.
+
+The "Set Token" button uses the text to its left as the token for the "server". It is almost always of the form "Bearer <random text>". This is for servers that do not allow tokens to be minted via login with password. You'll need to pull the token from a request from the standard web page (usually in the "Network" tab of the DevTools page, accessed by "Inspect" from the right-click menu on the web page). After doing "Set Token", you need to select the server from the drop-down and click "Login".
 
 The "Logout" button logs out of the "Use API for" server. This will remove it from the server selector and clear its persistent token, requiring you to reauthenticate if you login again.
 
