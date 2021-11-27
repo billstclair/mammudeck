@@ -2,7 +2,12 @@
 
 Mammudeck now has like, repeat, and a bare-bones post dialog. It's usable for day-to-day Fediverse interaction. But there's a lot more to do.
 
-Bill St. Clair, 2 July 2020
+Bill St. Clair, 27 November 2021
+
+## Persistence
+
+* Save state in S3.
+  Document well, since the CORS setup is hard for non-wizards.
 
 ## For the Post dialog
 
@@ -29,6 +34,8 @@ Bill St. Clair, 2 July 2020
 
 ## For the Columns view
 
+* Multiple servers, each column has its own.
+  Cross-posting made easy.
 * "Update feed" button at top of feed (includes the merge code needed
   for auto-update).
 * Auto-update, likely without WebSockets initially

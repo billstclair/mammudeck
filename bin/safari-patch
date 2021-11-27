@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Fix Safari JS bug.
+# regexp and replace form from:
+# https://twitter.com/janiczek/status/1456531723408269312
+
+if [[ -z `which rexreplace` ]]; then
+  npm install -g rexreplace
+fi
+
+file=$1
+if [[ -z $file ]]; then
+  file='site/elm.js'
+fi
+
+rexreplace '^(\s*)for \(var (\w+) in (\w+)\)\s*\{' '$1for (var __keys_$2 = Object.keys($3), __i_$2 = 0; __i_$2 < __keys_$2.length; __i_$2++) { var $2 = __keys_$2[__i_$2];' $file
