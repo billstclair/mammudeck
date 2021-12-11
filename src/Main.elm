@@ -1054,6 +1054,8 @@ type ExplorerSendMsg
     | SendGetGroupTimeline
       -- All of the `SendXXX` messages receive their results via `ReceiveResponse`.
     | ReceiveResponse Request (Result Error Response)
+      -- Except posting from the Post dialog
+    | ReceivePostResponse Request (Result Error Response)
 
 
 main =
@@ -4620,7 +4622,7 @@ columnsUIMsg msg model =
                     , idempotencyKey = Nothing
                     }
             in
-            sendRequest
+            sendPostRequest
                 (StatusesRequest <| Request.PostStatus post)
                 { model | postState = { postState | posting = True } }
 
@@ -8747,6 +8749,15 @@ explorerSendMsg msg model =
         ReceiveResponse request result ->
             receiveResponse request result model
 
+        ReceivePostResponse request result ->
+            let
+                postState =
+                    model.postState
+            in
+            receiveResponse request
+                result
+                { model | postState = { postState | posting = False } }
+
         SendNothing ->
             model |> withNoCmd
 
@@ -10953,6 +10964,11 @@ smartPaging entities getid paging model =
 
     else
         model
+
+
+sendPostRequest : Request -> Model -> ( Model, Cmd Msg )
+sendPostRequest request =
+    sendGeneralRequest (ExplorerSendMsg << ReceivePostResponse request) request
 
 
 sendRequest : Request -> Model -> ( Model, Cmd Msg )
@@ -13911,8 +13927,12 @@ renderColumns model =
                 text ""
 
             Just msg ->
-                p [ style "color" "red" ]
-                    [ text msg ]
+                if model.dialog == PostDialog then
+                    text ""
+
+                else
+                    p [ style "color" "red" ]
+                        [ text msg ]
         , if model.dialog /= NoDialog || not model.scrollPillState.showScrollPill then
             text ""
 
@@ -17145,6 +17165,7 @@ postDialog model =
                 model.renderEnv
                 model.dropZone
                 model.max_toot_chars
+                model.msg
                 postState
         , actionBar =
             [ if postState.posting then
@@ -17218,8 +17239,8 @@ maximumPostAttachments =
     4
 
 
-postDialogContent : ( Bool, Bool ) -> RenderEnv -> DropZone.Model -> Int -> PostState -> List (Html Msg)
-postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone max_toot_chars postState =
+postDialogContent : ( Bool, Bool ) -> RenderEnv -> DropZone.Model -> Int -> Maybe String -> PostState -> List (Html Msg)
+postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone max_toot_chars maybeMsg postState =
     let
         { inputBackground, color } =
             getStyle renderEnv.style
@@ -17339,6 +17360,13 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone max_t
         , text " / "
         , text (String.fromInt max_toot_chars)
         ]
+    , case maybeMsg of
+        Nothing ->
+            text ""
+
+        Just msg ->
+            p [ style "color" "red" ]
+                [ text msg ]
     , p []
         [ let
             fileCount =

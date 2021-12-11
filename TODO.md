@@ -11,10 +11,12 @@ Bill St. Clair, 27 November 2021
 
 ## For the Post dialog
 
+* Change "Clear" back to "Post" when an error comes back from a post attempt.
 * Show replied/quoted post in the post dialog, likely optional.
 * Post to a group.
 * Visibility (non, public, unlisted, private, direct)
 * Post size tracking (let them post and get an error if too big).
+  **DONE**
 * Editing of posts
   (actual edit on servers that support that, delete/repost on others).
 * Upload videos.
