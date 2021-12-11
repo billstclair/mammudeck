@@ -6136,7 +6136,8 @@ dismissDialog model =
             model.popup == NoPopup && model.dialog == NoDialog
     in
     { model
-        | dialog = NoDialog
+        | msg = Nothing
+        , dialog = NoDialog
         , editColumnsMessage = Nothing
         , movingColumn = Nothing
         , showFullScrollPill = False
