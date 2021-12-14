@@ -8754,10 +8754,26 @@ explorerSendMsg msg model =
             let
                 postState =
                     model.postState
+
+                dialog =
+                    case model.dialog of
+                        PostDialog ->
+                            case result of
+                                Err _ ->
+                                    PostDialog
+
+                                _ ->
+                                    NoDialog
+
+                        _ ->
+                            model.dialog
             in
             receiveResponse request
                 result
-                { model | postState = { postState | posting = False } }
+                { model
+                    | postState = { postState | posting = False }
+                    , dialog = dialog
+                }
 
         SendNothing ->
             model |> withNoCmd
