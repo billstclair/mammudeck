@@ -789,6 +789,7 @@ type ColumnsUIMsg
     | ScrollToNew ScrollDirection FeedType
     | ScrollPage ScrollDirection
     | ScrollPageAtTime ScrollDirection Posix
+    | ReloadFromServer
     | ClearFeatures
     | ShowPostDialog (Maybe Status)
     | PostWithMention String
@@ -3966,6 +3967,9 @@ columnsUIMsg msg model =
 
             else
                 model |> withNoCmd
+
+        ReloadFromServer ->
+            model |> withCmd Navigation.reloadAndSkipCache
 
         ClearFeatures ->
             { model | features = Dict.empty } |> withNoCmd
@@ -11987,7 +11991,10 @@ settingsDialogContent model =
         ]
     , p [] [ b "Advanced:" ]
     , p []
-        [ text "Reload the page after doing this:"
+        [ button (ColumnsUIMsg ReloadFromServer) "Reload from Server"
+        , br
+        , br
+        , text "Reload the page after doing this:"
         , br
         , button (ColumnsUIMsg ClearFeatures) "Clear saved server features"
         , br
