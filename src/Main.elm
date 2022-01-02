@@ -22,6 +22,10 @@
 
 See ../TODO.md for the full list.
 
+* Login fix. See https://docs.joinmastodon.org/client/authorized/
+    There is no longer a "state" parameter.
+    Probably can't use "urn:ietf:wg:oauth:2.0:oob" for the redirect_uri.
+
 * Auto-refresh:
     "Show all undisplayed", maybe on "u".
     Periodic auto-update of user feeds.
@@ -616,6 +620,7 @@ type alias Model =
     , lastInstance : Maybe LastInstance
     , initialPage : InitialPage
     , popupExplorer : PopupExplorer
+    , code : Maybe String
     , dialog : Dialog
     , popup : Popup
     , popupElement : Maybe Dom.Element
@@ -1163,27 +1168,25 @@ emptyUrl =
     }
 
 
-type alias CodeErrorState =
+type alias CodeAndError =
     { code : Maybe String
     , error : Maybe String
-    , state : Maybe String
     }
 
 
-parseQuery : String -> CodeErrorState
+parseQuery : String -> CodeAndError
 parseQuery queryString =
     let
         url =
             { emptyUrl | query = Just queryString }
 
         qp =
-            QP.map3 CodeErrorState
+            QP.map2 CodeAndError
                 (QP.string "code")
                 (QP.string "error")
-                (QP.string "state")
     in
     Parser.parse (Parser.s emptyElement <?> qp) url
-        |> Maybe.withDefault (CodeErrorState Nothing Nothing Nothing)
+        |> Maybe.withDefault (CodeAndError Nothing Nothing)
 
 
 type alias InitialPage =
@@ -1245,39 +1248,34 @@ parseInitialPage urlin =
                 |> Maybe.withDefault emptyInitialPage
 
 
-type CodeAndState
-    = CodeAndState String (Maybe String)
-    | CodeErrorAndState String (Maybe String)
+type CodeOrError
+    = CodeCode String
+    | CodeError String
     | NoCode
 
 
-{-| This recognizes `?code=<code>&state=<state>` or `?error=<error>&state=<state>`
+{-| This recognizes `?code=<code>` or `?error=<error>`
 
 in the URL from the redirect from authentication.
 
 -}
-receiveCodeAndState : Url -> CodeAndState
-receiveCodeAndState url =
+receiveCodeOrError : Url -> CodeOrError
+receiveCodeOrError url =
     case url.query of
         Nothing ->
             NoCode
 
         Just q ->
             case parseQuery q of
-                { code, error, state } ->
+                { code, error } ->
                     case code of
                         Just cod ->
-                            case state of
-                                Just st ->
-                                    CodeAndState cod state
-
-                                Nothing ->
-                                    CodeErrorAndState "Missing state with code" code
+                            CodeCode cod
 
                         Nothing ->
                             case error of
                                 Just err ->
-                                    CodeErrorAndState err state
+                                    CodeError err
 
                                 Nothing ->
                                     NoCode
@@ -1294,16 +1292,16 @@ init value url key =
                 Ok hide ->
                     hide
 
-        ( code, state, msg ) =
-            case receiveCodeAndState url of
-                CodeAndState cod stat ->
-                    ( Just cod, stat, Nothing )
+        ( code, msg ) =
+            case receiveCodeOrError url of
+                CodeCode cod ->
+                    ( Just cod, Nothing )
 
-                CodeErrorAndState m stat ->
-                    ( Nothing, stat, Just m )
+                CodeError m ->
+                    ( Nothing, Just m )
 
                 NoCode ->
-                    ( Nothing, Nothing, Nothing )
+                    ( Nothing, Nothing )
 
         initialPage =
             Debug.log "initialPage" <| parseInitialPage url
@@ -1371,6 +1369,7 @@ init value url key =
     , lastInstance = Nothing
     , initialPage = initialPage
     , popupExplorer = NoPopupExplorer
+    , code = code
     , dialog = NoDialog
     , popup = NoPopup
     , popupElement = Nothing
@@ -1466,15 +1465,12 @@ init value url key =
         -- we'll load the saved model,
         -- and then all the saved tokens.
         -- See `storageHandler` below, `get pk.model`.
+        -- If there was a `code`, receiving the saved model will
+        -- load the saved `App` (saved by the `putApp` call in the
+        -- `ReceiveRedirect` message handler), and receiving that will
+        -- do `Login.getTokenTask`.
         |> withCmds
             [ Navigation.replaceUrl key url.path
-            , case ( code, state ) of
-                ( Just cod, Just st ) ->
-                    Login.getTokenTask { code = cod, state = st }
-                        |> Task.attempt (GlobalMsg << ReceiveAuthorization)
-
-                _ ->
-                    Cmd.none
             , Task.perform getViewport Dom.getViewport
             , Task.perform (GlobalMsg << Here) Time.here
             , makeScrollRequestWithId "body" True
@@ -1653,21 +1649,68 @@ handleListKeysResponse maybeLabel prefix keys model =
             model |> withCmds (List.map (getLabeled label) keys)
 
 
+
+-- TODO: Handle model.code not Nothing by getting saved App, then
+-- minting token, then continuing as if logged in initially.
+-- Save App on ReceiveRedirect.
+
+
 handleGetModel : Maybe Value -> Model -> ( Model, Cmd Msg )
 handleGetModel maybeValue model =
     let
-        ( mdl, cmd ) =
-            handleGetModelInternal maybeValue model
-
-        { page, request } =
-            mdl.initialPage
+        model2 =
+            { model
+                | started = Started
+                , msg = Nothing
+            }
     in
-    { mdl
+    case maybeValue of
+        Nothing ->
+            model2 |> processInitialPage
+
+        Just value ->
+            case JD.decodeValue savedModelDecoder value of
+                Err err ->
+                    { model2
+                        | msg =
+                            Just <|
+                                Debug.log "Error decoding SavedModel"
+                                    (JD.errorToString err)
+                    }
+                        |> processInitialPage
+
+                Ok savedModel ->
+                    let
+                        mdl =
+                            savedModelToModel savedModel model2
+                    in
+                    case mdl.code of
+                        Just code ->
+                            mdl |> withCmd (getApp mdl.server)
+
+                        Nothing ->
+                            let
+                                ( mdl3, cmd3 ) =
+                                    mdl |> processLoginServer
+
+                                ( mdl4, cmd4 ) =
+                                    mdl3 |> processInitialPage
+                            in
+                            mdl4 |> withCmds [ cmd3, cmd4 ]
+
+
+processInitialPage : Model -> ( Model, Cmd Msg )
+processInitialPage model =
+    let
+        { page, request } =
+            model.initialPage
+    in
+    { model
         | page =
             case page of
                 Nothing ->
                     if request == Nothing then
-                        mdl.page
+                        model.page
 
                     else
                         ExplorerPage
@@ -1677,19 +1720,18 @@ handleGetModel maybeValue model =
         , selectedRequest =
             case request of
                 Nothing ->
-                    mdl.selectedRequest
+                    model.selectedRequest
 
                 Just r ->
                     r
     }
         |> withCmds
-            [ cmd
-            , if mdl.page == HomePage then
+            [ if model.page == HomePage then
                 focusId LoginServerId
 
               else
                 Cmd.none
-            , case mdl.renderEnv.loginServer of
+            , case model.renderEnv.loginServer of
                 Just server ->
                     getFeedSetDefinition server
 
@@ -1698,64 +1740,40 @@ handleGetModel maybeValue model =
             ]
 
 
-handleGetModelInternal : Maybe Value -> Model -> ( Model, Cmd Msg )
-handleGetModelInternal maybeValue model =
-    case maybeValue of
-        Nothing ->
+processLoginServer : Model -> ( Model, Cmd Msg )
+processLoginServer model =
+    let
+        mdl =
             { model
                 | started = Started
                 , msg = Nothing
             }
-                |> withNoCmd
+    in
+    case mdl.renderEnv.loginServer of
+        Nothing ->
+            ( mdl
+            , Task.perform (GlobalMsg << SetServer) <|
+                Task.succeed mdl.server
+            )
 
-        Just value ->
-            case JD.decodeValue savedModelDecoder value of
-                Err err ->
-                    { model
-                        | started = Started
-                        , msg =
-                            Just <|
-                                Debug.log "Error decoding SavedModel"
-                                    (JD.errorToString err)
+        Just server ->
+            let
+                mdl2 =
+                    { mdl
+                        | maxTootCharsString =
+                            Just <| String.fromInt mdl.max_toot_chars
                     }
-                        |> withNoCmd
 
-                Ok savedModel ->
-                    let
-                        mdl =
-                            savedModelToModel savedModel model
+                ( mdl3, cmd3 ) =
+                    sendCustomEmojisRequest mdl2
 
-                        mdl2 =
-                            { mdl
-                                | started = Started
-                                , msg = Nothing
-                            }
-                    in
-                    case mdl2.renderEnv.loginServer of
-                        Nothing ->
-                            ( mdl2
-                            , Task.perform (GlobalMsg << SetServer) <|
-                                Task.succeed mdl2.server
-                            )
+                ( mdl4, cmd4 ) =
+                    getVerifyCredentials mdl3
 
-                        Just server ->
-                            let
-                                mdl22 =
-                                    { mdl2
-                                        | maxTootCharsString =
-                                            Just <| String.fromInt mdl2.max_toot_chars
-                                    }
-
-                                ( mdl3, cmd3 ) =
-                                    sendCustomEmojisRequest mdl22
-
-                                ( mdl4, cmd4 ) =
-                                    getVerifyCredentials mdl3
-
-                                ( mdl5, cmd5 ) =
-                                    sendRequest (ListsRequest Request.GetLists) mdl4
-                            in
-                            mdl5 |> withCmds [ cmd3, cmd4, cmd5, fetchFeatures server mdl3 ]
+                ( mdl5, cmd5 ) =
+                    sendRequest (ListsRequest Request.GetLists) mdl4
+            in
+            mdl5 |> withCmds [ cmd3, cmd4, cmd5, fetchFeatures server mdl3 ]
 
 
 sendCustomEmojisRequest : Model -> ( Model, Cmd Msg )
@@ -2000,6 +2018,36 @@ pkMaxTootCharsLength =
     String.length pk.maxTootChars
 
 
+handleGetApp : String -> Value -> Model -> ( Model, Cmd Msg )
+handleGetApp key value model =
+    case JD.decodeValue ED.appDecoder value of
+        Err err ->
+            let
+                ignore =
+                    Debug.log ("Error Decoding " ++ key) err
+            in
+            { model | code = Nothing }
+                |> withNoCmd
+
+        Ok app ->
+            case model.code of
+                Just code ->
+                    let
+                        server =
+                            appStorageKeyServer key
+
+                        cmd =
+                            Login.getTokenTask
+                                { code = code, server = server, app = app }
+                                |> Task.attempt (GlobalMsg << ReceiveAuthorization)
+                    in
+                    { model | code = Nothing }
+                        |> withCmd cmd
+
+                _ ->
+                    model |> withNoCmd
+
+
 handleGetResponse : Maybe String -> String -> Maybe Value -> Model -> ( Model, Cmd Msg )
 handleGetResponse maybeLabel key maybeValue model =
     case maybeLabel of
@@ -2030,6 +2078,9 @@ handleGetResponse maybeLabel key maybeValue model =
 
                     else if label == pk.timestamp then
                         handleGetTimestamp key value model
+
+                    else if label == pk.app then
+                        handleGetApp key value model
 
                     else
                         model |> withNoCmd
@@ -3159,14 +3210,20 @@ globalMsg msg model =
 
                 Ok ( server, app, cmd ) ->
                     { model | msg = Nothing }
-                        |> withCmds [ cmd, fetchFeatures server model ]
+                        |> withCmds
+                            [ cmd
+                            , putApp server <| Just app
+                            , fetchFeatures server model
+                            ]
 
         ReceiveAuthorization result ->
             case result of
+                -- Maybe we should also call processLoginServer here,
+                -- but I don't expect this to happen,
+                -- and loginServer would likely not be set.
                 Err ( server, err ) ->
-                    ( { model | msg = Just <| Debug.toString err }
-                    , Cmd.none
-                    )
+                    { model | msg = Just <| Debug.toString err }
+                        |> processInitialPage
 
                 Ok ( server, authorization, account ) ->
                     let
@@ -18932,6 +18989,32 @@ putToken server tokenApi =
                 Just <| encodeTokenApi tok
 
 
+appStorageKey : String -> String
+appStorageKey server =
+    pk.app ++ "." ++ server
+
+
+appStorageKeyServer : String -> String
+appStorageKeyServer key =
+    String.dropLeft (String.length pk.app + 1) key
+
+
+getApp : String -> Cmd Msg
+getApp server =
+    getLabeled pk.app <| appStorageKey server
+
+
+putApp : String -> Maybe App -> Cmd Msg
+putApp server maybeApp =
+    put (appStorageKey server) <|
+        case maybeApp of
+            Nothing ->
+                Nothing
+
+            Just app ->
+                Just <| ED.encodeApp app
+
+
 getFeedSetDefinition : String -> Cmd Msg
 getFeedSetDefinition server =
     get <| pk.feedSetDefinition ++ "." ++ server
@@ -19054,6 +19137,7 @@ pk =
     , accountIds = "accountIds"
     , maxTootChars = "maxTootChars"
     , timestamp = "timestamp"
+    , app = "app"
     }
 
 
