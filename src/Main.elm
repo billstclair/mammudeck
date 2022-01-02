@@ -3160,7 +3160,13 @@ globalMsg msg model =
                         , msg = Nothing
                     }
                         |> updatePatchCredentialsInputs
-                        |> withCmd (putToken server Nothing)
+                        |> withCmds
+                            [ putToken server Nothing
+
+                            -- Maybe should keep this and use it at next login
+                            -- instead of minting a new one.
+                            , putApp server Nothing
+                            ]
 
         ClearAllDialog ->
             model
