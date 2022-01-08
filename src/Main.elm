@@ -1,8 +1,8 @@
------------------------------------------------------------------
+----------------------------------------------------------------
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
--- Copyright (c) 2019-2021 Bill St. Clair <billstclair@gmail.com>
+-- Copyright (c) 2019-2022 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
 -- See LICENSE
@@ -336,6 +336,7 @@ type Dialog
     | SaveRestoreDialog
     | ReportDialog Status
     | AreYouSureDialog AreYouSureReason Status
+    | DocsDialog
 
 
 type Popup
@@ -615,6 +616,7 @@ type alias Model =
     , hashtagInput : String
 
     -- Non-persistent below here
+    , docSection : DocSection
     , maxTootCharsString : Maybe String
     , tokenText : String
     , lastInstance : Maybe LastInstance
@@ -749,6 +751,7 @@ type GlobalMsg
     | CollapseAll WhichJson
     | SelectTreeNode WhichJson JsonTree.KeyPath
     | SetDialog Dialog
+    | SetDocSection String
     | OnKeyPress Bool String
     | OnMouseClick ( Int, Int )
     | SetServer String
@@ -796,6 +799,7 @@ type ColumnsUIMsg
     | ScrollPageAtTime ScrollDirection Posix
     | ReloadFromServer
     | ClearFeatures
+    | ShowDocsDialog
     | ShowPostDialog (Maybe Status)
     | PostWithMention String
     | PostWithGroupId String
@@ -1078,7 +1082,8 @@ main =
 keyMsgDict : Dict String ColumnsUIMsg
 keyMsgDict =
     Dict.fromList
-        [ ( "p", ShowPostDialog Nothing )
+        [ ( "h", ShowDocsDialog )
+        , ( "p", ShowPostDialog Nothing )
         , ( "r", ReloadAllColumns )
         , ( "R", ReloadAllColumns )
         , ( "u", ShowAllUndisplayed )
@@ -1364,6 +1369,7 @@ init value url key =
     , hashtagInput = ""
 
     -- Non-persistent below here
+    , docSection = DocIntro --should probably be persistent
     , maxTootCharsString = Nothing
     , tokenText = ""
     , lastInstance = Nothing
@@ -2937,6 +2943,15 @@ globalMsg msg model =
                         focusId CancelButtonId
                     )
 
+        SetDocSection string ->
+            case LE.find (\( section, name ) -> name == string) docSections of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just ( section, _ ) ->
+                    { model | docSection = section }
+                        |> withNoCmd
+
         OnKeyPress isDown key ->
             let
                 mdl =
@@ -4036,6 +4051,10 @@ columnsUIMsg msg model =
 
         ClearFeatures ->
             { model | features = Dict.empty } |> withNoCmd
+
+        ShowDocsDialog ->
+            { model | dialog = DocsDialog }
+                |> withNoCmd
 
         ShowPostDialog maybeStatus ->
             let
@@ -11776,7 +11795,7 @@ Mammudeck is a labor of love, but I wouldn't at all mind it becoming a full-time
             , link "@billstclair@gab.com"
                 "https://gab.com/billstclair"
             , br
-            , text <| "Copyright " ++ special.copyright ++ " 2019-2020, Bill St. Clair"
+            , text <| "Copyright " ++ special.copyright ++ " 2019-2022, Bill St. Clair"
             , br
             , imageLink
                 { imageUrl = "images/elm-logo-125x125.png"
@@ -11890,6 +11909,8 @@ renderLeftColumn renderEnv =
         --, p []
         --  [ button (ColumnsUIMsg <| ClearFeatures) "clear" ]
         , p []
+            [ button (ColumnsUIMsg ShowDocsDialog) "help" ]
+        , p []
             [ button (ColumnsUIMsg ShowEditColumnsDialog) "edit" ]
         , p []
             [ button (ColumnsUIMsg ShowSettingsDialog) "settings" ]
@@ -11956,7 +11977,10 @@ settingsDialogContent model =
     , p [] [ pageSelector True (renderEnv.loginServer /= Nothing) ColumnsPage ]
     , p [] [ b "Actions:" ]
     , p []
-        [ button (ColumnsUIMsg ShowEditColumnsDialog)
+        [ button (ColumnsUIMsg ShowDocsDialog)
+            "Help Dialog"
+        , br
+        , button (ColumnsUIMsg ShowEditColumnsDialog)
             "Edit Columns Dialog"
         , br
         , button (ColumnsUIMsg ShowSaveRestoreDialog)
@@ -14399,7 +14423,7 @@ renderExplorer model =
                 , b "Dark Mode"
                 ]
             , p []
-                [ text <| "Copyright " ++ special.copyright ++ " 2019-2020, Bill St. Clair"
+                [ text <| "Copyright " ++ special.copyright ++ " 2019-2022, Bill St. Clair"
                 , br
                 , link "@billstclair@impeccable.social"
                     "https://impeccable.social/billstclair"
@@ -16397,6 +16421,9 @@ renderDialog model =
         ReportDialog status ->
             reportDialog status model
 
+        DocsDialog ->
+            docsDialog model
+
         AreYouSureDialog reason status ->
             areYouSureDialog reason status model
 
@@ -17235,7 +17262,7 @@ postDialog model =
         renderEnv
         { styles =
             [ ( "width", "50em" )
-            , ( "font-size", fspct model.renderEnv )
+            , ( "font-size", fspct renderEnv )
             ]
         , title =
             case postState.replyType of
@@ -17249,7 +17276,7 @@ postDialog model =
                     "Post"
         , content =
             postDialogContent ( hasQuoteFeature, hasGroupsFeature )
-                model.renderEnv
+                renderEnv
                 model.dropZone
                 model.max_toot_chars
                 model.msg
@@ -19418,3 +19445,164 @@ enabledSendButton enabled msg model =
 sendButton : ExplorerSendMsg -> Model -> Html Msg
 sendButton =
     enabledSendButton True
+
+
+
+---
+--- User documentation
+---
+
+
+type DocSection
+    = DocIntro
+    | DocLogin
+    | DocColumns
+    | DocApi
+    | DocSettingsDialog
+    | DocEditColumnsDialog
+    | DocSaveRestoreDialog
+    | DocKeyboardShortcutsDialog
+    | DocPostDialog
+
+
+docsDialog : Model -> Html Msg
+docsDialog model =
+    let
+        docSection =
+            model.docSection
+
+        renderEnv =
+            model.renderEnv
+    in
+    dialogRender
+        renderEnv
+        { styles =
+            [ ( "width", "50em" )
+            , ( "font-size", fspct renderEnv )
+            ]
+        , title =
+            "Help"
+        , content =
+            docsDialogContent renderEnv docSection
+        , actionBar =
+            [ if model.showLeftColumn || model.scrollPillState.showScrollPill then
+                text ""
+
+              else
+                button (ColumnsUIMsg ToggleShowScrollPill) "Show Scroll Pill"
+            , button (ColumnsUIMsg DismissDialog) "OK"
+            ]
+        }
+        True
+
+
+docSections : List ( DocSection, String )
+docSections =
+    [ ( DocIntro, "Intro" )
+    , ( DocLogin, "Login" )
+    , ( DocColumns, "Columns" )
+    , ( DocApi, "API" )
+    , ( DocSettingsDialog, "Settings" )
+    , ( DocEditColumnsDialog, "Edit Columns" )
+    , ( DocSaveRestoreDialog, "Save/Restore" )
+    , ( DocKeyboardShortcutsDialog, "Keyboard Shortcuts" )
+    , ( DocPostDialog, "Post" )
+    ]
+
+
+nextDocSection : DocSection -> ( DocSection, String )
+nextDocSection section =
+    nextDocSectionInternal section docSections
+
+
+prevDocSection : DocSection -> ( DocSection, String )
+prevDocSection section =
+    nextDocSectionInternal section <| List.reverse docSections
+
+
+nextDocSectionInternal : DocSection -> List ( DocSection, String ) -> ( DocSection, String )
+nextDocSectionInternal section sections =
+    let
+        default =
+            Maybe.withDefault ( DocIntro, "Intro" ) <| List.head sections
+    in
+    case LE.dropWhile (Tuple.first >> (/=) section) sections of
+        [] ->
+            default
+
+        tail ->
+            Maybe.withDefault default <| List.head (List.drop 1 tail)
+
+
+docSectionOption : DocSection -> ( DocSection, String ) -> Html Msg
+docSectionOption currentSection ( section, name ) =
+    option
+        [ value name
+        , selected <| section == currentSection
+        ]
+        [ text name ]
+
+
+docSectionChooser : DocSection -> Html Msg
+docSectionChooser section =
+    select [ onInput (GlobalMsg << SetDocSection) ]
+        (List.map (docSectionOption section) docSections)
+
+
+docSectionSelector : DocSection -> Html Msg
+docSectionSelector section =
+    let
+        ( prevSection, prevName ) =
+            prevDocSection section
+
+        ( nextSection, nextName ) =
+            nextDocSection section
+
+        nameLink name linkText =
+            a
+                [ href "#"
+                , onClick <| (GlobalMsg << SetDocSection) name
+                ]
+                [ text linkText ]
+    in
+    span []
+        [ nameLink prevName <| special.nbsp ++ "<" ++ special.nbsp
+        , text " "
+        , docSectionChooser section
+        , text " "
+        , nameLink nextName <| special.nbsp ++ ">" ++ special.nbsp
+        ]
+
+
+docsDialogContent : RenderEnv -> DocSection -> List (Html Msg)
+docsDialogContent renderEnv section =
+    [ docSectionSelector section
+    , Markdown.toHtml [] <|
+        case section of
+            DocIntro ->
+                "Intro"
+
+            DocLogin ->
+                "Login"
+
+            DocColumns ->
+                "Columns"
+
+            DocApi ->
+                "API"
+
+            DocSettingsDialog ->
+                "Settings"
+
+            DocEditColumnsDialog ->
+                "Columns Dialog"
+
+            DocSaveRestoreDialog ->
+                "Save/Restore"
+
+            DocKeyboardShortcutsDialog ->
+                "Keyboard Shortcuts"
+
+            DocPostDialog ->
+                "Post"
+    ]
