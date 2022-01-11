@@ -2682,7 +2682,29 @@ updateInternal msg model =
                     model |> withCmd (openWindow <| JE.string url)
 
         OnUrlChange url ->
-            model |> withNoCmd
+            case url.fragment of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just fragment ->
+                    if String.startsWith "help." fragment then
+                        let
+                            name =
+                                String.dropLeft 5 fragment
+                        in
+                        case LE.find (\( _, _, dn ) -> dn == name) docSections of
+                            Nothing ->
+                                model |> withNoCmd
+
+                            Just ( section, _, _ ) ->
+                                { model
+                                    | dialog = DocsDialog
+                                    , docSection = section
+                                }
+                                    |> withNoCmd
+
+                    else
+                        model |> withNoCmd
 
         GlobalMsg m ->
             globalMsg m model
@@ -2944,11 +2966,11 @@ globalMsg msg model =
                     )
 
         SetDocSection string ->
-            case LE.find (\( section, name ) -> name == string) docSections of
+            case LE.find (\( section, name, _ ) -> name == string) docSections of
                 Nothing ->
                     model |> withNoCmd
 
-                Just ( section, _ ) ->
+                Just ( section, _, _ ) ->
                     { model | docSection = section }
                         |> withNoCmd
 
@@ -17048,7 +17070,8 @@ keyboardShortcutsDialogRows model =
     in
     [ p [] [ text "Active when no dialog is up (except <esc>)." ]
     , table []
-        [ row "p" "Show Post dialog" Nothing
+        [ row "h" "Show Help Dialog" Nothing
+        , row "p" "Show Post dialog" Nothing
         , row "r" "Reload all columns" Nothing
         , row "u" "Show all undisplayed" Nothing
         , row "," "Show Settings dialog" Nothing
@@ -19496,37 +19519,37 @@ docsDialog model =
         True
 
 
-docSections : List ( DocSection, String )
+docSections : List ( DocSection, String, String )
 docSections =
-    [ ( DocIntro, "Intro" )
-    , ( DocLogin, "Login" )
-    , ( DocColumns, "Columns" )
-    , ( DocApi, "API" )
-    , ( DocSettingsDialog, "Settings" )
-    , ( DocEditColumnsDialog, "Edit Columns" )
-    , ( DocSaveRestoreDialog, "Save/Restore" )
-    , ( DocKeyboardShortcutsDialog, "Keyboard Shortcuts" )
-    , ( DocPostDialog, "Post" )
+    [ ( DocIntro, "Intro", "intro" )
+    , ( DocLogin, "Login", "login" )
+    , ( DocColumns, "Columns", "columns" )
+    , ( DocApi, "API", "api" )
+    , ( DocSettingsDialog, "Settings", "settings" )
+    , ( DocEditColumnsDialog, "Edit Columns", "edit-columns" )
+    , ( DocSaveRestoreDialog, "Save/Restore", "save/restore" )
+    , ( DocKeyboardShortcutsDialog, " Keyboard Shortcuts ", " keyboard-shortcuts" )
+    , ( DocPostDialog, "Post", "post" )
     ]
 
 
-nextDocSection : DocSection -> ( DocSection, String )
+nextDocSection : DocSection -> ( DocSection, String, String )
 nextDocSection section =
     nextDocSectionInternal section docSections
 
 
-prevDocSection : DocSection -> ( DocSection, String )
+prevDocSection : DocSection -> ( DocSection, String, String )
 prevDocSection section =
     nextDocSectionInternal section <| List.reverse docSections
 
 
-nextDocSectionInternal : DocSection -> List ( DocSection, String ) -> ( DocSection, String )
+nextDocSectionInternal : DocSection -> List ( DocSection, String, String ) -> ( DocSection, String, String )
 nextDocSectionInternal section sections =
     let
         default =
-            Maybe.withDefault ( DocIntro, "Intro" ) <| List.head sections
+            Maybe.withDefault ( DocIntro, "Intro", "intro" ) <| List.head sections
     in
-    case LE.dropWhile (Tuple.first >> (/=) section) sections of
+    case LE.dropWhile (\( s, _, _ ) -> s /= section) sections of
         [] ->
             default
 
@@ -19534,8 +19557,8 @@ nextDocSectionInternal section sections =
             Maybe.withDefault default <| List.head (List.drop 1 tail)
 
 
-docSectionOption : DocSection -> ( DocSection, String ) -> Html Msg
-docSectionOption currentSection ( section, name ) =
+docSectionOption : DocSection -> ( DocSection, String, String ) -> Html Msg
+docSectionOption currentSection ( section, name, _ ) =
     option
         [ value name
         , selected <| section == currentSection
@@ -19552,10 +19575,10 @@ docSectionChooser section =
 docSectionSelector : DocSection -> Html Msg
 docSectionSelector section =
     let
-        ( prevSection, prevName ) =
+        ( prevSection, prevName, _ ) =
             prevDocSection section
 
-        ( nextSection, nextName ) =
+        ( nextSection, nextName, _ ) =
             nextDocSection section
 
         nameLink name linkText =
@@ -19580,7 +19603,7 @@ docsDialogContent renderEnv section =
     , Markdown.toHtml [] <|
         case section of
             DocIntro ->
-                "Intro"
+                "Intro [Login](#help.login)"
 
             DocLogin ->
                 "Login"
