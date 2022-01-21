@@ -14,7 +14,7 @@
 --
 -- https://mammudeck.com/...
 --
---   ?page=[splash|columns|api]
+--   ?page=[home|columns|api]
 --   &api=[key in selectedRequestFromUrlDict]
 --
 ----------------------------------------------------------------------
@@ -1224,7 +1224,7 @@ parseInitialPage urlin =
 
                             Just p ->
                                 case p of
-                                    "splash" ->
+                                    "home" ->
                                         Just HomePage
 
                                     "columns" ->
@@ -2674,7 +2674,7 @@ updateInternal msg model =
             model |> withNoCmd
 
         OnUrlRequest urlRequest ->
-            case urlRequest of
+            case Debug.log "OnUrlRequest" urlRequest of
                 Internal _ ->
                     model |> withNoCmd
 
@@ -2682,7 +2682,11 @@ updateInternal msg model =
                     model |> withCmd (openWindow <| JE.string url)
 
         OnUrlChange url ->
-            case url.fragment of
+            let
+                url2 =
+                    Debug.log "OnUrlChange" url
+            in
+            case url2.fragment of
                 Nothing ->
                     model |> withNoCmd
 
@@ -11786,6 +11790,8 @@ Mammudeck is a TweetDeck-like columnar interface to Mastodon/Pleroma. It is a wo
 
 [Wikipedia says](https://en.wikipedia.org/wiki/Mastodon) that "Mastodons... are any species of extinct proboscideans in the genus Mammut (family Mammutidae), distantly related to elephants..." I removed the ending "t" from "Mammut" and added "deck" to get "Mammudeck".
 
+Help is avaiable in the [Help](#help.intro) dialog.
+
     """
         , p []
             [ img
@@ -11804,7 +11810,7 @@ You may choose amongst known sites in the pop-up below "Server:", then click the
 
 There's a huge list of servers at [fediverse.network](https://fediverse.network/). This webapp doesn't know how to register a new account (yet), so you'll have to do that on the server's web site, then come back here to log in.
 
-Mammudeck is a labor of love, but I wouldn't at all mind it becoming a full-time job. That can only happen if you, my customers, support me. If you use it, and like it, please donate at [paypal.me/billstclair](https://www.paypal.me/billstclair).
+Mammudeck is a labor of love, but I wouldn't at all mind earning some income from it. That can only happen if you, my customers, support me. If you use it, and like it, please donate at [paypal.me/billstclair](https://www.paypal.me/billstclair).
             """
         , p [ style "text-align" "center" ]
             [ checkBox (ColumnsUIMsg ToggleStyle)
@@ -19480,6 +19486,9 @@ type DocSection
     = DocIntro
     | DocLogin
     | DocColumns
+    | DocColumnEntry
+    | DocLeftColumn
+    | DocScrollPill
     | DocApi
     | DocSettingsDialog
     | DocEditColumnsDialog
@@ -19524,12 +19533,15 @@ docSections =
     [ ( DocIntro, "Intro", "intro" )
     , ( DocLogin, "Login", "login" )
     , ( DocColumns, "Columns", "columns" )
-    , ( DocApi, "API", "api" )
+    , ( DocColumnEntry, "Column Entry", "column-entry" )
+    , ( DocLeftColumn, "Left Column", "left-column" )
+    , ( DocScrollPill, "Scroll Pill", "scroll-pill" )
     , ( DocSettingsDialog, "Settings", "settings" )
     , ( DocEditColumnsDialog, "Edit Columns", "edit-columns" )
     , ( DocSaveRestoreDialog, "Save/Restore", "save/restore" )
-    , ( DocKeyboardShortcutsDialog, " Keyboard Shortcuts ", " keyboard-shortcuts" )
+    , ( DocKeyboardShortcutsDialog, "Keyboard Shortcuts", "keyboard-shortcuts" )
     , ( DocPostDialog, "Post", "post" )
+    , ( DocApi, "API", "api" )
     ]
 
 
@@ -19597,35 +19609,114 @@ docSectionSelector section =
         ]
 
 
+type DocContent
+    = DocMarkdown String
+    | DocHtml (List (Html Msg))
+
+
+contentToHtml : DocContent -> List (Html Msg)
+contentToHtml content =
+    case content of
+        DocMarkdown string ->
+            [ Markdown.toHtml [] string ]
+
+        DocHtml list ->
+            list
+
+
 docsDialogContent : RenderEnv -> DocSection -> List (Html Msg)
 docsDialogContent renderEnv section =
-    [ docSectionSelector section
-    , Markdown.toHtml [] <|
-        case section of
-            DocIntro ->
-                "Intro [Login](#help.login)"
+    docSectionSelector section
+        :: (contentToHtml <|
+                case section of
+                    DocIntro ->
+                        DocMarkdown """
+When you first go to [mammudeck.com](./), it brings up the [Home](?page=home) page, if you're not logged in, or the [Columns](#help.columns) page, if you are. You can use the [API Explorer](#help.api) page to do low-level API calls, whether logged in or not. Everything about your session is stored persistently (in your browser's [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) database), so the next time you return to Mammudeck (from the same browser), everything will be as it was when you last came here, except the column content will be updated. Usually, you'll (login)[#login] from the Home page, and spend most of your time on the [Columns](#help.columns] page.
+"""
 
-            DocLogin ->
-                "Login"
+                    DocLogin ->
+                        DocMarkdown """
+You can login to a server that supports the [Mastodon client protocol](https://docs.joinmastodon.org/client/intro/), usually a [Mastodon](https://joinmastodon.org/) or [Pleroma](https://pleroma.social/) server, but there are others. Login forms are on the [Home](?page=home) page, the [API Explorer](#help.api) page, and the [settings](#help.settings) dialog. Enter the server name (e.g. "mastodon.online"), and click the "Login" button. This will take you to the server for your username and password, then switch back to Mammudeck, on successful login. Mammudeck doesn't yet support creation of accounts, so you'll have to do that on the server before logging in from Mammudeck.
 
-            DocColumns ->
-                "Columns"
+Pleroma servers tell Mammudeck how many characters are allowed in a post. Mastodon servers do not, so if you know that the server you're using allows more than the default of 300 characters, enter that as the "Max Toot Chars" before clicking the "Login" button. Posting will work if you don't update this number, but it will warn about posts that exceed this length, and attempting to make a longer post will get an error from the server.
+"""
 
-            DocApi ->
-                "API"
+                    DocColumns ->
+                        DocMarkdown """
+The [Columns](#help.columns) page shows the feeds you are following. It is the default page when you're logged in. You can switch to it from the "Columns/Home/API Explorer" popup on the Home and API pages, and in the left column and [Settings](#help.settings) dialog on the Columns page. You can add columns from the [Edit Columns](#help.edit-columns) dialog.
 
-            DocSettingsDialog ->
-                "Settings"
+By default, the Columns page has a [left column](#help.left-column), supporting some of the [Settings](#help.settings) dialog features, and a [scroll pill](#help.scroll-pill), a light-blue square with left and right-pointing triangles, in the lower-right-hand corner of the screen. You can disable them in the [Settings](#help.settings) dialog. The left-column is mostly for newbies, and is a waste of screen space once you learn how to use the [Settings](#help.settings) dialog. The scroll pill is mostly for devices without keyboards, e.g. phones and tablets, but some prefer clicking to typing, so will keep it visible always.
 
-            DocEditColumnsDialog ->
-                "Columns Dialog"
+If you hide both the left column and the scroll pill on a device with no keyboard, the only way to get them back, is to reply to a post. The [Post Dialog](#help.post) has a "Show Scroll Pill" button in this case.
+"""
 
-            DocSaveRestoreDialog ->
-                "Save/Restore"
+                    DocColumnEntry ->
+                        DocMarkdown """
+ColumnEntry
+"""
 
-            DocKeyboardShortcutsDialog ->
-                "Keyboard Shortcuts"
+                    DocLeftColumn ->
+                        DocMarkdown """
+The left column of the [Columns](#help.columns) page is visible by default. You can hide it in the [Settings](#help.settings) dialog.
 
-            DocPostDialog ->
-                "Post"
-    ]
+Click the "server" button to bring up a [login](#help.login) dialog.
+
+Check the "dark" box to change the background from light to dark.
+
+For "font", click "X" to return to the default, "^" to make the font bigger, or "v" to make the font smaller.
+
+For "width", click "^" to make the width of the columns larger or "v" to make it smaller. The columns size will always be an even divisor of the window width, so that some number of full columns will be visible at once (without the left column).
+
+Click the "help" button to bring up this Help dialog.
+
+Click the "edit" button to bring up the [Edit Columns](#help.edit-columns) dialog.
+
+Click the "settings" button to bring up the [Settings](#help.settings) dialog.
+
+Click the "save" button to bring up the [Save/Restore](#help.save/restore) dialog.
+
+Click the "keyboard" button to bring up the [Keyboard Shortcuts](#help.keyboard-shortcuts) dialog.
+
+
+Click the "reload" button to refresh all columns from the logged-in server.
+
+The "display all" button currently does nothing. When I re-enable streaming column updates, it will cause undisplayed posts to be displayed.
+
+Click the "post" button to bring up the [Post](#help.post) dialog.
+"""
+
+                    DocScrollPill ->
+                        DocMarkdown """
+Scroll Pill
+"""
+
+                    DocSettingsDialog ->
+                        DocMarkdown """
+Settings
+"""
+
+                    DocEditColumnsDialog ->
+                        DocMarkdown """
+Columns Dialog
+"""
+
+                    DocSaveRestoreDialog ->
+                        DocMarkdown """
+Save/Restore
+"""
+
+                    DocKeyboardShortcutsDialog ->
+                        DocMarkdown """
+Keyboard Shortcuts
+"""
+
+                    DocPostDialog ->
+                        DocMarkdown """
+Post
+"""
+
+                    DocApi ->
+                        DocMarkdown """
+API
+"""
+           )
