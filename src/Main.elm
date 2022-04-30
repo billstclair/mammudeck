@@ -19631,12 +19631,14 @@ docsDialogContent renderEnv section =
                 case section of
                     DocIntro ->
                         DocMarkdown """
-When you first go to [mammudeck.com](./), it brings up the [Home](?page=home) page, if you're not logged in, or the [Columns](#help.columns) page, if you are. You can use the [API Explorer](#help.api) page to do low-level API calls, whether logged in or not. Everything about your session is stored persistently (in your browser's [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) database), so the next time you return to Mammudeck (from the same browser), everything will be as it was when you last came here, except the column content will be updated. Usually, you'll (login)[#login] from the Home page, and spend most of your time on the [Columns](#help.columns] page.
+When you first go to [mammudeck.com](./), it brings up the [Home](?page=home) page, if you're not logged in, or the [Columns](#help.columns) page, if you are. You can use the [API Explorer](#help.api) page to do low-level API calls, whether logged in or not. Everything about your session is stored persistently (in your browser's [localStorage 🔗](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) database), so the next time you return to Mammudeck (from the same browser), everything will be as it was when you last came here, except the column content will be updated. Usually, you'll [login](#help.login) from the Home page, and spend most of your time on the [Columns](#help.columns) page.
+
+Link in this help which go to an external page are marked with a link icon:  🔗. Since I couldn't figure out how to get Elm's markdown to open those in a new tab, if you click on one without a keyboard modifier, it will leave the Mammudeck page, and lose your column content state.
 """
 
                     DocLogin ->
                         DocMarkdown """
-You can login to a server that supports the [Mastodon client protocol](https://docs.joinmastodon.org/client/intro/), usually a [Mastodon](https://joinmastodon.org/) or [Pleroma](https://pleroma.social/) server, but there are others. Login forms are on the [Home](?page=home) page, the [API Explorer](#help.api) page, and the [settings](#help.settings) dialog. Enter the server name (e.g. "mastodon.online"), and click the "Login" button. This will take you to the server for your username and password, then switch back to Mammudeck, on successful login. Mammudeck doesn't yet support creation of accounts, so you'll have to do that on the server before logging in from Mammudeck.
+You can login to a server that supports the [Mastodon client protocol 🔗](https://docs.joinmastodon.org/client/intro/), usually a [Mastodon 🔗](https://joinmastodon.org/) or [Pleroma 🔗](https://pleroma.social/) server, but there are others. Login forms are on the [Home](?page=home) page, the [API Explorer](#help.api) page, and the [settings](#help.settings) dialog. Enter the server name (e.g. "mastodon.online"), and click the "Login" button. This will take you to the server for your username and password, then switch back to Mammudeck, on successful login. Mammudeck doesn't yet support creation of accounts, so you'll have to do that on the server before logging in from Mammudeck.
 
 Pleroma servers tell Mammudeck how many characters are allowed in a post. Mastodon servers do not, so if you know that the server you're using allows more than the default of 300 characters, enter that as the "Max Toot Chars" before clicking the "Login" button. Posting will work if you don't update this number, but it will warn about posts that exceed this length, and attempting to make a longer post will get an error from the server.
 """
@@ -19644,6 +19646,8 @@ Pleroma servers tell Mammudeck how many characters are allowed in a post. Mastod
                     DocColumns ->
                         DocMarkdown """
 The [Columns](#help.columns) page shows the feeds you are following. It is the default page when you're logged in. You can switch to it from the "Columns/Home/API Explorer" popup on the Home and API pages, and in the left column and [Settings](#help.settings) dialog on the Columns page. You can add columns from the [Edit Columns](#help.edit-columns) dialog.
+
+The bulk of the Columns page is columns filled with [Column Entries](#help.column-entry).
 
 By default, the Columns page has a [left column](#help.left-column), supporting some of the [Settings](#help.settings) dialog features, and a [scroll pill](#help.scroll-pill), a light-blue square with left and right-pointing triangles, in the lower-right-hand corner of the screen. You can disable them in the [Settings](#help.settings) dialog. The left-column is mostly for newbies, and is a waste of screen space once you learn how to use the [Settings](#help.settings) dialog. The scroll pill is mostly for devices without keyboards, e.g. phones and tablets, but some prefer clicking to typing, so will keep it visible always.
 
