@@ -19626,25 +19626,36 @@ contentToHtml content =
 
 docsDialogContent : RenderEnv -> DocSection -> List (Html Msg)
 docsDialogContent renderEnv section =
+    let
+        ( w, h ) =
+            renderEnv.windowSize
+
+        height =
+            80 * h // 100 |> String.fromInt
+    in
     docSectionSelector section
-        :: (contentToHtml <|
-                case section of
-                    DocIntro ->
-                        DocMarkdown """
+        :: [ div
+                [ style "overflow-y" "auto"
+                , style "max-height" height
+                ]
+                (contentToHtml <|
+                    case section of
+                        DocIntro ->
+                            DocMarkdown """
 When you first go to [mammudeck.com](./), it brings up the [Home](?page=home) page, if you're not logged in, or the [Columns](#help.columns) page, if you are. You can use the [API Explorer](#help.api) page to do low-level API calls, whether logged in or not. Everything about your session is stored persistently (in your browser's [localStorage 🔗](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) database), so the next time you return to Mammudeck (from the same browser), everything will be as it was when you last came here, except the column content will be updated. Usually, you'll [login](#help.login) from the Home page, and spend most of your time on the [Columns](#help.columns) page.
 
 Link in this help which go to an external page are marked with a link icon:  🔗. Since I couldn't figure out how to get Elm's markdown to open those in a new tab, if you click on one without a keyboard modifier, it will leave the Mammudeck page, and lose your column content state.
 """
 
-                    DocLogin ->
-                        DocMarkdown """
+                        DocLogin ->
+                            DocMarkdown """
 You can login to a server that supports the [Mastodon client protocol 🔗](https://docs.joinmastodon.org/client/intro/), usually a [Mastodon 🔗](https://joinmastodon.org/) or [Pleroma 🔗](https://pleroma.social/) server, but there are others. Login forms are on the [Home](?page=home) page, the [API Explorer](#help.api) page, and the [settings](#help.settings) dialog. Enter the server name (e.g. "mastodon.online"), and click the "Login" button. This will take you to the server for your username and password, then switch back to Mammudeck, on successful login. Mammudeck doesn't yet support creation of accounts, so you'll have to do that on the server before logging in from Mammudeck.
 
 Pleroma servers tell Mammudeck how many characters are allowed in a post. Mastodon servers do not, so if you know that the server you're using allows more than the default of 300 characters, enter that as the "Max Toot Chars" before clicking the "Login" button. Posting will work if you don't update this number, but it will warn about posts that exceed this length, and attempting to make a longer post will get an error from the server.
 """
 
-                    DocColumns ->
-                        DocMarkdown """
+                        DocColumns ->
+                            DocMarkdown """
 The [Columns](#help.columns) page shows the feeds you are following. It is the default page when you're logged in. You can switch to it from the "Columns/Home/API Explorer" popup on the Home and API pages, and in the left column and [Settings](#help.settings) dialog on the Columns page. You can add columns from the [Edit Columns](#help.edit-columns) dialog.
 
 The bulk of the Columns page is columns filled with [Column Entries](#help.column-entry).
@@ -19654,13 +19665,13 @@ By default, the Columns page has a [left column](#help.left-column), supporting 
 If you hide both the left column and the scroll pill on a device with no keyboard, the only way to get them back, is to reply to a post. The [Post Dialog](#help.post) has a "Show Scroll Pill" button in this case.
 """
 
-                    DocColumnEntry ->
-                        DocMarkdown """
+                        DocColumnEntry ->
+                            DocMarkdown """
 Each column is filled with column entries, which are scrollable. If you scroll to near the bottom of the column, and there are more entries to show, they will be automatically loaded from the server. There are two types of column entry, notifications and everything else. The only real difference is that notification entries usually have a header identifying the type of notification. The circle with arrows to the left of the column title causes the column to be refreshed from the server. Below that is a list of how many new entries were loaded on the last refresh. Clicking that number clears it. There is a thick red bard below the last new entry. Each entry starts with a header identifying the poster. It contains image, name, username (beginning with @) and the date/time of the post. Clicking on a user name brings up a new tab, showing the user page on its server. Clicking on the data/time brings up a new tab showing the post on its server.
 """
 
-                    DocLeftColumn ->
-                        DocMarkdown """
+                        DocLeftColumn ->
+                            DocMarkdown """
 The left column of the [Columns](#help.columns) page is visible by default. You can hide it in the [Settings](#help.settings) dialog.
 
 Click the "server" button to bring up a [login](#help.login) dialog.
@@ -19689,13 +19700,13 @@ The "display all" button currently does nothing. When I re-enable streaming colu
 Click the "post" button to bring up the [Post](#help.post) dialog.
 """
 
-                    DocScrollPill ->
-                        DocMarkdown """
+                        DocScrollPill ->
+                            DocMarkdown """
 The scroll pill is in the lower right-hand corner of the page. It is a square with triangles on the two sides, sitting on top of a server identifier. The scroll pill and the server identified may be hidden in the Settings dialog. If you click on one of the triangles, the column display will be scrolled a page in that direction. If you douhble click, it will scroll (horizontally) to the end. If you click on square, it will be replaced by four square buttons. The top button brings up the Settings dialog. The next button refreshes all the columns. The button below that currently does nothing, but it will cause hidden column entries to be displayed when I add streaming updates. The bottom button brings up the Post dialog. Typing "esc" hides the four buttons, replacing them with a single blank square.
 """
 
-                    DocSettingsDialog ->
-                        DocMarkdown """
+                        DocSettingsDialog ->
+                            DocMarkdown """
 The settings dialog can be shown by either the scroll pill, the left column, or by typing a comma (","). It contains a bunch of controls:
 
 * If you are currently logged in to a server, it will show your @nick, the server name, and a "Logout" button.
@@ -19715,28 +19726,29 @@ The settings dialog can be shown by either the scroll pill, the left column, or 
 * The "Clear all persistent state!" button removes all saved state, including server tokens and column layout. It brings up a confirmation dialog before erasing.
 """
 
-                    DocEditColumnsDialog ->
-                        DocMarkdown """
+                        DocEditColumnsDialog ->
+                            DocMarkdown """
 Columns Dialog
 """
 
-                    DocSaveRestoreDialog ->
-                        DocMarkdown """
+                        DocSaveRestoreDialog ->
+                            DocMarkdown """
 Save/Restore
 """
 
-                    DocKeyboardShortcutsDialog ->
-                        DocMarkdown """
+                        DocKeyboardShortcutsDialog ->
+                            DocMarkdown """
 Keyboard Shortcuts
 """
 
-                    DocPostDialog ->
-                        DocMarkdown """
+                        DocPostDialog ->
+                            DocMarkdown """
 Post
 """
 
-                    DocApi ->
-                        DocMarkdown """
+                        DocApi ->
+                            DocMarkdown """
 API
 """
-           )
+                )
+           ]
