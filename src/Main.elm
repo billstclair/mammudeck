@@ -19656,7 +19656,7 @@ If you hide both the left column and the scroll pill on a device with no keyboar
 
                     DocColumnEntry ->
                         DocMarkdown """
-ColumnEntry
+Each column is filled with column entries, which are scrollable. If you scroll to near the bottom of the column, and there are more entries to show, they will be automatically loaded from the server. There are two types of column entry, notifications and everything else. The only real difference is that notification entries usually have a header identifying the type of notification. The circle with arrows to the left of the column title causes the column to be refreshed from the server. Below that is a list of how many new entries were loaded on the last refresh. Clicking that number clears it. There is a thick red bard below the last new entry. Each entry starts with a header identifying the poster. It contains image, name, username (beginning with @) and the date/time of the post. Clicking on a user name brings up a new tab, showing the user page on its server. Clicking on the data/time brings up a new tab showing the post on its server.
 """
 
                     DocLeftColumn ->
@@ -19691,12 +19691,28 @@ Click the "post" button to bring up the [Post](#help.post) dialog.
 
                     DocScrollPill ->
                         DocMarkdown """
-Scroll Pill
+The scroll pill is in the lower right-hand corner of the page. It is a square with triangles on the two sides, sitting on top of a server identifier. The scroll pill and the server identified may be hidden in the Settings dialog. If you click on one of the triangles, the column display will be scrolled a page in that direction. If you douhble click, it will scroll (horizontally) to the end. If you click on square, it will be replaced by four square buttons. The top button brings up the Settings dialog. The next button refreshes all the columns. The button below that currently does nothing, but it will cause hidden column entries to be displayed when I add streaming updates. The bottom button brings up the Post dialog. Typing "esc" hides the four buttons, replacing them with a single blank square.
 """
 
                     DocSettingsDialog ->
                         DocMarkdown """
-Settings
+The settings dialog can be shown by either the scroll pill, the left column, or by typing a comma (","). It contains a bunch of controls:
+
+* If you are currently logged in to a server, it will show your @nick, the server name, and a "Logout" button.
+* Below that is where you can select and login to a server. Select the server from the pop-up or type its domain name, for Mastadon servers that support other than the default 300-character post, enter the number of characters supported (Pleroma servers send that number as part of the login protocol, but Mastodon servers do not). Click the "Login" button, and enter your username and password in the resulting server dialog.
+* The "Page" pop-up allows you to choose between "Columns", "Home" and "API Explorer". You'll spend most of your time on the "Columns" page. The ["API Explorer"](#help.api) page allows you to send commands to the server and see the JSON returned; it is mostly useful to developers.
+* The "Help Dialog" button shows this dialog.
+* The "Edit Columns Dialog" button shows the ["Edit Columns"](#help.edit-columns) dialog.
+* The "Save/Restore Dialog" button shows the ["Save/Restore"](#help.save/restore) dialog.
+* The "Keyboard Shortcuts Dialog" button shows the ["Keyboard Shortcuts"](#help.keyboard-shortcuts) dialog.
+* The "Reload All Columns" button reloads from the server the contents of all columns.
+* The "Show All Undisplayed" button currently does nothing.
+* The "Post Dialog" button shows the ["Post"](#help.post) dialog.
+* The "Appearance" section allows you to change the displayed font size and column width. "X" returns to the default font size. "^" and "v" increase and decrease the font size or column width. The "dark" button shows a dark background when checked.
+* The "Show/Hide Left Column", "Show/Hide Scroll Pill", and "Show/Hide Server under Scroll Pill" buttons do what they say.
+* The "Reload from Server" button reloads the JavaScript code from the server. It is mostly useful when you save the Mammudeck icon on your phone screen, to ensure you're running the latest version of the code.
+* The "Clear saved server features" button clears some internal state. It's mostly for development debugging."
+* The "Clear all persistent state!" button removes all saved state, including server tokens and column layout. It brings up a confirmation dialog before erasing.
 """
 
                     DocEditColumnsDialog ->
