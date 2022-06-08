@@ -19728,27 +19728,39 @@ The settings dialog can be shown by either the scroll pill, the left column, or 
 
                         DocEditColumnsDialog ->
                             DocMarkdown """
-Columns Dialog
+The "Edit Columns" dialog is available from the "Edit Columns" button on the ["Settings"](help.settings) dialog. It has choices at the top of the window and a list of columns at the bottom of the window. The choices are "Home", "Notifications", "Public", "User", "Hashtag", and "List". A column that is already included will not be shown. Neither will a column that isn't supported by the current server. You need to type a username, either "user", for users on the logged-in-server, or "user@server.suf", for users on other servers. As you type, Mammudeck will send queries to the server to find a list of users containing the string you've typed. Likewise with "Hashtag". Type the hashtag you want, without the leading sharp sign ("#"). Sometimes the Hashtag search doesn't work, but if it does, you'll be shown possible matches as you type.
+
+To add a column, click on the "+" button to the right of it in the top of the window. To remove a column, click on the "x" button to the right of it in the bottom of the window. To move a column, click on the three bars button to its left, then click on the position you want to move it to.
+
+Click "OK" or press the "esc" key to dismiss the dialog.
 """
 
                         DocSaveRestoreDialog ->
                             DocMarkdown """
-Save/Restore
+The "Save/Restore" dialog is available from the "Save/Restore Dialog" button on the ["Settings"](help.settings) dialog. It has three sections, each of which contains the JSON for that persistent setting. You can copy them, or paste and click the "Resample" button to store.
 """
 
                         DocKeyboardShortcutsDialog ->
                             DocMarkdown """
-Keyboard Shortcuts
+The "Keyboard Shortcuts" dialog is available from the "Keyboard Shortcuts Dialog" bytton on the ["Settings"](help.settings) dialog or by typing "?". It shows all the one-letter commands. Dismiss it by pressing the "OK" button or the "esc" key.
 """
 
                         DocPostDialog ->
                             DocMarkdown """
-Post
+The "Post" dialog is available from the "Post Dialog" button the ["Settings"](help.settings) dialog, or by typing "p".
+
+The contents of the Post dialog are persistent. If it has information about a post being replied to, you can clear that by pressing the "Clear Reply" button.
+
+The "Hide" button hids the dialog, without losing anything you've already typed. The "Post" button posts to the server. The dialog will close when the post has been made successfully. Until then, you can click the "Hide" button to finish the post in the background.
+
+The "Choose File" button allows you to choose an image or video file to attach to your post. You can also drag an image and drop it in the rectangular box to the right of the "Choose File" button.
+
+Below the text entry box is a display of the total characters in the post and the total allowed characters.
 """
 
                         DocApi ->
                             DocMarkdown """
-API
+The "Mastodon API Explorer" window is available from the "Page" popup on the home page or the ["Settings"](help.settings) dialog. It has its own help. Click on a section and its help will appear at the bottom of the page.
 """
                 )
            ]
