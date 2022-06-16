@@ -332,6 +332,7 @@ type Dialog
     | PostDialog
     | AttachmentDialog AttachmentView
     | SettingsDialog
+    | S3Dialog
     | KeyboardShortcutsDialog
     | SaveRestoreDialog
     | ReportDialog Status
@@ -553,6 +554,13 @@ type alias LastInstance =
     }
 
 
+type alias S3Access =
+    { url : String
+    , accessKeyId : String
+    , secretAccessKey : String
+    }
+
+
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -614,8 +622,11 @@ type alias Model =
     , groupNameInput : String
     , groupInput : Maybe Group
     , hashtagInput : String
+    , s3Access : Maybe S3Access
 
     -- Non-persistent below here
+    , s3PersistTime : Maybe Int
+    , s3PersistState : Dict String String
     , docSection : DocSection
     , maxTootCharsString : Maybe String
     , tokenText : String
@@ -781,6 +792,7 @@ type ColumnsUIMsg
     | ResetFontSize
     | FontSize VerticalDirection
     | ColumnWidth VerticalDirection
+    | ShowServerDialog
     | ToggleStyle
     | ReloadAllColumns
     | MarkFeedRead FeedType
@@ -790,7 +802,6 @@ type ColumnsUIMsg
     | FeedRendered Value
     | Tick Posix
     | ShowEditColumnsDialog
-    | ShowServerDialog
     | SimpleButtonMsg Button.Msg ColumnsUIMsg
     | ShowFullScrollPill
     | TimestampedCmd (Posix -> ColumnsUIMsg) Posix
@@ -805,6 +816,7 @@ type ColumnsUIMsg
     | PostWithGroupId String
     | ShowAttachmentDialog Int Status
     | ShowSettingsDialog
+    | ShowS3Dialog
     | ShowKeyboardShortcutsDialog
     | ShowSaveRestoreDialog
     | YesImSure AreYouSureReason Status
@@ -1090,6 +1102,8 @@ keyMsgDict =
         , ( ".", ShowSettingsDialog )
         , ( "t", ToggleStyle )
         , ( ",", ShowSettingsDialog )
+        , ( "s", ShowS3Dialog )
+        , ( "v", ShowServerDialog )
         , ( "?", ShowKeyboardShortcutsDialog )
         , ( "o", ShowSaveRestoreDialog )
         , ( "j", ScrollPage ScrollLeft )
@@ -1367,8 +1381,11 @@ init value url key =
     , groupNameInput = ""
     , groupInput = Nothing
     , hashtagInput = ""
+    , s3Access = Nothing
 
     -- Non-persistent below here
+    , s3PersistTime = Nothing
+    , s3PersistState = Dict.empty
     , docSection = DocIntro --should probably be persistent
     , maxTootCharsString = Nothing
     , tokenText = ""
@@ -4177,6 +4194,10 @@ columnsUIMsg msg model =
 
         ShowSettingsDialog ->
             { model | dialog = SettingsDialog }
+                |> withNoCmd
+
+        ShowS3Dialog ->
+            { model | dialog = S3Dialog }
                 |> withNoCmd
 
         ShowKeyboardShortcutsDialog ->
@@ -11943,6 +11964,8 @@ renderLeftColumn renderEnv =
         , p []
             [ button (ColumnsUIMsg ShowSettingsDialog) "settings" ]
         , p []
+            [ button (ColumnsUIMsg ShowS3Dialog) "s3" ]
+        , p []
             [ button (ColumnsUIMsg ShowSaveRestoreDialog) "save" ]
         , p []
             [ button (ColumnsUIMsg ShowKeyboardShortcutsDialog) "keyboard" ]
@@ -12010,6 +12033,9 @@ settingsDialogContent model =
         , br
         , button (ColumnsUIMsg ShowEditColumnsDialog)
             "Edit Columns Dialog"
+        , br
+        , button (ColumnsUIMsg ShowS3Dialog)
+            "S3 Dialog"
         , br
         , button (ColumnsUIMsg ShowSaveRestoreDialog)
             "Save/Restore Dialog"
@@ -12118,6 +12144,45 @@ settingsDialogContent model =
         , br
         , button (GlobalMsg ClearAllDialog) "Clear all persistent state!"
         ]
+    ]
+
+
+s3Dialog : Model -> Html Msg
+s3Dialog model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
+    dialogRender
+        renderEnv
+        { styles =
+            [ ( "width", "40em" )
+            , ( "max-width", "95%" )
+            , ( "max-height", "90%" )
+            , ( "overflow", "auto" )
+            , ( "font-size", fspct model.renderEnv )
+            ]
+        , title = "S3 Persistence"
+        , content =
+            s3DialogContent model
+        , actionBar =
+            [ button (ColumnsUIMsg DismissDialog) "OK"
+            ]
+        }
+        True
+
+
+s3DialogContent : Model -> List (Html Msg)
+s3DialogContent model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        { inputBackground, color } =
+            getStyle renderEnv.style
+    in
+    [ p []
+        [ text "S3 Persistence. TBD." ]
     ]
 
 
@@ -14099,13 +14164,11 @@ renderColumns model =
                                 , style "border-radius" "25px"
                                 , style "background" scrollPillBackground
                                 , style "margin-top" "-1px"
+                                , style "cursor" "pointer"
+                                , Html.Attributes.title "Login to a different server."
+                                , onClick (ColumnsUIMsg ShowServerDialog)
                                 ]
-                                [ a
-                                    [ href <| "https://" ++ server
-                                    , class "scroll-pill-server"
-                                    ]
-                                    [ text server ]
-                                ]
+                                [ text server ]
 
                 --, br
                 --, text (model.bodyScroll.scrollLeft |> String.fromFloat)
@@ -16440,6 +16503,9 @@ renderDialog model =
         SettingsDialog ->
             settingsDialog model
 
+        S3Dialog ->
+            s3Dialog model
+
         KeyboardShortcutsDialog ->
             keyboardShortcutsDialog model
 
@@ -17081,7 +17147,9 @@ keyboardShortcutsDialogRows model =
         , row "r" "Reload all columns" Nothing
         , row "u" "Show all undisplayed" Nothing
         , row "," "Show Settings dialog" Nothing
+        , row "s" "Show S3 dialog" Nothing
         , row "t" "Toggle Dark Mode" Nothing
+        , row "v" "Show Server Dialog" Nothing
         , row "o" "Save/Restore Dialog" Nothing
         , row "?" "Show Keyboard Shortcuts dialog" Nothing
         , row "j / l" "Scroll one page left/right" <|
@@ -19200,6 +19268,7 @@ pk =
     , maxTootChars = "maxTootChars"
     , timestamp = "timestamp"
     , app = "app"
+    , s3 = "s3"
     }
 
 
@@ -19491,6 +19560,7 @@ type DocSection
     | DocScrollPill
     | DocApi
     | DocSettingsDialog
+    | DocS3Dialog
     | DocEditColumnsDialog
     | DocSaveRestoreDialog
     | DocKeyboardShortcutsDialog
@@ -19537,6 +19607,7 @@ docSections =
     , ( DocLeftColumn, "Left Column", "left-column" )
     , ( DocScrollPill, "Scroll Pill", "scroll-pill" )
     , ( DocSettingsDialog, "Settings", "settings" )
+    , ( DocS3Dialog, "S3", "s3" )
     , ( DocEditColumnsDialog, "Edit Columns", "edit-columns" )
     , ( DocSaveRestoreDialog, "Save/Restore", "save/restore" )
     , ( DocKeyboardShortcutsDialog, "Keyboard Shortcuts", "keyboard-shortcuts" )
@@ -19703,6 +19774,8 @@ Click the "post" button to bring up the [Post](#help.post) dialog.
                         DocScrollPill ->
                             DocMarkdown """
 The scroll pill is in the lower right-hand corner of the page. It is a square with triangles on the two sides, sitting on top of a server identifier. The scroll pill and the server identified may be hidden in the Settings dialog. If you click on one of the triangles, the column display will be scrolled a page in that direction. If you douhble click, it will scroll (horizontally) to the end. If you click on square, it will be replaced by four square buttons. The top button brings up the Settings dialog. The next button refreshes all the columns. The button below that currently does nothing, but it will cause hidden column entries to be displayed when I add streaming updates. The bottom button brings up the Post dialog. Typing "esc" hides the four buttons, replacing them with a single blank square.
+
+If the server is shown under the pill, clicking on it will bring up the Server dialog.
 """
 
                         DocSettingsDialog ->
@@ -19724,6 +19797,11 @@ The settings dialog can be shown by either the scroll pill, the left column, or 
 * The "Reload from Server" button reloads the JavaScript code from the server. It is mostly useful when you save the Mammudeck icon on your phone screen, to ensure you're running the latest version of the code.
 * The "Clear saved server features" button clears some internal state. It's mostly for development debugging."
 * The "Clear all persistent state!" button removes all saved state, including server tokens and column layout. It brings up a confirmation dialog before erasing.
+"""
+
+                        DocS3Dialog ->
+                            DocMarkdown """
+S3 Dialog
 """
 
                         DocEditColumnsDialog ->

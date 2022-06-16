@@ -9,6 +9,14 @@ Bill St. Clair, 27 November 2021
 * Save state in S3.
   Document well, since the CORS setup is hard for non-wizards.
 
+## Instructional video
+
+Screen recording of how to use Mammudeck with Free Atlantis, and Truth Social.
+
+## Instance.max_toot_chars 
+
+Comes from instance.max_toot_chars in JSON. That's where Pleroma puts it, In Mastodon, it's in Instance.configuration.statuses.max_characters.
+
 ## For the Post dialog
 
 * Change "Clear" back to "Post" when an error comes back from a post attempt.
