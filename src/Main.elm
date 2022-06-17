@@ -770,6 +770,7 @@ type GlobalMsg
     | SetLoginServer
     | SetTokenText String
     | SetTokenFromText
+    | LoginServer String
     | Login
     | Logout
     | ClearAllDialog
@@ -3151,6 +3152,9 @@ globalMsg msg model =
                     putToken server (Just tokenApi)
             in
             mdl |> withCmd cmd
+
+        LoginServer server ->
+            globalMsg Login { model | server = server }
 
         Login ->
             let
@@ -16685,12 +16689,39 @@ serverDialogContent model =
     let
         renderEnv =
             model.renderEnv
+
+        servers =
+            (case model.renderEnv.loginServer of
+                Nothing ->
+                    model.tokens
+
+                Just server ->
+                    Dict.remove server model.tokens
+            )
+                |> Dict.keys
     in
     [ div []
         [ p []
             [ primaryServerLine model ]
         , p []
             [ loginSelectedUI False model ]
+        , if servers == [] then
+            text ""
+
+          else
+            let
+                addServer server res =
+                    [ button (GlobalMsg <| LoginServer server) server
+                    , text " "
+                    ]
+                        ++ res
+            in
+            p []
+                [ b "Click to login:"
+                , br
+                , span [] <|
+                    List.foldr addServer [] servers
+                ]
         ]
     ]
 
