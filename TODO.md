@@ -23,6 +23,8 @@ Comes from instance.max_toot_chars in JSON. That's where Pleroma puts it, In Mas
 * Show replied/quoted post in the post dialog, likely optional.
 * Post to a group.
 * Visibility (non, public, unlisted, private, direct)
+  Default to "private" if replied-to post was private (or it doesn't work,
+  and maybe others won't either: investigate).
 * Post size tracking (let them post and get an error if too big).
   **DONE**
 * Editing of posts

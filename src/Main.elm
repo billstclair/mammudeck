@@ -12777,6 +12777,12 @@ notificationDescriptionWithDisplayName display_name notification renderEnv =
         PollNotification ->
             span [] [ displayHtml, text "'s ", postName, text " is closed" ]
 
+        FollowRequestNotification ->
+            span [] [ displayHtml, text " requested to follow you" ]
+
+        UnknownNotification name ->
+            span [] [ displayHtml, text <| " unknown notification type: " ++ name ]
+
 
 headerFontSize : String
 headerFontSize =
