@@ -22,9 +22,7 @@
 
 See ../TODO.md for the full list.
 
-* Login fix. See https://docs.joinmastodon.org/client/authorized/
-    There is no longer a "state" parameter.
-    Probably can't use "urn:ietf:wg:oauth:2.0:oob" for the redirect_uri.
+* Put all timestamps for a server in a single saved key, at least for S3.
 
 * Auto-refresh:
     "Show all undisplayed", maybe on "u".
