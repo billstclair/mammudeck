@@ -10,7 +10,37 @@
 ----------------------------------------------------------------------
 
 
-module S3.AppState exposing (AppState, maybeSave)
+module S3.AppState exposing
+    ( AppState, makeAppState
+    , save, idle
+    , store
+    )
+
+{-| Support for storing application state in S3.
+
+You specify key/value pairs to save by calling `save`.
+They are stored until the `savePeriod` has passed, then pushed to S3.
+Each time the clock ticks, call `idle` to make sure unstored changes get pushed to S3.
+
+Call `update` to pull changes from S3, at `updatePeriod` intervals.
+It returns a list of key/value pairs that have been changed by another machine pushing to S3.
+
+
+# State
+
+@docs AppState, makeAppState
+
+
+# Updating state
+
+@docs save, idle
+
+
+# Internals
+
+@docs store
+
+-}
 
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (Decoder)
@@ -26,47 +56,80 @@ import S3.Types
 import Task exposing (Task)
 
 
+{-| Track updates for S3 persistence.
+-}
 type alias AppState =
     { account : Account
     , bucket : Bucket
     , savePeriod : Int
+    , idlePeriod : Int
     , updatePeriod : Int
     , saveCountKey : String
     , keyCountsKey : String
 
     -- Above here is usually constant. Below changes.
-    -- Maybe package above here as a single record.
-    , idlePeriod : Int
     , lastSaveTime : Int
+    , lastIdleTime : Int
+    , lastUpdateTime : Int
     , saveCount : Int
     , updates : Dict String Value
     , keyCounts : Dict String Int
-    , lastUpdateTime : Int
     }
 
 
-maybeSave : Int -> String -> Value -> AppState -> Maybe (Task Error AppState)
-maybeSave time key value appState =
+{-| Make an AppState with good defaults.
+-}
+makeAppState : Account -> Bucket -> AppState
+makeAppState account bucket =
+    { account = account
+    , bucket = bucket
+    , savePeriod = 5000
+    , idlePeriod = 2000
+    , updatePeriod = 10000
+    , saveCountKey = "S3.saveCount"
+    , keyCountsKey = "S3.keyCounts"
+
+    -- Times are in milliseconds, as returned by `Time.posixToMillis` applied
+    -- to the result of `Time.now`.
+    , lastSaveTime = 0
+    , lastIdleTime = 0
+    , lastUpdateTime = 0
+    , saveCount = 0
+    , updates = Dict.empty
+    , keyCounts = Dict.empty
+    }
+
+
+{-| Add a new key/value pair to the S3 store.
+
+Don't actually push it to S3 unless it's time.
+
+-}
+save : Int -> String -> Value -> AppState -> Maybe (Task Error AppState)
+save time key value appState =
     let
         state =
             { appState
                 | updates = Dict.insert key value appState.updates
+                , lastIdleTime = time
             }
     in
     if time <= state.lastSaveTime + state.savePeriod then
         Just <| Task.succeed state
 
     else
-        Just <| doSave time state
+        Just <| store time state
 
 
-idleSave : Int -> AppState -> Maybe (Task Error AppState)
-idleSave time appState =
-    if time <= appState.lastSaveTime + appState.idlePeriod then
+{-| Push the saved changes to S3 if the idle time has elapsed.
+-}
+idle : Int -> AppState -> Maybe (Task Error AppState)
+idle time appState =
+    if time <= appState.lastIdleTime + appState.idlePeriod then
         Nothing
 
     else
-        Just <| doSave time appState
+        Just <| store time appState
 
 
 putS3Value : AppState -> Key -> Value -> Task Error String
@@ -75,8 +138,10 @@ putS3Value appState key value =
         |> S3.send appState.account
 
 
-doSave : Int -> AppState -> Task Error AppState
-doSave time appState =
+{-| Push all saved updates to S3.
+-}
+store : Int -> AppState -> Task Error AppState
+store time appState =
     if appState.updates == Dict.empty then
         Task.succeed appState
 
@@ -112,10 +177,11 @@ doSave time appState =
             state =
                 { appState
                     | lastSaveTime = time
+                    , lastIdleTime = time
+                    , lastUpdateTime = time
                     , saveCount = saveCount
                     , updates = Dict.empty
                     , keyCounts = keyCounts
-                    , lastUpdateTime = time
                 }
         in
         Task.sequence saveTasks
