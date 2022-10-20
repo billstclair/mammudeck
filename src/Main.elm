@@ -581,7 +581,9 @@ type alias Model =
     , username : String
     , accountId : String
     , accountIds : String
-    , timestamps : Dict String String
+
+    -- server -> (feedid -> timestamp)
+    , timestamps : Dict String (Dict String String)
     , showMetadata : Bool
     , q : String
     , resolve : Bool
@@ -1535,6 +1537,7 @@ storageHandler response state model =
                 Cmd.batch
                     [ get pk.model
                     , listKeysLabeled pk.token (pk.token ++ ".")
+                    , listKeysLabeled pk.timestamps (pk.timestamps ++ ".")
                     , listKeysLabeled pk.timestamp (pk.timestamp ++ ".")
                     ]
 
@@ -1665,7 +1668,7 @@ handleListKeysResponse maybeLabel prefix keys model =
             model |> withNoCmd
 
         Just label ->
-            -- label will be pk.token or pk.timestamp,
+            -- label will be pk.token or pk.timestamps or pk.timestamp,
             -- but we won't care about that until the value comes in
             -- to handleGetResponse below.
             model |> withCmds (List.map (getLabeled label) keys)
@@ -2098,7 +2101,11 @@ handleGetResponse maybeLabel key maybeValue model =
                     if label == pk.token then
                         handleGetToken key value model
 
+                    else if label == pk.timestamps then
+                        handleGetTimestamps key value model
+
                     else if label == pk.timestamp then
+                        -- Backward compatibility
                         handleGetTimestamp key value model
 
                     else if label == pk.app then
@@ -2108,9 +2115,9 @@ handleGetResponse maybeLabel key maybeValue model =
                         model |> withNoCmd
 
 
-handleGetTimestamp : String -> Value -> Model -> ( Model, Cmd Msg )
-handleGetTimestamp key value model =
-    case JD.decodeValue JD.string value of
+handleGetTimestamps : String -> Value -> Model -> ( Model, Cmd Msg )
+handleGetTimestamps key value model =
+    case JD.decodeValue (JD.dict JD.string) value of
         Err err ->
             let
                 ignore =
@@ -2118,16 +2125,26 @@ handleGetTimestamp key value model =
             in
             model |> withNoCmd
 
-        Ok statusid ->
+        Ok dict ->
             let
-                timestampId =
-                    String.dropLeft (pkTimestampLength + 1) key
+                server =
+                    String.dropLeft (pkTimestampsLength + 1) key
             in
             { model
                 | timestamps =
-                    Dict.insert timestampId statusid model.timestamps
+                    Dict.insert server dict model.timestamps
             }
                 |> withNoCmd
+
+
+{-| This is for the old timestamp storage.
+Just delete the key/value pair in LocalStorage.
+This causes timestamps to be forgotten at transition time,
+but I doubt anyone will notice.
+-}
+handleGetTimestamp : String -> Value -> Model -> ( Model, Cmd Msg )
+handleGetTimestamp key value model =
+    model |> withCmd (put key Nothing)
 
 
 handleGetAccountIds : String -> Maybe Value -> Model -> ( Model, Cmd Msg )
@@ -7546,16 +7563,6 @@ debugFeedEnvsMissing feedEnvs =
     feedEnvs
 
 
-getTimestampId : RenderEnv -> String -> Maybe String
-getTimestampId renderEnv feedId =
-    case renderEnv.loginServer of
-        Nothing ->
-            Nothing
-
-        Just loginServer ->
-            Just <| loginServer ++ "." ++ feedId
-
-
 receiveFeed : Request -> Maybe Paging -> FeedType -> Result Error Response -> Model -> ( Model, Cmd Msg )
 receiveFeed request paging feedType result model =
     let
@@ -7665,23 +7672,18 @@ receiveFeed request paging feedType result model =
                                                     webSocketConnect feedType mdl
 
                                                 ( mdl6, cmd6, timestamp ) =
-                                                    case getTimestampId renderEnv feedId of
-                                                        Nothing ->
-                                                            ( mdl5, Cmd.none, Nothing )
-
-                                                        Just timestampId ->
-                                                            let
-                                                                ( mdl7, cmd7 ) =
-                                                                    updateTimestamp
-                                                                        timestampId
-                                                                        receiveType
-                                                                        elem
-                                                                        mdl5
-                                                            in
-                                                            ( mdl7
-                                                            , cmd7
-                                                            , Dict.get timestampId model.timestamps
-                                                            )
+                                                    let
+                                                        ( maybeTs, ( mdl7, cmd7 ) ) =
+                                                            updateTimestamp
+                                                                feedId
+                                                                receiveType
+                                                                elem
+                                                                mdl5
+                                                    in
+                                                    ( mdl7
+                                                    , cmd7
+                                                    , maybeTs
+                                                    )
                                             in
                                             ( LE.updateIf
                                                 (\feed ->
@@ -7731,40 +7733,77 @@ receiveFeed request paging feedType result model =
                             ]
 
 
-updateTimestamp : String -> ReceiveFeedType -> FeedElements -> Model -> ( Model, Cmd Msg )
+
+-- The returned (Maybe String) is the OLD timestamp.
+
+
+updateTimestamp : String -> ReceiveFeedType -> FeedElements -> Model -> ( Maybe String, ( Model, Cmd Msg ) )
 updateTimestamp timestampId receiveType elem model =
     case receiveType of
         ReceiveMoreFeed ->
-            model |> withNoCmd
+            ( Nothing, model |> withNoCmd )
 
         _ ->
-            case elem of
-                StatusElements statuses ->
-                    case List.head statuses of
-                        Nothing ->
-                            model |> withNoCmd
+            let
+                id =
+                    case elem of
+                        StatusElements statuses ->
+                            case List.head statuses of
+                                Nothing ->
+                                    ""
 
-                        Just status ->
-                            { model
-                                | timestamps =
-                                    Dict.insert timestampId status.id model.timestamps
-                            }
-                                |> withCmd (putTimestamp timestampId <| Just status.id)
+                                Just status ->
+                                    status.id
 
-                NotificationElements notifications ->
-                    case List.head notifications of
-                        Nothing ->
-                            model |> withNoCmd
+                        NotificationElements notifications ->
+                            case List.head notifications of
+                                Nothing ->
+                                    ""
 
-                        Just notification ->
-                            { model
-                                | timestamps =
-                                    Dict.insert timestampId notification.id model.timestamps
-                            }
-                                |> withCmd (putTimestamp timestampId <| Just notification.id)
+                                Just notification ->
+                                    notification.id
 
-                _ ->
-                    model |> withNoCmd
+                        _ ->
+                            -- Don't handle ConversationElements here yet
+                            ""
+            in
+            if id == "" then
+                ( Nothing, model |> withNoCmd )
+
+            else
+                case model.renderEnv.loginServer of
+                    Nothing ->
+                        ( Nothing, model |> withNoCmd )
+
+                    Just server ->
+                        let
+                            timestamps =
+                                model.timestamps
+
+                            maybeDict =
+                                Dict.get server timestamps
+
+                            dict =
+                                maybeDict
+                                    |> Maybe.withDefault Dict.empty
+                                    |> Dict.insert timestampId id
+
+                            oldTs =
+                                case Dict.get server timestamps of
+                                    Nothing ->
+                                        Nothing
+
+                                    Just d ->
+                                        Dict.get timestampId d
+                        in
+                        ( oldTs
+                        , { model
+                            | timestamps =
+                                Dict.insert server dict timestamps
+                          }
+                            |> withCmd
+                                (putTimestamps server <| Just dict)
+                        )
 
 
 feedTypeToStreamType : FeedType -> Maybe StreamType
@@ -19230,23 +19269,28 @@ putMaxTootChars server maxTootChars =
     put (pk.maxTootChars ++ "." ++ server) v
 
 
-getTimestamp : String -> Cmd Msg
-getTimestamp feedid =
-    getLabeled pk.timestamp <| pk.timestamp ++ "." ++ feedid
+getTimestamps : String -> Cmd Msg
+getTimestamps server =
+    getLabeled pk.timestamps <| pk.timestamps ++ "." ++ server
 
 
-putTimestamp : String -> Maybe String -> Cmd Msg
-putTimestamp feedid statusid =
+putTimestamps : String -> Maybe (Dict String String) -> Cmd Msg
+putTimestamps server statusids =
     let
         v =
-            case statusid of
+            case statusids of
                 Nothing ->
                     Nothing
 
-                Just sid ->
-                    Just <| JE.string sid
+                Just sids ->
+                    Just <| JE.dict identity JE.string sids
     in
-    put (pk.timestamp ++ "." ++ feedid) v
+    put (pk.timestamps ++ "." ++ server) v
+
+
+getTimestamp : String -> Cmd Msg
+getTimestamp feedid =
+    getLabeled pk.timestamp <| pk.timestamp ++ "." ++ feedid
 
 
 clear : Cmd Msg
@@ -19302,6 +19346,7 @@ pk =
     , accountIds = "accountIds"
     , maxTootChars = "maxTootChars"
     , timestamp = "timestamp"
+    , timestamps = "timestamps"
     , app = "app"
     , s3 = "s3"
     }
@@ -19310,6 +19355,11 @@ pk =
 pkTimestampLength : Int
 pkTimestampLength =
     String.length pk.timestamp
+
+
+pkTimestampsLength : Int
+pkTimestampsLength =
+    String.length pk.timestamps
 
 
 
