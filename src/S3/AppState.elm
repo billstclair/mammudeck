@@ -13,6 +13,7 @@
 module S3.AppState exposing
     ( AppState, makeAppState
     , save, idle
+    , renderAccount
     , store
     )
 
@@ -36,6 +37,11 @@ It returns a list of key/value pairs that have been changed by another machine p
 @docs save, idle
 
 
+# User Interface
+
+@docs renderAccount
+
+
 # Internals
 
 @docs store
@@ -43,6 +49,9 @@ It returns a list of key/value pairs that have been changed by another machine p
 -}
 
 import Dict exposing (Dict)
+import Html exposing (Html, input, p, span, text)
+import Html.Attributes exposing (checked, size, type_, value)
+import Html.Events exposing (onClick, onInput)
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE exposing (Value)
 import S3
@@ -193,3 +202,106 @@ store time appState =
 encodeKeyCounts : Dict String Int -> Value
 encodeKeyCounts keyCounts =
     JE.dict identity JE.int keyCounts
+
+
+b : String -> Html msg
+b string =
+    Html.b [] [ text string ]
+
+
+br : Html msg
+br =
+    Html.br [] []
+
+
+{-| A UI for entering account and bucket information.
+
+You can certainly do this yourself, if you want it to look different,
+but this gives you a good start.
+
+The callback is called when a field changes.
+You need to do OK and Cancel buttons yourself.
+
+-}
+renderAccount : Account -> (Account -> msg) -> Html msg
+renderAccount account callback =
+    span []
+        [ b "bucket: "
+        , input
+            [ size 20
+            , value
+                (List.head account.buckets |> Maybe.withDefault "")
+            , onInput <|
+                \a ->
+                    callback
+                        { account
+                            | buckets =
+                                if a == "" then
+                                    []
+
+                                else
+                                    [ a ]
+                        }
+            ]
+            []
+        , br
+        , b "accessKey: "
+        , br
+        , input
+            [ size 20
+            , value account.accessKey
+            , onInput <|
+                \a -> callback { account | accessKey = a }
+            ]
+            []
+        , br
+        , b "secretKey: "
+        , br
+        , input
+            [ size 50
+            , type_ "password"
+            , value account.secretKey
+            , onInput <|
+                \a -> callback { account | secretKey = a }
+            ]
+            []
+        , br
+        , b "region: "
+        , let
+            v =
+                case account.region of
+                    Nothing ->
+                        ""
+
+                    Just reg ->
+                        reg
+          in
+          input
+            [ size 20
+            , value v
+            , onInput <|
+                \a ->
+                    let
+                        reg =
+                            if a == "" then
+                                Nothing
+
+                            else
+                                Just a
+                    in
+                    callback { account | region = reg }
+            ]
+            []
+        , br
+        , b "isDigitalOcean: "
+        , input
+            [ type_ "checkbox"
+            , checked account.isDigitalOcean
+            , onClick <|
+                callback
+                    { account
+                        | isDigitalOcean = not account.isDigitalOcean
+                    }
+            ]
+            []
+        ]

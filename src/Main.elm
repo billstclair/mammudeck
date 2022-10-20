@@ -238,6 +238,8 @@ import PortFunnel.LocalStorage as LocalStorage
 import PortFunnel.WebSocket as WebSocket
 import PortFunnels exposing (FunnelDict, Handler(..), State)
 import Regex
+import S3.AppState as AppState exposing (AppState)
+import S3.Types
 import Set exposing (Set)
 import String.Extra as SE
 import Svg exposing (Svg, svg)
@@ -625,8 +627,8 @@ type alias Model =
     , s3Access : Maybe S3Access
 
     -- Non-persistent below here
-    , s3PersistTime : Maybe Int
-    , s3PersistState : Dict String String
+    , appState : AppState
+    , appStateAccount : S3.Types.Account
     , docSection : DocSection
     , maxTootCharsString : Maybe String
     , tokenText : String
@@ -872,6 +874,7 @@ type ColumnsUIMsg
     | ToggleShowLeftColumn
     | ToggleShowScrollPill
     | ToggleShowScrollPillServer
+    | SetAppStateAccount S3.Types.Account
 
 
 type ReceiveFeedType
@@ -1301,6 +1304,17 @@ receiveCodeOrError url =
                                     NoCode
 
 
+emptyAppStateAccount : S3.Types.Account
+emptyAppStateAccount =
+    { name = "mammudeck"
+    , region = Nothing
+    , isDigitalOcean = False
+    , accessKey = ""
+    , secretKey = ""
+    , buckets = []
+    }
+
+
 init : Value -> Url -> Key -> ( Model, Cmd Msg )
 init value url key =
     let
@@ -1385,8 +1399,8 @@ init value url key =
     , s3Access = Nothing
 
     -- Non-persistent below here
-    , s3PersistTime = Nothing
-    , s3PersistState = Dict.empty
+    , appState = AppState.makeAppState emptyAppStateAccount "mammudeck"
+    , appStateAccount = emptyAppStateAccount
     , docSection = DocIntro --should probably be persistent
     , maxTootCharsString = Nothing
     , tokenText = ""
@@ -4824,6 +4838,9 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+        SetAppStateAccount account ->
+            { model | appStateAccount = account } |> withNoCmd
 
 
 yesImSure : AreYouSureReason -> Status -> Model -> ( Model, Cmd Msg )
@@ -12223,7 +12240,10 @@ s3DialogContent model =
             getStyle renderEnv.style
     in
     [ p []
-        [ text "S3 Persistence. TBD." ]
+        [ AppState.renderAccount
+            model.appStateAccount
+            (\a -> ColumnsUIMsg <| SetAppStateAccount a)
+        ]
     ]
 
 
