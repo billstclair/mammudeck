@@ -246,7 +246,6 @@ renderAccount account callback =
             []
         , br
         , b "accessKey: "
-        , br
         , input
             [ size 20
             , value account.accessKey
@@ -256,7 +255,6 @@ renderAccount account callback =
             []
         , br
         , b "secretKey: "
-        , br
         , input
             [ size 50
             , type_ "password"

@@ -238,6 +238,7 @@ import PortFunnel.LocalStorage as LocalStorage
 import PortFunnel.WebSocket as WebSocket
 import PortFunnels exposing (FunnelDict, Handler(..), State)
 import Regex
+import S3
 import S3.AppState as AppState exposing (AppState)
 import S3.Types
 import Set exposing (Set)
@@ -875,6 +876,7 @@ type ColumnsUIMsg
     | ToggleShowScrollPill
     | ToggleShowScrollPillServer
     | SetAppStateAccount S3.Types.Account
+    | CommitS3Dialog
 
 
 type ReceiveFeedType
@@ -1550,6 +1552,7 @@ storageHandler response state model =
             then
                 Cmd.batch
                     [ get pk.model
+                    , get pk.s3Account
                     , listKeysLabeled pk.token (pk.token ++ ".")
                     , listKeysLabeled pk.timestamps (pk.timestamps ++ ".")
                     , listKeysLabeled pk.timestamp (pk.timestamp ++ ".")
@@ -1683,8 +1686,8 @@ handleListKeysResponse maybeLabel prefix keys model =
 
         Just label ->
             -- label will be pk.token or pk.timestamps or pk.timestamp,
-            -- but we won't care about that until the value comes in
-            -- to handleGetResponse below.
+            -- but we won't care about that until the value comes in to
+            -- handleGetResponse below.
             model |> withCmds (List.map (getLabeled label) keys)
 
 
@@ -2094,6 +2097,9 @@ handleGetResponse maybeLabel key maybeValue model =
             if Debug.log "handleGetResponse, key" key == pk.model then
                 handleGetModel maybeValue model
 
+            else if key == pk.s3Account then
+                handleGetS3Account key maybeValue model
+
             else if pk.feedSetDefinition == String.left pkFeedSetDefinitionLength key then
                 handleGetFeedSetDefinition maybeValue model
 
@@ -2127,6 +2133,29 @@ handleGetResponse maybeLabel key maybeValue model =
 
                     else
                         model |> withNoCmd
+
+
+handleGetS3Account : String -> Maybe Value -> Model -> ( Model, Cmd Msg )
+handleGetS3Account key maybeValue model =
+    case maybeValue of
+        Nothing ->
+            model |> withNoCmd
+
+        Just value ->
+            case JD.decodeValue S3.accountDecoder value of
+                Err err ->
+                    let
+                        ignore =
+                            Debug.log ("Error decoding" ++ key) err
+                    in
+                    model |> withNoCmd
+
+                Ok account ->
+                    { model
+                        | appStateAccount = account
+                        , appState = mergeAppState account model.appState
+                    }
+                        |> withNoCmd
 
 
 handleGetTimestamps : String -> Value -> Model -> ( Model, Cmd Msg )
@@ -4841,6 +4870,44 @@ columnsUIMsg msg model =
 
         SetAppStateAccount account ->
             { model | appStateAccount = account } |> withNoCmd
+
+        CommitS3Dialog ->
+            commitS3Dialog model
+
+
+commitS3Dialog : Model -> ( Model, Cmd Msg )
+commitS3Dialog model =
+    let
+        account =
+            model.appStateAccount
+
+        ( mdl, _ ) =
+            dismissDialog model
+    in
+    if
+        (account.accessKey == "")
+            || (account.secretKey == "")
+            || (account.buckets == [])
+    then
+        mdl |> withCmd (putS3Account Nothing)
+
+    else
+        { mdl | appState = mergeAppState account mdl.appState }
+            |> withCmd (putS3Account <| Just account)
+
+
+mergeAppState : S3.Types.Account -> AppState -> AppState
+mergeAppState account appState =
+    { appState
+        | account = account
+        , bucket =
+            case account.buckets of
+                [] ->
+                    ""
+
+                bucket :: _ ->
+                    bucket
+    }
 
 
 yesImSure : AreYouSureReason -> Status -> Model -> ( Model, Cmd Msg )
@@ -12224,7 +12291,8 @@ s3Dialog model =
         , content =
             s3DialogContent model
         , actionBar =
-            [ button (ColumnsUIMsg DismissDialog) "OK"
+            [ button (ColumnsUIMsg CommitS3Dialog) "OK"
+            , button (ColumnsUIMsg DismissDialog) "Cancel"
             ]
         }
         True
@@ -12240,6 +12308,18 @@ s3DialogContent model =
             getStyle renderEnv.style
     in
     [ p []
+        [ text "This information is stored in your brower's LocalStorage database."
+        ]
+    , p []
+        [ text "To disable S3 storage, and remove the information from LocalStorage, clear "
+        , b "bucket"
+        , text ", "
+        , b "accessKey"
+        , text " or "
+        , b "secretKey"
+        , text "."
+        ]
+    , p []
         [ AppState.renderAccount
             model.appStateAccount
             (\a -> ColumnsUIMsg <| SetAppStateAccount a)
@@ -19308,6 +19388,20 @@ putTimestamps server statusids =
     put (pk.timestamps ++ "." ++ server) v
 
 
+putS3Account : Maybe S3.Types.Account -> Cmd Msg
+putS3Account account =
+    let
+        v =
+            case account of
+                Nothing ->
+                    Nothing
+
+                Just acct ->
+                    Just <| S3.encodeAccount acct
+    in
+    put pk.s3Account v
+
+
 getTimestamp : String -> Cmd Msg
 getTimestamp feedid =
     getLabeled pk.timestamp <| pk.timestamp ++ "." ++ feedid
@@ -19368,7 +19462,7 @@ pk =
     , timestamp = "timestamp"
     , timestamps = "timestamps"
     , app = "app"
-    , s3 = "s3"
+    , s3Account = "s3Account"
     }
 
 
