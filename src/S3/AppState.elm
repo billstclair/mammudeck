@@ -143,6 +143,15 @@ idle time appState =
 
 putS3Value : AppState -> Key -> Value -> Task Error String
 putS3Value appState key value =
+    let
+        s =
+            Debug.log ("*** putS3Value " ++ key) JE.encode 0 value
+    in
+    Task.succeed s
+
+
+putS3ValueInternal : AppState -> Key -> Value -> Task Error String
+putS3ValueInternal appState key value =
     S3.putObject appState.bucket key (S3.jsonBody value)
         |> S3.send appState.account
 

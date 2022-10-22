@@ -22,8 +22,6 @@
 
 See ../TODO.md for the full list.
 
-* Put all timestamps for a server in a single saved key, at least for S3.
-
 * Auto-refresh:
     "Show all undisplayed", maybe on "u".
     Periodic auto-update of user feeds.
