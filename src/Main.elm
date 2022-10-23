@@ -244,7 +244,7 @@ import String.Extra as SE
 import Svg exposing (Svg, svg)
 import Svg.Attributes as Svga
 import Svg.Button as Button exposing (Button, TriangularButtonDirection(..))
-import Task
+import Task exposing (Task)
 import Time exposing (Month, Posix, Zone)
 import Time.Format as Format
 import Time.Format.Config.Configs as Configs
@@ -875,6 +875,8 @@ type ColumnsUIMsg
     | ToggleShowScrollPillServer
     | SetAppStateAccount S3.Types.Account
     | CommitS3Dialog
+    | S3Save String (Maybe Value)
+    | AppStateSaved (Result S3.Types.Error String)
 
 
 type ReceiveFeedType
@@ -1172,6 +1174,7 @@ subscriptions model =
         , Events.onKeyDown <| keyDecoder True
         , Events.onKeyUp <| keyDecoder False
         , Events.onClick mouseDecoder
+        , Time.every 1000 (ColumnsUIMsg << Tick)
         ]
 
 
@@ -1512,6 +1515,7 @@ init value url key =
             , Task.perform getViewport Dom.getViewport
             , Task.perform (GlobalMsg << Here) Time.here
             , makeScrollRequestWithId "body" True
+            , Task.perform (ColumnsUIMsg << Tick) Time.now
             ]
 
 
@@ -3894,6 +3898,18 @@ secondFeedElementId elements =
             Nothing
 
 
+processAppStateUpdate : Model -> Maybe ( AppState, Task S3.Types.Error String ) -> ( Model, Cmd Msg )
+processAppStateUpdate model result =
+    case result of
+        Nothing ->
+            model |> withNoCmd
+
+        Just ( appState, task ) ->
+            ( { model | appState = appState }
+            , Task.attempt (ColumnsUIMsg << AppStateSaved) task
+            )
+
+
 {-| Process UI messages from the columns page.
 
 These change the Model, but don't send anything over the wire to any instances.
@@ -4099,11 +4115,15 @@ columnsUIMsg msg model =
                     else
                         ( cmds, qe :: queue )
 
-                ( cmds2, queue2 ) =
+                ( cmd2, queue2 ) =
                     List.foldl folder ( Cmd.none, [] ) model.cmdQueue
+
+                ( mdl, cmd3 ) =
+                    processAppStateUpdate model <|
+                        AppState.idle millis model.appState
             in
-            { model | now = now }
-                |> withCmd cmds2
+            { mdl | now = now }
+                |> withCmds [ cmd2, cmd3 ]
 
         ShowEditColumnsDialog ->
             { model | dialog = EditColumnsDialog }
@@ -4871,6 +4891,46 @@ columnsUIMsg msg model =
 
         CommitS3Dialog ->
             commitS3Dialog model
+
+        S3Save key value ->
+            let
+                appState =
+                    model.appState
+            in
+            if appState.bucket == "" then
+                model |> withNoCmd
+
+            else
+                case
+                    AppState.save
+                        (Time.posixToMillis model.now)
+                        key
+                        value
+                        appState
+                of
+                    Nothing ->
+                        model |> withNoCmd
+
+                    Just ( appState2, task ) ->
+                        { model | appState = appState2 }
+                            |> withCmd
+                                (Task.attempt (ColumnsUIMsg << AppStateSaved) task)
+
+        AppStateSaved result ->
+            case result of
+                Err err ->
+                    let
+                        e =
+                            Debug.log "AppStateSaved" err
+                    in
+                    model |> withNoCmd
+
+                Ok string ->
+                    let
+                        s =
+                            Debug.log "AppStateSaved OK" string
+                    in
+                    model |> withNoCmd
 
 
 commitS3Dialog : Model -> ( Model, Cmd Msg )

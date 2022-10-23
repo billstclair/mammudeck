@@ -81,7 +81,7 @@ type alias AppState =
     , lastIdleTime : Int
     , lastUpdateTime : Int
     , saveCount : Int
-    , updates : Dict String Value
+    , updates : Dict String (Maybe Value)
     , keyCounts : Dict String Int
     }
 
@@ -113,8 +113,14 @@ makeAppState account bucket =
 
 Don't actually push it to S3 unless it's time.
 
+Probably needs to change to return the AppState after save right away,
+so that errors don't keep retyring forever. It's hard to do the right
+thing for partial saves.
+
+Need two-phase commit in S3 to do this right. Don't bother.
+
 -}
-save : Int -> String -> Value -> AppState -> Maybe (Task Error AppState)
+save : Int -> String -> Maybe Value -> AppState -> Maybe ( AppState, Task Error String )
 save time key value appState =
     let
         state =
@@ -124,44 +130,61 @@ save time key value appState =
             }
     in
     if time <= state.lastSaveTime + state.savePeriod then
-        Just <| Task.succeed state
+        Just
+            ( appState
+            , Task.succeed ""
+            )
 
     else
-        Just <| store time state
+        store time state
 
 
 {-| Push the saved changes to S3 if the idle time has elapsed.
 -}
-idle : Int -> AppState -> Maybe (Task Error AppState)
+idle : Int -> AppState -> Maybe ( AppState, Task Error String )
 idle time appState =
     if time <= appState.lastIdleTime + appState.idlePeriod then
         Nothing
 
     else
-        Just <| store time appState
+        store time appState
 
 
-putS3Value : AppState -> Key -> Value -> Task Error String
+putS3Value : AppState -> Key -> Maybe Value -> Task Error String
 putS3Value appState key value =
     let
+        valueString =
+            case value of
+                Nothing ->
+                    "Nothing"
+
+                Just v ->
+                    JE.encode 0 v
+
         s =
-            Debug.log ("*** putS3Value " ++ key) JE.encode 0 value
+            Debug.log ("*** putS3Value " ++ key) valueString
     in
     Task.succeed s
 
 
-putS3ValueInternal : AppState -> Key -> Value -> Task Error String
+putS3ValueInternal : AppState -> Key -> Maybe Value -> Task Error String
 putS3ValueInternal appState key value =
-    S3.putObject appState.bucket key (S3.jsonBody value)
+    (case value of
+        Nothing ->
+            S3.deleteObject appState.bucket key
+
+        Just v ->
+            S3.putObject appState.bucket key (S3.jsonBody v)
+    )
         |> S3.send appState.account
 
 
 {-| Push all saved updates to S3.
 -}
-store : Int -> AppState -> Task Error AppState
+store : Int -> AppState -> Maybe ( AppState, Task Error String )
 store time appState =
     if appState.updates == Dict.empty then
-        Task.succeed appState
+        Nothing
 
     else
         let
@@ -185,12 +208,14 @@ store time appState =
                     appState.updates
 
             keyCountsTask =
-                putS3Value appState appState.keyCountsKey <|
-                    encodeKeyCounts keyCounts
+                putS3Value appState
+                    appState.keyCountsKey
+                    (Just <| encodeKeyCounts keyCounts)
 
             saveCountTask =
-                putS3Value appState appState.saveCountKey <|
-                    JE.int saveCount
+                putS3Value appState
+                    appState.saveCountKey
+                    (Just <| JE.int saveCount)
 
             state =
                 { appState
@@ -202,10 +227,12 @@ store time appState =
                     , keyCounts = keyCounts
                 }
         in
-        Task.sequence saveTasks
-            |> Task.andThen (\_ -> keyCountsTask)
-            |> Task.andThen (\_ -> saveCountTask)
-            |> Task.andThen (\_ -> Task.succeed state)
+        Just
+            ( appState
+            , Task.sequence saveTasks
+                |> Task.andThen (\_ -> keyCountsTask)
+                |> Task.andThen (\_ -> saveCountTask)
+            )
 
 
 encodeKeyCounts : Dict String Int -> Value
