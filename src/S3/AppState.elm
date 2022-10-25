@@ -49,7 +49,7 @@ It returns a list of key/value pairs that have been changed by another machine p
 -}
 
 import Dict exposing (Dict)
-import Html exposing (Html, input, p, span, text)
+import Html exposing (Html, input, label, p, span, text)
 import Html.Attributes exposing (checked, size, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Decode as JD exposing (Decoder)
@@ -256,23 +256,38 @@ You can certainly do this yourself, if you want it to look different,
 but this gives you a good start.
 
 The callback is called when a field changes.
+
 You need to do OK and Cancel buttons yourself.
 
 -}
 renderAccount : Account -> (Account -> msg) -> Html msg
 renderAccount account callback =
+    let
+        ( disabled, bucket ) =
+            case account.buckets of
+                [] ->
+                    ( False, "" )
+
+                [ buck ] ->
+                    ( False, buck )
+
+                buck :: tail ->
+                    ( True, buck )
+    in
     span []
         [ b "bucket: "
         , input
             [ size 20
-            , value
-                (List.head account.buckets |> Maybe.withDefault "")
+            , value bucket
             , onInput <|
                 \a ->
                     callback
                         { account
                             | buckets =
-                                if a == "" then
+                                if disabled then
+                                    [ a, "<disabled>" ]
+
+                                else if a == "" then
                                     []
 
                                 else
@@ -280,6 +295,28 @@ renderAccount account callback =
                         }
             ]
             []
+        , label []
+            [ text " "
+            , input
+                [ type_ "checkbox"
+                , checked disabled
+                , onClick <|
+                    callback
+                        { account
+                            | buckets =
+                                if not disabled then
+                                    [ bucket, "<disabled>" ]
+
+                                else if bucket == "" then
+                                    []
+
+                                else
+                                    [ bucket ]
+                        }
+                ]
+                []
+            , text " disabled"
+            ]
         , br
         , b "accessKey: "
         , input
@@ -327,15 +364,43 @@ renderAccount account callback =
             ]
             []
         , br
-        , b "isDigitalOcean: "
-        , input
-            [ type_ "checkbox"
-            , checked account.isDigitalOcean
-            , onClick <|
-                callback
-                    { account
-                        | isDigitalOcean = not account.isDigitalOcean
-                    }
+        , label []
+            [ b "isDigitalOcean: "
+            , input
+                [ type_ "checkbox"
+                , checked account.isDigitalOcean
+                , onClick <|
+                    callback
+                        { account
+                            | isDigitalOcean = not account.isDigitalOcean
+                        }
+                ]
+                []
             ]
-            []
         ]
+
+
+{-| Merge information from `Account` into AppState.
+
+If `account.buckets` has 0 or more than 1 element, `appState.disabled`
+will be set true and `appState.bucket` will be set to `""`.
+
+-}
+mergeAccount : Account -> AppState -> AppState
+mergeAccount account appState =
+    let
+        ( disabled, bucket ) =
+            case account.buckets of
+                "" :: _ ->
+                    ( True, "" )
+
+                [ buck ] ->
+                    ( False, buck )
+
+                _ ->
+                    ( True, "" )
+    in
+    { appState
+        | account = account
+        , bucket = bucket
+    }

@@ -553,13 +553,6 @@ type alias LastInstance =
     }
 
 
-type alias S3Access =
-    { url : String
-    , accessKeyId : String
-    , secretAccessKey : String
-    }
-
-
 type alias Model =
     { renderEnv : RenderEnv
     , page : Page
@@ -623,7 +616,6 @@ type alias Model =
     , groupNameInput : String
     , groupInput : Maybe Group
     , hashtagInput : String
-    , s3Access : Maybe S3Access
 
     -- Non-persistent below here
     , appState : AppState
@@ -1399,12 +1391,11 @@ init value url key =
     , groupNameInput = ""
     , groupInput = Nothing
     , hashtagInput = ""
-    , s3Access = Nothing
 
     -- Non-persistent below here
     , appState = AppState.makeAppState emptyAppStateAccount "mammudeck"
     , appStateAccount = emptyAppStateAccount
-    , docSection = DocIntro --should probably be persistent
+    , docSection = DocIntro --should be persistent?
     , maxTootCharsString = Nothing
     , tokenText = ""
     , lastInstance = Nothing
@@ -4897,7 +4888,7 @@ columnsUIMsg msg model =
                 appState =
                     model.appState
             in
-            if appState.bucket == "" then
+            if key == pk.s3Account || appState.bucket == "" then
                 model |> withNoCmd
 
             else
@@ -4933,6 +4924,11 @@ columnsUIMsg msg model =
                     model |> withNoCmd
 
 
+{-| TODO: Test that the S3 bucket/secrets actually work.
+
+Put up an alert dialog if so, or the S3Dialog with error message if not.
+
+-}
 commitS3Dialog : Model -> ( Model, Cmd Msg )
 commitS3Dialog model =
     let
