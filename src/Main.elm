@@ -11482,7 +11482,7 @@ styles =
         , color = "black"
         , popupChoiceClass = "popup-choice-light"
         , highlightStatusColor = "#fed8b1"
-        , repliedToStatusColor = "gainsboro"
+        , repliedToStatusColor = "#eee"
         , visitedStatusColor = "#ececec"
         , borderColor = "#ddd"
         }
