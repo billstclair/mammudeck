@@ -6675,14 +6675,14 @@ columnScrollInfo model =
 
         col0Left =
             if model.showLeftColumn then
-                leftColumnWidth + 5
+                leftColumnWidth + 3
 
             else
-                5
+                3
 
         columnWidth =
             model.renderEnv.columnWidth
-                + 4
+                + 2
     in
     { scrollLeft = scrollLeft
     , col0Left = col0Left
