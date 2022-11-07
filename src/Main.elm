@@ -3970,12 +3970,12 @@ columnsUIMsg msg model =
 
                 windowWidth =
                     -- The 10 is the padding in the inner div in renderCenteredScreen
-                    -- subtracted 2 because that works.
-                    (renderEnv.windowSize |> Tuple.first) - 8 - leftColWid |> toFloat
+                    -- subtracted 4 because that works.
+                    (renderEnv.windowSize |> Tuple.first) - 6 - leftColWid |> toFloat
 
                 colMargin =
-                    -- 1 should be 0, but works.
-                    columnsBorderSpacing + 1 |> toFloat
+                    -- Determined by experiment
+                    0 |> toFloat
 
                 cols =
                     (windowWidth / (columnWidth + colMargin))
@@ -6675,10 +6675,10 @@ columnScrollInfo model =
 
         col0Left =
             if model.showLeftColumn then
-                leftColumnWidth + 3
+                leftColumnWidth + 2
 
             else
-                3
+                2
 
         columnWidth =
             model.renderEnv.columnWidth
@@ -6718,7 +6718,7 @@ scrollPageInternal allTheWay direction model =
                         col0Left
 
                     ScrollRight ->
-                        width - windowWidth
+                        width + 2 - windowWidth
 
             else
                 case direction of
@@ -6735,7 +6735,7 @@ scrollPageInternal allTheWay direction model =
                     ScrollRight ->
                         let
                             maxScroll =
-                                width - windowWidth
+                                width + 2 - windowWidth
 
                             nominal =
                                 scrollLeft + windowWidth
@@ -14084,11 +14084,6 @@ pxBang int =
     px int ++ " !important"
 
 
-columnsBorderSpacing : Int
-columnsBorderSpacing =
-    2
-
-
 triangleHeight : Float -> Float
 triangleHeight width =
     width * sqrt 3 * 0.5
@@ -14379,8 +14374,6 @@ renderColumns model =
         , table
             [ style "border-collapse" "collapse"
             , style "border-color" borderColor
-
-            --, style "border-spacing" <| String.fromInt columnsBorderSpacing
             , fsStyle renderEnv
             ]
             [ tr [] <|
