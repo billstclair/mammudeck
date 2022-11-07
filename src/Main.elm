@@ -720,7 +720,6 @@ type alias Model =
     , started : Started
     , funnelState : State
     , now : Posix
-    , cmdQueue : List ( Int, Cmd Msg )
     }
 
 
@@ -868,7 +867,7 @@ type ColumnsUIMsg
     | SetAppStateAccount DynamoDB.Types.Account
     | CommitDynamoDBDialog
     | DynamoDBSave String (Maybe Value)
-    | AppStateSaved (Result DynamoDB.Types.Error ())
+    | AppStateSaved (Result AppState.Error Int)
 
 
 type ReceiveFeedType
@@ -1490,7 +1489,6 @@ init value url key =
     , started = NotStarted
     , funnelState = initialFunnelState
     , now = Time.millisToPosix 0
-    , cmdQueue = []
     }
         -- As soon as the localStorage module reports in,
         -- we'll load the saved model,
@@ -3888,14 +3886,14 @@ secondFeedElementId elements =
             Nothing
 
 
-processAppStateUpdate : Model -> Maybe ( AppState, Task DynamoDB.Types.Error () ) -> ( Model, Cmd Msg )
+processAppStateUpdate : Model -> Maybe ( AppState, Task AppState.Error Int ) -> ( Model, Cmd Msg )
 processAppStateUpdate model result =
     case result of
         Nothing ->
             model |> withNoCmd
 
         Just ( appState, task ) ->
-            ( { model | appState = appState }
+            ( { model | appState = Debug.log "processAppState" appState }
             , Task.attempt (ColumnsUIMsg << AppStateSaved) task
             )
 
@@ -4094,26 +4092,12 @@ columnsUIMsg msg model =
                 millis =
                     Time.posixToMillis now
 
-                folder qe ( cmds, queue ) =
-                    let
-                        ( time, cmd ) =
-                            qe
-                    in
-                    if time <= millis then
-                        ( Cmd.batch [ cmd, cmds ], queue )
-
-                    else
-                        ( cmds, qe :: queue )
-
-                ( cmd2, queue2 ) =
-                    List.foldl folder ( Cmd.none, [] ) model.cmdQueue
-
-                ( mdl, cmd3 ) =
+                ( mdl, cmd ) =
                     processAppStateUpdate model <|
                         AppState.idle millis model.appState
             in
             { mdl | now = now }
-                |> withCmds [ cmd2, cmd3 ]
+                |> withCmd cmd
 
         ShowEditColumnsDialog ->
             { model | dialog = EditColumnsDialog }
@@ -4877,7 +4861,11 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
         SetAppStateAccount account ->
-            { model | appStateAccount = account } |> withNoCmd
+            { model
+                | appState = AppState.mergeAccount account model.appState
+                , appStateAccount = account
+            }
+                |> withNoCmd
 
         CommitDynamoDBDialog ->
             commitDynamoDBDialog model
@@ -4896,20 +4884,11 @@ columnsUIMsg msg model =
                 model |> withNoCmd
 
             else
-                case
-                    AppState.save
-                        (Time.posixToMillis model.now)
-                        key
-                        value
-                        appState
-                of
-                    Nothing ->
-                        model |> withNoCmd
-
-                    Just ( appState2, task ) ->
-                        { model | appState = appState2 }
-                            |> withCmd
-                                (Task.attempt (ColumnsUIMsg << AppStateSaved) task)
+                AppState.save (Time.posixToMillis model.now)
+                    key
+                    value
+                    appState
+                    |> processAppStateUpdate model
 
         AppStateSaved result ->
             case result of
@@ -4920,10 +4899,10 @@ columnsUIMsg msg model =
                     in
                     model |> withNoCmd
 
-                Ok () ->
+                Ok count ->
                     let
                         s =
-                            Debug.log "AppStateSaved OK" ()
+                            Debug.log "AppStateSaved OK" count
                     in
                     model |> withNoCmd
 
@@ -19529,9 +19508,9 @@ pk =
     , dynamoDBAccount = "dynamoDBAccount"
 
     -- These are here to remind me not to use them
-    -- They have "DynamoDB." in front of them, so should be safe anyway.
+    -- They have "DynamoDB." in front of them, so should be safe.
     , appStateSaveCount = appState.saveCountKey
-    , appStatekeyCounts = appState.keyCountsKey
+    , appStateKeyCounts = appState.keyCountsKey
     }
 
 

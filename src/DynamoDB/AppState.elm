@@ -12,7 +12,7 @@
 
 module DynamoDB.AppState exposing
     ( AppState, makeAppState
-    , save, idle
+    , Error, save, idle
     , renderAccount
     , store
     , mergeAccount
@@ -35,7 +35,7 @@ It returns a list of key/value pairs that have been changed by another machine p
 
 # Updating state
 
-@docs save, idle
+@docs Error, save, idle
 
 
 # User Interface
@@ -55,7 +55,6 @@ import DynamoDB.Types
     exposing
         ( Account
         , AttributeValue(..)
-        , Error(..)
         , Item
         , Key(..)
         , TableName
@@ -126,6 +125,14 @@ maxSaves =
     100 - 2
 
 
+{-| The `Error` in the result from executing the task returned by `save` and `idle`.
+-}
+type alias Error =
+    { appState : AppState
+    , error : DynamoDB.Types.Error
+    }
+
+
 {-| Add a new key/value pair to the DynamoDB store.
 
 Don't actually push it to DynamoDB unless it's time.
@@ -137,13 +144,19 @@ thing for partial saves.
 Need two-phase commit in DynamoDB to do this right. Don't bother.
 
 -}
-save : Int -> String -> Maybe Value -> AppState -> Maybe ( AppState, Task Error () )
+save : Int -> String -> Maybe Value -> AppState -> Maybe ( AppState, Task Error Int )
 save time key value appState =
     let
         state =
             { appState
                 | updates = Dict.insert key value appState.updates
                 , lastIdleTime = time
+                , lastSaveTime =
+                    if Dict.size appState.updates == 0 then
+                        time
+
+                    else
+                        appState.lastSaveTime
             }
     in
     if
@@ -151,8 +164,8 @@ save time key value appState =
             && (Dict.size state.updates < maxSaves)
     then
         Just
-            ( appState
-            , Task.succeed ()
+            ( state
+            , Task.succeed 0
             )
 
     else
@@ -161,7 +174,7 @@ save time key value appState =
 
 {-| Push the saved changes to DynamoDB if the idle time has elapsed.
 -}
-idle : Int -> AppState -> Maybe ( AppState, Task Error () )
+idle : Int -> AppState -> Maybe ( AppState, Task Error Int )
 idle time appState =
     if time <= appState.lastIdleTime + appState.idlePeriod then
         Nothing
@@ -189,7 +202,7 @@ makeValueItem appState value =
 
 {-| Push all saved updates to DynamoDB.
 -}
-store : Int -> AppState -> Maybe ( AppState, Task Error () )
+store : Int -> AppState -> Maybe ( AppState, Task Error Int )
 store time appState =
     if appState.updates == Dict.empty then
         Nothing
@@ -261,11 +274,19 @@ store time appState =
                 }
         in
         Just
-            ( appState
+            ( state
             , saveCountWrite
                 :: (keyCountsWrite :: saveWrites)
                 |> DynamoDB.transactWriteItems
                 |> DynamoDB.send appState.account
+                |> Task.andThen
+                    (\() -> Task.succeed <| Dict.size appState.updates)
+                |> Task.mapError
+                    (\err ->
+                        { appState = appState
+                        , error = err
+                        }
+                    )
             )
 
 
