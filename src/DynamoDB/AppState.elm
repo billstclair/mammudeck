@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------
 --
--- S3/AppState.elm
--- Help for storing application state in S3.
+-- DynamoDB/AppState.elm
+-- Help for storing application state in DynanoDB.
 -- Copyright (c) 2022 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
@@ -10,21 +10,22 @@
 ----------------------------------------------------------------------
 
 
-module S3.AppState exposing
+module DynamoDB.AppState exposing
     ( AppState, makeAppState
     , save, idle
     , renderAccount
     , store
+    , mergeAccount
     )
 
-{-| Support for storing application state in S3.
+{-| Support for storing application state in DynamoDB.
 
 You specify key/value pairs to save by calling `save`.
-They are stored until the `savePeriod` has passed, then pushed to S3.
-Each time the clock ticks, call `idle` to make sure unstored changes get pushed to S3.
+They are stored until the `savePeriod` has passed, then pushed to DynamoDB.
+Each time the clock ticks, call `idle` to make sure unstored changes get pushed to DynamoDB.
 
 Call `update` to pull changes from S3, at `updatePeriod` intervals.
-It returns a list of key/value pairs that have been changed by another machine pushing to S3.
+It returns a list of key/value pairs that have been changed by another machine pushing to DynamoDB.
 
 
 # State
@@ -49,27 +50,28 @@ It returns a list of key/value pairs that have been changed by another machine p
 -}
 
 import Dict exposing (Dict)
+import DynamoDB
+import DynamoDB.Types
+    exposing
+        ( Account
+        , AttributeValue(..)
+        , Error(..)
+        , Item
+        , Key(..)
+        , TableName
+        )
 import Html exposing (Html, input, label, p, span, text)
 import Html.Attributes exposing (checked, size, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE exposing (Value)
-import S3
-import S3.Types
-    exposing
-        ( Account
-        , Bucket
-        , Error(..)
-        , Key
-        )
 import Task exposing (Task)
 
 
-{-| Track updates for S3 persistence.
+{-| Track updates for DynamoDB persistence.
 -}
 type alias AppState =
     { account : Account
-    , bucket : Bucket
     , savePeriod : Int
     , idlePeriod : Int
     , updatePeriod : Int
@@ -88,15 +90,14 @@ type alias AppState =
 
 {-| Make an AppState with good defaults.
 -}
-makeAppState : Account -> Bucket -> AppState
-makeAppState account bucket =
+makeAppState : Account -> AppState
+makeAppState account =
     { account = account
-    , bucket = bucket
     , savePeriod = 5000
     , idlePeriod = 2000
     , updatePeriod = 10000
-    , saveCountKey = "S3.saveCount"
-    , keyCountsKey = "S3.keyCounts"
+    , saveCountKey = "DynamoDB.saveCount"
+    , keyCountsKey = "DynamoDB.keyCounts"
 
     -- Times are in milliseconds, as returned by `Time.posixToMillis` applied
     -- to the result of `Time.now`.
@@ -109,15 +110,15 @@ makeAppState account bucket =
     }
 
 
-{-| Add a new key/value pair to the S3 store.
+{-| Add a new key/value pair to the DynamoDB store.
 
-Don't actually push it to S3 unless it's time.
+Don't actually push it to DynamoDB unless it's time.
 
 Probably needs to change to return the AppState after save right away,
 so that errors don't keep retyring forever. It's hard to do the right
 thing for partial saves.
 
-Need two-phase commit in S3 to do this right. Don't bother.
+Need two-phase commit in DynamoDB to do this right. Don't bother.
 
 -}
 save : Int -> String -> Maybe Value -> AppState -> Maybe ( AppState, Task Error String )
@@ -139,7 +140,7 @@ save time key value appState =
         store time state
 
 
-{-| Push the saved changes to S3 if the idle time has elapsed.
+{-| Push the saved changes to DynamoDB if the idle time has elapsed.
 -}
 idle : Int -> AppState -> Maybe ( AppState, Task Error String )
 idle time appState =
@@ -150,8 +151,8 @@ idle time appState =
         store time appState
 
 
-putS3Value : AppState -> Key -> Maybe Value -> Task Error String
-putS3Value appState key value =
+putDynamoDBValue : AppState -> String -> Maybe Value -> Task Error String
+putDynamoDBValue appState key value =
     let
         valueString =
             case value of
@@ -162,24 +163,45 @@ putS3Value appState key value =
                     JE.encode 0 v
 
         s =
-            Debug.log ("*** putS3Value " ++ key) valueString
+            Debug.log ("*** putDynamoDBValue " ++ key) valueString
     in
     Task.succeed s
 
 
-putS3ValueInternal : AppState -> Key -> Maybe Value -> Task Error String
-putS3ValueInternal appState key value =
+keyFieldName : String
+keyFieldName =
+    "key"
+
+
+valueFieldName : String
+valueFieldName =
+    "value"
+
+
+putDynamoDBValueInternal : AppState -> String -> Maybe Value -> Task Error ()
+putDynamoDBValueInternal appState keyString value =
+    let
+        key =
+            SimpleKey ( keyFieldName, StringValue keyString )
+    in
     (case value of
         Nothing ->
-            S3.deleteObject appState.bucket key
+            DynamoDB.deleteItem appState.account.tableName key
 
         Just v ->
-            S3.putObject appState.bucket key (S3.jsonBody v)
+            let
+                attributeValue =
+                    StringValue <| JE.encode 0 v
+
+                item =
+                    DynamoDB.makeItem [ ( valueFieldName, attributeValue ) ]
+            in
+            DynamoDB.putItem appState.account.tableName key item
     )
-        |> S3.send appState.account
+        |> DynamoDB.send appState.account
 
 
-{-| Push all saved updates to S3.
+{-| Push all saved updates to DynamoDB.
 -}
 store : Int -> AppState -> Maybe ( AppState, Task Error String )
 store time appState =
@@ -202,18 +224,18 @@ store time appState =
             saveTasks =
                 Dict.foldl
                     (\k v tasks ->
-                        putS3Value appState k v :: tasks
+                        putDynamoDBValue appState k v :: tasks
                     )
                     []
                     appState.updates
 
             keyCountsTask =
-                putS3Value appState
+                putDynamoDBValue appState
                     appState.keyCountsKey
                     (Just <| encodeKeyCounts keyCounts)
 
             saveCountTask =
-                putS3Value appState
+                putDynamoDBValue appState
                     appState.saveCountKey
                     (Just <| JE.int saveCount)
 
@@ -250,7 +272,7 @@ br =
     Html.br [] []
 
 
-{-| A UI for entering account and bucket information.
+{-| A UI for entering account information.
 
 You can certainly do this yourself, if you want it to look different,
 but this gives you a good start.
@@ -260,63 +282,19 @@ The callback is called when a field changes.
 You need to do OK and Cancel buttons yourself.
 
 -}
-renderAccount : Account -> (Account -> msg) -> Html msg
-renderAccount account callback =
-    let
-        ( disabled, bucket ) =
-            case account.buckets of
-                [] ->
-                    ( False, "" )
-
-                [ buck ] ->
-                    ( False, buck )
-
-                buck :: tail ->
-                    ( True, buck )
-    in
+renderAccount : (Account -> msg) -> Account -> Html msg
+renderAccount callback account =
     span []
-        [ b "bucket: "
+        [ b "tableName: "
         , input
             [ size 20
-            , value bucket
+            , value account.tableName
             , onInput <|
                 \a ->
                     callback
-                        { account
-                            | buckets =
-                                if disabled then
-                                    [ a, "<disabled>" ]
-
-                                else if a == "" then
-                                    []
-
-                                else
-                                    [ a ]
-                        }
+                        { account | tableName = a }
             ]
             []
-        , label []
-            [ text " "
-            , input
-                [ type_ "checkbox"
-                , checked disabled
-                , onClick <|
-                    callback
-                        { account
-                            | buckets =
-                                if not disabled then
-                                    [ bucket, "<disabled>" ]
-
-                                else if bucket == "" then
-                                    []
-
-                                else
-                                    [ bucket ]
-                        }
-                ]
-                []
-            , text " disabled"
-            ]
         , br
         , b "accessKey: "
         , input
@@ -363,44 +341,11 @@ renderAccount account callback =
                     callback { account | region = reg }
             ]
             []
-        , br
-        , label []
-            [ b "isDigitalOcean: "
-            , input
-                [ type_ "checkbox"
-                , checked account.isDigitalOcean
-                , onClick <|
-                    callback
-                        { account
-                            | isDigitalOcean = not account.isDigitalOcean
-                        }
-                ]
-                []
-            ]
         ]
 
 
 {-| Merge information from `Account` into AppState.
-
-If `account.buckets` has 0 or more than 1 element, `appState.disabled`
-will be set true and `appState.bucket` will be set to `""`.
-
 -}
 mergeAccount : Account -> AppState -> AppState
 mergeAccount account appState =
-    let
-        ( disabled, bucket ) =
-            case account.buckets of
-                "" :: _ ->
-                    ( True, "" )
-
-                [ buck ] ->
-                    ( False, buck )
-
-                _ ->
-                    ( True, "" )
-    in
-    { appState
-        | account = account
-        , bucket = bucket
-    }
+    { appState | account = account }

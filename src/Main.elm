@@ -99,6 +99,9 @@ import Delay
 import Dialog
 import Dict exposing (Dict)
 import DropZone
+import DynamoDB
+import DynamoDB.AppState as AppState exposing (AppState)
+import DynamoDB.Types
 import File exposing (File)
 import File.Select
 import Html
@@ -236,9 +239,6 @@ import PortFunnel.LocalStorage as LocalStorage
 import PortFunnel.WebSocket as WebSocket
 import PortFunnels exposing (FunnelDict, Handler(..), State)
 import Regex
-import S3
-import S3.AppState as AppState exposing (AppState)
-import S3.Types
 import Set exposing (Set)
 import String.Extra as SE
 import Svg exposing (Svg, svg)
@@ -331,7 +331,7 @@ type Dialog
     | PostDialog
     | AttachmentDialog AttachmentView
     | SettingsDialog
-    | S3Dialog
+    | DynamoDBDialog
     | KeyboardShortcutsDialog
     | SaveRestoreDialog
     | ReportDialog Status
@@ -619,7 +619,7 @@ type alias Model =
 
     -- Non-persistent below here
     , appState : AppState
-    , appStateAccount : S3.Types.Account
+    , appStateAccount : DynamoDB.Types.Account
     , docSection : DocSection
     , maxTootCharsString : Maybe String
     , tokenText : String
@@ -810,7 +810,7 @@ type ColumnsUIMsg
     | PostWithGroupId String
     | ShowAttachmentDialog Int Status
     | ShowSettingsDialog
-    | ShowS3Dialog
+    | ShowDynamoDBDialog
     | ShowKeyboardShortcutsDialog
     | ShowSaveRestoreDialog
     | YesImSure AreYouSureReason Status
@@ -865,10 +865,10 @@ type ColumnsUIMsg
     | ToggleShowLeftColumn
     | ToggleShowScrollPill
     | ToggleShowScrollPillServer
-    | SetAppStateAccount S3.Types.Account
-    | CommitS3Dialog
-    | S3Save String (Maybe Value)
-    | AppStateSaved (Result S3.Types.Error String)
+    | SetAppStateAccount DynamoDB.Types.Account
+    | CommitDynamoDBDialog
+    | DynamoDBSave String (Maybe Value)
+    | AppStateSaved (Result DynamoDB.Types.Error String)
 
 
 type ReceiveFeedType
@@ -1100,7 +1100,7 @@ keyMsgDict =
         , ( ".", ShowSettingsDialog )
         , ( "t", ToggleStyle )
         , ( ",", ShowSettingsDialog )
-        , ( "s", ShowS3Dialog )
+        , ( "s", ShowDynamoDBDialog )
         , ( "v", ShowServerDialog )
         , ( "?", ShowKeyboardShortcutsDialog )
         , ( "o", ShowSaveRestoreDialog )
@@ -1299,14 +1299,13 @@ receiveCodeOrError url =
                                     NoCode
 
 
-emptyAppStateAccount : S3.Types.Account
+emptyAppStateAccount : DynamoDB.Types.Account
 emptyAppStateAccount =
     { name = "mammudeck"
     , region = Nothing
-    , isDigitalOcean = False
     , accessKey = ""
     , secretKey = ""
-    , buckets = []
+    , tableName = "mammudeck"
     }
 
 
@@ -1393,7 +1392,7 @@ init value url key =
     , hashtagInput = ""
 
     -- Non-persistent below here
-    , appState = AppState.makeAppState emptyAppStateAccount "mammudeck"
+    , appState = AppState.makeAppState emptyAppStateAccount
     , appStateAccount = emptyAppStateAccount
     , docSection = DocIntro --should be persistent?
     , maxTootCharsString = Nothing
@@ -1545,7 +1544,7 @@ storageHandler response state model =
             then
                 Cmd.batch
                     [ get pk.model
-                    , get pk.s3Account
+                    , get pk.dynamoDBAccount
                     , listKeysLabeled pk.token (pk.token ++ ".")
                     , listKeysLabeled pk.timestamps (pk.timestamps ++ ".")
                     , listKeysLabeled pk.timestamp (pk.timestamp ++ ".")
@@ -2090,8 +2089,8 @@ handleGetResponse maybeLabel key maybeValue model =
             if Debug.log "handleGetResponse, key" key == pk.model then
                 handleGetModel maybeValue model
 
-            else if key == pk.s3Account then
-                handleGetS3Account key maybeValue model
+            else if key == pk.dynamoDBAccount then
+                handleGetDynamoDBAccount key maybeValue model
 
             else if pk.feedSetDefinition == String.left pkFeedSetDefinitionLength key then
                 handleGetFeedSetDefinition maybeValue model
@@ -2128,14 +2127,14 @@ handleGetResponse maybeLabel key maybeValue model =
                         model |> withNoCmd
 
 
-handleGetS3Account : String -> Maybe Value -> Model -> ( Model, Cmd Msg )
-handleGetS3Account key maybeValue model =
+handleGetDynamoDBAccount : String -> Maybe Value -> Model -> ( Model, Cmd Msg )
+handleGetDynamoDBAccount key maybeValue model =
     case maybeValue of
         Nothing ->
             model |> withNoCmd
 
         Just value ->
-            case JD.decodeValue S3.accountDecoder value of
+            case JD.decodeValue DynamoDB.accountDecoder value of
                 Err err ->
                     let
                         ignore =
@@ -2146,7 +2145,7 @@ handleGetS3Account key maybeValue model =
                 Ok account ->
                     { model
                         | appStateAccount = account
-                        , appState = mergeAppState account model.appState
+                        , appState = AppState.mergeAccount account model.appState
                     }
                         |> withNoCmd
 
@@ -3889,7 +3888,7 @@ secondFeedElementId elements =
             Nothing
 
 
-processAppStateUpdate : Model -> Maybe ( AppState, Task S3.Types.Error String ) -> ( Model, Cmd Msg )
+processAppStateUpdate : Model -> Maybe ( AppState, Task DynamoDB.Types.Error String ) -> ( Model, Cmd Msg )
 processAppStateUpdate model result =
     case result of
         Nothing ->
@@ -4267,8 +4266,8 @@ columnsUIMsg msg model =
             { model | dialog = SettingsDialog }
                 |> withNoCmd
 
-        ShowS3Dialog ->
-            { model | dialog = S3Dialog }
+        ShowDynamoDBDialog ->
+            { model | dialog = DynamoDBDialog }
                 |> withNoCmd
 
         ShowKeyboardShortcutsDialog ->
@@ -4880,15 +4879,20 @@ columnsUIMsg msg model =
         SetAppStateAccount account ->
             { model | appStateAccount = account } |> withNoCmd
 
-        CommitS3Dialog ->
-            commitS3Dialog model
+        CommitDynamoDBDialog ->
+            commitDynamoDBDialog model
 
-        S3Save key value ->
+        DynamoDBSave key value ->
             let
                 appState =
                     model.appState
             in
-            if key == pk.s3Account || appState.bucket == "" then
+            if
+                (key == pk.dynamoDBAccount)
+                    || (appState.account.accessKey == "")
+                    || (appState.account.secretKey == "")
+                    || (appState.account.tableName == "")
+            then
                 model |> withNoCmd
 
             else
@@ -4924,13 +4928,13 @@ columnsUIMsg msg model =
                     model |> withNoCmd
 
 
-{-| TODO: Test that the S3 bucket/secrets actually work.
+{-| TODO: Test that the DynamoDB secrets actually work.
 
-Put up an alert dialog if so, or the S3Dialog with error message if not.
+Put up an alert dialog if so, or the DynamoDBDialog with error message if not.
 
 -}
-commitS3Dialog : Model -> ( Model, Cmd Msg )
-commitS3Dialog model =
+commitDynamoDBDialog : Model -> ( Model, Cmd Msg )
+commitDynamoDBDialog model =
     let
         account =
             model.appStateAccount
@@ -4941,27 +4945,12 @@ commitS3Dialog model =
     if
         (account.accessKey == "")
             || (account.secretKey == "")
-            || (account.buckets == [])
     then
-        mdl |> withCmd (putS3Account Nothing)
+        mdl |> withCmd (putDynamoDBAccount Nothing)
 
     else
-        { mdl | appState = mergeAppState account mdl.appState }
-            |> withCmd (putS3Account <| Just account)
-
-
-mergeAppState : S3.Types.Account -> AppState -> AppState
-mergeAppState account appState =
-    { appState
-        | account = account
-        , bucket =
-            case account.buckets of
-                [] ->
-                    ""
-
-                bucket :: _ ->
-                    bucket
-    }
+        { mdl | appState = AppState.mergeAccount account mdl.appState }
+            |> withCmd (putDynamoDBAccount <| Just account)
 
 
 yesImSure : AreYouSureReason -> Status -> Model -> ( Model, Cmd Msg )
@@ -12143,7 +12132,7 @@ renderLeftColumn renderEnv =
         , p []
             [ button (ColumnsUIMsg ShowSettingsDialog) "settings" ]
         , p []
-            [ button (ColumnsUIMsg ShowS3Dialog) "s3" ]
+            [ button (ColumnsUIMsg ShowDynamoDBDialog) "dynamoDB" ]
         , p []
             [ button (ColumnsUIMsg ShowSaveRestoreDialog) "save" ]
         , p []
@@ -12213,8 +12202,8 @@ settingsDialogContent model =
         , button (ColumnsUIMsg ShowEditColumnsDialog)
             "Edit Columns Dialog"
         , br
-        , button (ColumnsUIMsg ShowS3Dialog)
-            "S3 Dialog"
+        , button (ColumnsUIMsg ShowDynamoDBDialog)
+            "DynamoDB Dialog"
         , br
         , button (ColumnsUIMsg ShowSaveRestoreDialog)
             "Save/Restore Dialog"
@@ -12326,8 +12315,8 @@ settingsDialogContent model =
     ]
 
 
-s3Dialog : Model -> Html Msg
-s3Dialog model =
+dynamoDBDialog : Model -> Html Msg
+dynamoDBDialog model =
     let
         renderEnv =
             model.renderEnv
@@ -12341,19 +12330,19 @@ s3Dialog model =
             , ( "overflow", "auto" )
             , ( "font-size", fspct model.renderEnv )
             ]
-        , title = "S3 Persistence"
+        , title = "DynamoDB Persistence"
         , content =
-            s3DialogContent model
+            dynamoDBDialogContent model
         , actionBar =
-            [ button (ColumnsUIMsg CommitS3Dialog) "OK"
+            [ button (ColumnsUIMsg CommitDynamoDBDialog) "OK"
             , button (ColumnsUIMsg DismissDialog) "Cancel"
             ]
         }
         True
 
 
-s3DialogContent : Model -> List (Html Msg)
-s3DialogContent model =
+dynamoDBDialogContent : Model -> List (Html Msg)
+dynamoDBDialogContent model =
     let
         renderEnv =
             model.renderEnv
@@ -12365,7 +12354,7 @@ s3DialogContent model =
         [ text "This information is stored in your brower's LocalStorage database."
         ]
     , p []
-        [ text "To disable S3 storage, and remove the information from LocalStorage, clear "
+        [ text "To disable DynamoDB storage, and remove the information from LocalStorage, clear "
         , b "bucket"
         , text ", "
         , b "accessKey"
@@ -12375,8 +12364,8 @@ s3DialogContent model =
         ]
     , p []
         [ AppState.renderAccount
-            model.appStateAccount
             (\a -> ColumnsUIMsg <| SetAppStateAccount a)
+            model.appStateAccount
         ]
     ]
 
@@ -16704,8 +16693,8 @@ renderDialog model =
         SettingsDialog ->
             settingsDialog model
 
-        S3Dialog ->
-            s3Dialog model
+        DynamoDBDialog ->
+            dynamoDBDialog model
 
         KeyboardShortcutsDialog ->
             keyboardShortcutsDialog model
@@ -17375,7 +17364,7 @@ keyboardShortcutsDialogRows model =
         , row "r" "Reload all columns" Nothing
         , row "u" "Show all undisplayed" Nothing
         , row "," "Show Settings dialog" Nothing
-        , row "s" "Show S3 dialog" Nothing
+        , row "s" "Show DynamoDB dialog" Nothing
         , row "t" "Toggle Dark Mode" Nothing
         , row "v" "Show Server Dialog" Nothing
         , row "o" "Save/Restore Dialog" Nothing
@@ -19442,8 +19431,8 @@ putTimestamps server statusids =
     put (pk.timestamps ++ "." ++ server) v
 
 
-putS3Account : Maybe S3.Types.Account -> Cmd Msg
-putS3Account account =
+putDynamoDBAccount : Maybe DynamoDB.Types.Account -> Cmd Msg
+putDynamoDBAccount account =
     let
         v =
             case account of
@@ -19451,9 +19440,9 @@ putS3Account account =
                     Nothing
 
                 Just acct ->
-                    Just <| S3.encodeAccount acct
+                    Just <| DynamoDB.encodeAccount acct
     in
-    put pk.s3Account v
+    put pk.dynamoDBAccount v
 
 
 getTimestamp : String -> Cmd Msg
@@ -19516,7 +19505,7 @@ pk =
     , timestamp = "timestamp"
     , timestamps = "timestamps"
     , app = "app"
-    , s3Account = "s3Account"
+    , dynamoDBAccount = "dynamoDBAccount"
     }
 
 
@@ -19813,7 +19802,7 @@ type DocSection
     | DocScrollPill
     | DocApi
     | DocSettingsDialog
-    | DocS3Dialog
+    | DocDynamoDBDialog
     | DocEditColumnsDialog
     | DocSaveRestoreDialog
     | DocKeyboardShortcutsDialog
@@ -19860,7 +19849,7 @@ docSections =
     , ( DocLeftColumn, "Left Column", "left-column" )
     , ( DocScrollPill, "Scroll Pill", "scroll-pill" )
     , ( DocSettingsDialog, "Settings", "settings" )
-    , ( DocS3Dialog, "S3", "s3" )
+    , ( DocDynamoDBDialog, "DynamoDB", "dynamoDB" )
     , ( DocEditColumnsDialog, "Edit Columns", "edit-columns" )
     , ( DocSaveRestoreDialog, "Save/Restore", "save/restore" )
     , ( DocKeyboardShortcutsDialog, "Keyboard Shortcuts", "keyboard-shortcuts" )
@@ -20052,9 +20041,9 @@ The settings dialog can be shown by either the scroll pill, the left column, or 
 * The "Clear all persistent state!" button removes all saved state, including server tokens and column layout. It brings up a confirmation dialog before erasing.
 """
 
-                        DocS3Dialog ->
+                        DocDynamoDBDialog ->
                             DocMarkdown """
-S3 Dialog
+DynamoDB Dialog
 """
 
                         DocEditColumnsDialog ->
