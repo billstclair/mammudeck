@@ -11452,6 +11452,7 @@ type alias StyleProperties =
     , highlightStatusColor : String
     , repliedToStatusColor : String
     , visitedStatusColor : String
+    , borderColor : String
     }
 
 
@@ -11473,6 +11474,7 @@ styles =
         , highlightStatusColor = "darkblue"
         , repliedToStatusColor = "darkslategray"
         , visitedStatusColor = "#444"
+        , borderColor = "#555"
         }
     , light =
         { backgroundColor = "white"
@@ -11482,6 +11484,7 @@ styles =
         , highlightStatusColor = "#fed8b1"
         , repliedToStatusColor = "gainsboro"
         , visitedStatusColor = "#ececec"
+        , borderColor = "#ddd"
         }
     }
 
@@ -12355,7 +12358,7 @@ dynamoDBDialogContent model =
         ]
     , p []
         [ text "To disable DynamoDB storage, and remove the information from LocalStorage, clear "
-        , b "bucket"
+        , b "tableName"
         , text ", "
         , b "accessKey"
         , text " or "
@@ -12407,7 +12410,7 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
         feedType =
             feed.feedType
 
-        { color } =
+        { color, borderColor } =
             getStyle renderEnv.style
 
         ( _, h ) =
@@ -12468,10 +12471,10 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
     div
         [ style "height" <| px (h - 20)
         , style "width" <| px renderEnv.columnWidth
-        , style "border" <| "1px solid " ++ color
+        , style "border" <| "1px solid " ++ borderColor
         ]
         [ div
-            [ style "border" <| "1px solid " ++ color
+            [ style "border" <| "1px solid " ++ borderColor
             , style "text-align" "center"
             , style "color" color
             , id <| headerFeedId feedId
@@ -12713,10 +12716,10 @@ renderFeedElements error newElements feedType renderEnv bodyEnv elements =
 
                 Just msg ->
                     let
-                        { color } =
+                        { borderColor } =
                             getStyle renderEnv.style
                     in
-                    [ div [ style "border" <| "1px solid " ++ color ]
+                    [ div [ style "border" <| "1px solid " ++ borderColor ]
                         [ p [ style "color" "red" ]
                             [ text msg ]
                         ]
@@ -12793,7 +12796,7 @@ renderGangedNotification ellipsisPrefix renderEnv gangedNotification =
 renderMultiNotification : RenderEnv -> Account -> List Account -> String -> Notification -> Html Msg
 renderMultiNotification renderEnv account others ellipsisPrefix notification =
     let
-        { color } =
+        { color, borderColor } =
             getStyle renderEnv.style
 
         othersCount =
@@ -12809,7 +12812,7 @@ renderMultiNotification renderEnv account others ellipsisPrefix notification =
             formatIso8601 renderEnv.here notification.created_at
     in
     div
-        [ style "border" <| "1px solid " ++ color
+        [ style "border" <| "1px solid " ++ borderColor
         , style "color" color
         , style "padding" "0 3px"
         ]
@@ -12980,10 +12983,10 @@ renderNotification renderEnv ellipsisPrefix notification =
         description =
             notificationDescription notification renderEnv
 
-        { color } =
+        { color, borderColor } =
             getStyle renderEnv.style
     in
-    div [ style "border" <| "1px solid " ++ color ]
+    div [ style "border" <| "1px solid " ++ borderColor ]
         [ div []
             [ div [ headerFontSizeStyle ]
                 [ renderAccount renderEnv.fontSizePct
@@ -13172,7 +13175,7 @@ smallTextFontSize =
 renderNotificationBody : RenderEnv -> String -> Notification -> Html Msg
 renderNotificationBody renderEnv ellipsisPrefix notification =
     let
-        { color } =
+        { color, borderColor } =
             getStyle renderEnv.style
     in
     case notification.status of
@@ -13191,7 +13194,7 @@ renderNotificationBody renderEnv ellipsisPrefix notification =
                     renderStatusUrl timeString status
             in
             div []
-                [ hr
+                [ hr borderColor
                 , div
                     [ class "content"
                     , style "color" color
@@ -13446,11 +13449,11 @@ feedLoadingEmojiSpan addSpace reduceSize =
 renderFeedLoadingEmojiFooter : RenderEnv -> Html Msg
 renderFeedLoadingEmojiFooter renderEnv =
     let
-        { color } =
+        { color, borderColor } =
             getStyle renderEnv.style
     in
     div
-        [ style "border" <| "1px solid " ++ color ]
+        [ style "border" <| "1px solid " ++ borderColor ]
         [ div []
             [ div
                 [ class "content"
@@ -13465,20 +13468,19 @@ renderFeedLoadingEmojiFooter renderEnv =
 renderNewMarker : FeedType -> RenderEnv -> Html Msg
 renderNewMarker feedType renderEnv =
     let
-        { color } =
+        { borderColor } =
             getStyle renderEnv.style
 
         border =
-            "1px solid " ++ color
+            "1px solid " ++ borderColor
     in
     div
-        [ style "border-right" border
-        , style "border-left" border
-        , style "border-bottom" border
+        [ style "border" border
         ]
         [ Html.hr
             [ style "color" "red"
             , style "background-color" "red"
+            , style "border-color" "red"
             , style "height" "10px"
             , style "margin" "0"
             , style "cursor" "pointer"
@@ -13544,7 +13546,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                                         ReferencedMention mention ->
                                             Just ( mention.acct, mention.url )
 
-        { color } =
+        { color, borderColor } =
             getStyle renderEnv.style
 
         displayNameHtml =
@@ -13555,7 +13557,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
     in
     div
         (List.append
-            [ style "border" <| "1px solid " ++ color ]
+            [ style "border" <| "1px solid " ++ borderColor ]
             (case maybeNodeid of
                 Nothing ->
                     []
@@ -13636,7 +13638,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                                             [ text group.title ]
                                 , text <| " (" ++ String.fromInt group.member_count ++ " members)"
                                 ]
-            , hr
+            , hr borderColor
             , div
                 [ class "content"
                 , style "color" color
@@ -13685,10 +13687,14 @@ renderStatusCard renderEnv status =
             text ""
 
         Just card ->
+            let
+                { borderColor } =
+                    getStyle renderEnv.style
+            in
             div
                 [ style "margin" "4px" ]
                 [ div
-                    [ style "border" "1px solid"
+                    [ style "border" <| "1px solid " ++ borderColor
                     , style "padding" "4px"
                     ]
                     [ case card.image of
@@ -13919,18 +13925,21 @@ renderStatusActions renderEnv ellipsisPrefix status =
         ]
 
 
-hrpct : Int -> Html msg
-hrpct pct =
+hrpct : String -> Int -> Html msg
+hrpct color pct =
     Html.hr
         [ style "width" <| String.fromInt pct ++ "%"
         , style "margin" "auto"
+        , style "background-color" color
+        , style "color" color
+        , style "border-color" color
         ]
         []
 
 
-hr : Html msg
-hr =
-    hrpct 95
+hr : String -> Html msg
+hr color =
+    hrpct color 95
 
 
 iso8601ToMonthYear : Zone -> String -> String
@@ -14305,6 +14314,9 @@ renderColumns model =
         renderEnv =
             model.renderEnv
 
+        { color, borderColor } =
+            getStyle renderEnv.style
+
         { feeds } =
             model.feedSet
 
@@ -14350,11 +14362,12 @@ renderColumns model =
                             div
                                 [ style "text-align" "center"
                                 , style "padding" "5px"
-                                , style "border" "2px solid"
+                                , style "border" <| "2px solid black"
                                 , style "border-radius" "25px"
                                 , style "background" scrollPillBackground
                                 , style "margin-top" "-1px"
                                 , style "cursor" "pointer"
+                                , style "color" "black"
                                 , Html.Attributes.title "Login to a different server."
                                 , onClick (ColumnsUIMsg ShowServerDialog)
                                 ]
@@ -14364,7 +14377,10 @@ renderColumns model =
                 --, text (model.bodyScroll.scrollLeft |> String.fromFloat)
                 ]
         , table
-            [ style "border-spacing" <| String.fromInt columnsBorderSpacing
+            [ style "border-collapse" "collapse"
+            , style "border-color" borderColor
+
+            --, style "border-spacing" <| String.fromInt columnsBorderSpacing
             , fsStyle renderEnv
             ]
             [ tr [] <|
@@ -17081,6 +17097,9 @@ editColumnsDialogRows model =
 
         renderEnv =
             model.renderEnv
+
+        { color } =
+            getStyle renderEnv.style
     in
     -- This will change quite a bit when I add multiple-server support
     [ table [] <|
@@ -17237,7 +17256,7 @@ editColumnsDialogRows model =
             , fontelloChar [] "icon-menu" [] model
             , text " to move that column."
             ]
-    , hrpct 100
+    , hrpct color 100
     , let
         feedRow feedType =
             let
