@@ -50,7 +50,7 @@ It returns a list of key/value pairs that have been changed by another machine p
 -}
 
 import Dict exposing (Dict)
-import DynamoDB
+import DynamoDB exposing (TransactWrite(..))
 import DynamoDB.Types
     exposing
         ( Account
@@ -75,8 +75,11 @@ type alias AppState =
     , savePeriod : Int
     , idlePeriod : Int
     , updatePeriod : Int
+    , keyName : String
     , saveCountKey : String
     , keyCountsKey : String
+    , valueAttributeName : String
+    , saveCountAttributeName : String
 
     -- Above here is usually constant. Below changes.
     , lastSaveTime : Int
@@ -96,8 +99,11 @@ makeAppState account =
     , savePeriod = 5000
     , idlePeriod = 2000
     , updatePeriod = 10000
+    , keyName = "key"
     , saveCountKey = "DynamoDB.saveCount"
     , keyCountsKey = "DynamoDB.keyCounts"
+    , valueAttributeName = "value"
+    , saveCountAttributeName = "saveCount"
 
     -- Times are in milliseconds, as returned by `Time.posixToMillis` applied
     -- to the result of `Time.now`.
@@ -108,6 +114,16 @@ makeAppState account =
     , updates = Dict.empty
     , keyCounts = Dict.empty
     }
+
+
+{-| DynamoDB allows a maximum of 100 `TransactItems`.
+
+We use two for the update count and the key -> count map.
+
+-}
+maxSaves : Int
+maxSaves =
+    100 - 2
 
 
 {-| Add a new key/value pair to the DynamoDB store.
@@ -121,7 +137,7 @@ thing for partial saves.
 Need two-phase commit in DynamoDB to do this right. Don't bother.
 
 -}
-save : Int -> String -> Maybe Value -> AppState -> Maybe ( AppState, Task Error String )
+save : Int -> String -> Maybe Value -> AppState -> Maybe ( AppState, Task Error () )
 save time key value appState =
     let
         state =
@@ -130,10 +146,13 @@ save time key value appState =
                 , lastIdleTime = time
             }
     in
-    if time <= state.lastSaveTime + state.savePeriod then
+    if
+        (time <= state.lastSaveTime + state.savePeriod)
+            && (Dict.size state.updates < maxSaves)
+    then
         Just
             ( appState
-            , Task.succeed ""
+            , Task.succeed ()
             )
 
     else
@@ -142,7 +161,7 @@ save time key value appState =
 
 {-| Push the saved changes to DynamoDB if the idle time has elapsed.
 -}
-idle : Int -> AppState -> Maybe ( AppState, Task Error String )
+idle : Int -> AppState -> Maybe ( AppState, Task Error () )
 idle time appState =
     if time <= appState.lastIdleTime + appState.idlePeriod then
         Nothing
@@ -151,59 +170,26 @@ idle time appState =
         store time appState
 
 
-putDynamoDBValue : AppState -> String -> Maybe Value -> Task Error String
-putDynamoDBValue appState key value =
-    let
-        valueString =
-            case value of
-                Nothing ->
-                    "Nothing"
-
-                Just v ->
-                    JE.encode 0 v
-
-        s =
-            Debug.log ("*** putDynamoDBValue " ++ key) valueString
-    in
-    Task.succeed s
+makeKey : AppState -> String -> Key
+makeKey appState key =
+    SimpleKey ( appState.keyName, StringValue key )
 
 
-keyFieldName : String
-keyFieldName =
-    "key"
-
-
-valueFieldName : String
-valueFieldName =
-    "value"
-
-
-putDynamoDBValueInternal : AppState -> String -> Maybe Value -> Task Error ()
-putDynamoDBValueInternal appState keyString value =
-    let
-        key =
-            SimpleKey ( keyFieldName, StringValue keyString )
-    in
-    (case value of
-        Nothing ->
-            DynamoDB.deleteItem appState.account.tableName key
-
-        Just v ->
-            let
-                attributeValue =
-                    StringValue <| JE.encode 0 v
-
-                item =
-                    DynamoDB.makeItem [ ( valueFieldName, attributeValue ) ]
-            in
-            DynamoDB.putItem appState.account.tableName key item
-    )
-        |> DynamoDB.send appState.account
+makeValueItem : AppState -> Value -> Item
+makeValueItem appState value =
+    DynamoDB.makeItem
+        [ ( appState.valueAttributeName
+          , StringValue <| JE.encode 0 value
+          )
+        , ( appState.saveCountAttributeName
+          , StringValue <| String.fromInt appState.saveCount
+          )
+        ]
 
 
 {-| Push all saved updates to DynamoDB.
 -}
-store : Int -> AppState -> Maybe ( AppState, Task Error String )
+store : Int -> AppState -> Maybe ( AppState, Task Error () )
 store time appState =
     if appState.updates == Dict.empty then
         Nothing
@@ -221,23 +207,48 @@ store time appState =
                     appState.keyCounts
                     appState.updates
 
-            saveTasks =
-                Dict.foldl
-                    (\k v tasks ->
-                        putDynamoDBValue appState k v :: tasks
+            tableName =
+                appState.account.tableName
+
+            saveWrites =
+                List.map
+                    (\( k, v ) ->
+                        let
+                            key =
+                                SimpleKey
+                                    ( appState.keyName, StringValue k )
+                        in
+                        case v of
+                            Nothing ->
+                                TransactWriteDelete
+                                    { tableName = tableName
+                                    , key = key
+                                    }
+
+                            Just val ->
+                                TransactWritePut
+                                    { tableName = tableName
+                                    , key = Just key
+                                    , item =
+                                        makeValueItem appState val
+                                    }
                     )
-                    []
-                    appState.updates
+                <|
+                    Dict.toList appState.updates
 
-            keyCountsTask =
-                putDynamoDBValue appState
-                    appState.keyCountsKey
-                    (Just <| encodeKeyCounts keyCounts)
+            keyCountsWrite =
+                TransactWritePut
+                    { tableName = tableName
+                    , key = Just <| makeKey appState appState.keyCountsKey
+                    , item = makeValueItem appState <| encodeKeyCounts keyCounts
+                    }
 
-            saveCountTask =
-                putDynamoDBValue appState
-                    appState.saveCountKey
-                    (Just <| JE.int saveCount)
+            saveCountWrite =
+                TransactWritePut
+                    { tableName = tableName
+                    , key = Just <| makeKey appState appState.saveCountKey
+                    , item = makeValueItem appState <| JE.int saveCount
+                    }
 
             state =
                 { appState
@@ -251,9 +262,10 @@ store time appState =
         in
         Just
             ( appState
-            , Task.sequence saveTasks
-                |> Task.andThen (\_ -> keyCountsTask)
-                |> Task.andThen (\_ -> saveCountTask)
+            , saveCountWrite
+                :: (keyCountsWrite :: saveWrites)
+                |> DynamoDB.transactWriteItems
+                |> DynamoDB.send appState.account
             )
 
 

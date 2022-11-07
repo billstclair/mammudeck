@@ -868,7 +868,7 @@ type ColumnsUIMsg
     | SetAppStateAccount DynamoDB.Types.Account
     | CommitDynamoDBDialog
     | DynamoDBSave String (Maybe Value)
-    | AppStateSaved (Result DynamoDB.Types.Error String)
+    | AppStateSaved (Result DynamoDB.Types.Error ())
 
 
 type ReceiveFeedType
@@ -3888,7 +3888,7 @@ secondFeedElementId elements =
             Nothing
 
 
-processAppStateUpdate : Model -> Maybe ( AppState, Task DynamoDB.Types.Error String ) -> ( Model, Cmd Msg )
+processAppStateUpdate : Model -> Maybe ( AppState, Task DynamoDB.Types.Error () ) -> ( Model, Cmd Msg )
 processAppStateUpdate model result =
     case result of
         Nothing ->
@@ -4920,10 +4920,10 @@ columnsUIMsg msg model =
                     in
                     model |> withNoCmd
 
-                Ok string ->
+                Ok () ->
                     let
                         s =
-                            Debug.log "AppStateSaved OK" string
+                            Debug.log "AppStateSaved OK" ()
                     in
                     model |> withNoCmd
 
@@ -19301,7 +19301,10 @@ savedModelDecoder =
 
 put : String -> Maybe Value -> Cmd Msg
 put key value =
-    localStorageSend (LocalStorage.put (Debug.log "put" key) value)
+    Cmd.batch
+        [ localStorageSend (LocalStorage.put (Debug.log "put" key) value)
+        , Task.perform ColumnsUIMsg <| Task.succeed <| DynamoDBSave key value
+        ]
 
 
 get : String -> Cmd Msg
@@ -19509,6 +19512,10 @@ funnelDict =
 {-| Persistent storage keys
 -}
 pk =
+    let
+        appState =
+            AppState.makeAppState emptyAppStateAccount
+    in
     { model = "model"
     , token = "token"
     , feedSetDefinition = "feedSetDefinition"
@@ -19517,7 +19524,14 @@ pk =
     , timestamp = "timestamp"
     , timestamps = "timestamps"
     , app = "app"
+
+    -- This one is not saved to DynamoDB
     , dynamoDBAccount = "dynamoDBAccount"
+
+    -- These are here to remind me not to use them
+    -- They have "DynamoDB." in front of them, so should be safe anyway.
+    , appStateSaveCount = appState.saveCountKey
+    , appStatekeyCounts = appState.keyCountsKey
     }
 
 
