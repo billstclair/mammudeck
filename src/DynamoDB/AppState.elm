@@ -50,8 +50,8 @@ It returns a list of key/value pairs that have been changed by another machine p
 -}
 
 import Dict exposing (Dict)
-import DynamoDB exposing (TransactWrite(..))
-import DynamoDB.Types
+import DynamoDB exposing (TransactGetItem, TransactGetItemValue, TransactWrite(..))
+import DynamoDB.Types as Types
     exposing
         ( Account
         , AttributeValue(..)
@@ -75,10 +75,10 @@ type alias AppState =
     , idlePeriod : Int
     , updatePeriod : Int
     , keyName : String
-    , saveCountKey : String
-    , keyCountsKey : String
     , valueAttributeName : String
     , saveCountAttributeName : String
+    , saveCountKey : String
+    , keyCountsKey : String
 
     -- Above here is usually constant. Below changes.
     , lastSaveTime : Int
@@ -99,10 +99,10 @@ makeAppState account =
     , idlePeriod = 2000
     , updatePeriod = 10000
     , keyName = "key"
-    , saveCountKey = "DynamoDB.saveCount"
-    , keyCountsKey = "DynamoDB.keyCounts"
     , valueAttributeName = "value"
     , saveCountAttributeName = "saveCount"
+    , saveCountKey = "DynamoDB.saveCount"
+    , keyCountsKey = "DynamoDB.keyCounts"
 
     -- Times are in milliseconds, as returned by `Time.posixToMillis` applied
     -- to the result of `Time.now`.
@@ -129,19 +129,18 @@ maxSaves =
 -}
 type alias Error =
     { appState : AppState
-    , error : DynamoDB.Types.Error
+    , error : Types.Error
     }
 
 
 {-| Add a new key/value pair to the DynamoDB store.
 
-Don't actually push it to DynamoDB unless it's time.
+Don't actually push it to DynamoDB unless it's time (or we've
+accumulated as many keys as can fit in one transaction).
 
-Probably needs to change to return the AppState after save right away,
-so that errors don't keep retyring forever. It's hard to do the right
-thing for partial saves.
-
-Need two-phase commit in DynamoDB to do this right. Don't bother.
+The task that saves to DynamoDB has as its value the number of keys
+that were saved. It does nothing and returns 0 if it's not time to
+save.
 
 -}
 save : Int -> String -> Maybe Value -> AppState -> Maybe ( AppState, Task Error Int )
@@ -198,6 +197,11 @@ makeValueItem appState value =
           , StringValue <| String.fromInt appState.saveCount
           )
         ]
+
+
+encodeKeyCounts : Dict String Int -> Value
+encodeKeyCounts keyCounts =
+    JE.dict identity JE.int keyCounts
 
 
 {-| Push all saved updates to DynamoDB.
@@ -290,9 +294,42 @@ store time appState =
             )
 
 
-encodeKeyCounts : Dict String Int -> Value
-encodeKeyCounts keyCounts =
-    JE.dict identity JE.int keyCounts
+{-| The successful Result of `initialLoad`.
+-}
+type alias InitialLoad =
+    { saveCount : Int
+    , keyCounts : Dict String Int
+    , updates : Dict String AttributeValue
+    }
+
+
+makeGetItem : AppState -> String -> TransactGetItem
+makeGetItem appState keyValue =
+    { tableName = appState.account.tableName
+    , key = makeKey appState keyValue
+    , returnedAttributeNames = Just [ appState.valueAttributeName ]
+    }
+
+
+initialLoad : AppState -> Int -> Dict String Int -> Task Error InitialLoad
+initialLoad appState saveCount keyCounts =
+    let
+        saveCountGet =
+            makeGetItem appState appState.saveCountKey
+
+        keyCountsGet =
+            makeGetItem appState appState.keyCountsKey
+    in
+    DynamoDB.transactGetItems [ saveCountGet, keyCountsGet ]
+        |> DynamoDB.send appState.account
+        |> Task.andThen (continueInitialLoad appState saveCount keyCounts)
+        |> Task.onError (Task.fail << Error appState)
+
+
+continueInitialLoad : AppState -> Int -> Dict String Int -> List TransactGetItemValue -> Task Types.Error InitialLoad
+continueInitialLoad appState saveCount keyCounts values =
+    -- TODO
+    Task.fail <| Types.DecodeError "TODO"
 
 
 b : String -> Html msg
