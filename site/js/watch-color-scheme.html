@@ -1,0 +1,27 @@
+<html>
+  <head>
+    <title>watch-color-scheme example</title>
+    <script type='text/javascript' src='watch-color-scheme.js'></script>
+    <script>
+      function setColorScheme(isDark) {
+        if (isDark) {
+          document.body.style.color = "white";
+          document.body.style.backgroundColor = "black";
+        } else {
+          document.body.style.color = "black";
+          document.body.style.backgroundColor = "white";
+        }
+        document.getElementById('color-scheme').innerText =
+          isDark ? "Dark" : "Light";
+      }
+    </script>
+  </head>
+  <body>
+    <h2>watch-color-scheme.js example</h2>
+    <p>
+      <b>Preferred color scheme: </b>
+      <span id='color-scheme'>unknown</span>
+    </p>
+    <watch-color-scheme onchange='setColorScheme(this.prefersDarkColorScheme)'/>
+  </body>
+</html>
