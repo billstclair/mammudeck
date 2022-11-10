@@ -1305,11 +1305,13 @@ receiveCodeOrError url =
 
 emptyAppStateAccount : DynamoDB.Types.Account
 emptyAppStateAccount =
-    { name = "mammudeck"
-    , region = Nothing
-    , accessKey = ""
-    , secretKey = ""
-    , tableName = "mammudeck"
+    let
+        account =
+            AppState.emptyAccount
+    in
+    { account
+        | name = "mammudeck"
+        , tableName = "mammudeck"
     }
 
 

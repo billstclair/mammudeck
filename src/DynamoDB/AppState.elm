@@ -11,8 +11,9 @@
 
 
 module DynamoDB.AppState exposing
-    ( AppState, makeAppState
+    ( AppState, makeAppState, emptyAccount
     , Error, save, idle
+    , InitialLoad, initialLoad
     , renderAccount
     , store
     , mergeAccount
@@ -24,18 +25,26 @@ You specify key/value pairs to save by calling `save`.
 They are stored until the `savePeriod` has passed, then pushed to DynamoDB.
 Each time the clock ticks, call `idle` to make sure unstored changes get pushed to DynamoDB.
 
+Call `initialLoad` when your application starts, to get the `saveCount` and
+`keyCounts` from DynamoDB.
+
 Call `update` to pull changes from S3, at `updatePeriod` intervals.
 It returns a list of key/value pairs that have been changed by another machine pushing to DynamoDB.
 
 
 # State
 
-@docs AppState, makeAppState
+@docs AppState, makeAppState, emptyAccount
 
 
 # Updating state
 
 @docs Error, save, idle
+
+
+# Getting updates from other browsers.
+
+@docs InitialLoad, initialLoad
 
 
 # User Interface
@@ -87,6 +96,21 @@ type alias AppState =
     , saveCount : Int
     , updates : Dict String (Maybe Value)
     , keyCounts : Dict String Int
+    }
+
+
+{-| An empty `DynamoDB.Account`.
+
+This belongs in the DynamoDB module. Move when adding this to that.
+
+-}
+emptyAccount : Account
+emptyAccount =
+    { name = "<empty>"
+    , region = Nothing
+    , accessKey = ""
+    , secretKey = ""
+    , tableName = ""
     }
 
 
@@ -311,6 +335,8 @@ makeGetItem appState keyValue =
     }
 
 
+{-| Load the `saveCount` and `keyCounts` from DynamoDB.
+-}
 initialLoad : AppState -> Int -> Dict String Int -> Task Error InitialLoad
 initialLoad appState saveCount keyCounts =
     let

@@ -1,5 +1,6 @@
 elm-stuff
 docs.json
+src/accounts.json
 site/elm.js
 site/elm.min.js
 site/watch-color-scheme.js
