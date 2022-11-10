@@ -94,6 +94,7 @@ import Cmd.Extra exposing (addCmd, withCmd, withCmds, withNoCmd)
 import CustomElement.BodyColors as BodyColors
 import CustomElement.RenderNotify as RenderNotify
 import CustomElement.TextAreaTracker as TextAreaTracker exposing (Coordinates)
+import CustomElement.WatchColorScheme as WatchColorScheme exposing (ColorScheme(..))
 import CustomElement.WriteClipboard as WriteClipboard
 import Delay
 import Dialog
@@ -405,6 +406,7 @@ filterInputDecoder =
 type alias RenderEnv =
     { loginServer : Maybe String
     , style : Style
+    , colorScheme : Maybe ColorScheme
     , fontSizePct : Int
     , fontSize : String --percent
     , columnWidth : Int --pixels
@@ -420,7 +422,8 @@ type alias RenderEnv =
 emptyRenderEnv : RenderEnv
 emptyRenderEnv =
     { loginServer = Nothing
-    , style = LightStyle
+    , style = SystemStyle
+    , colorScheme = Nothing
     , fontSizePct = 100
     , fontSize = "100"
     , columnWidth = 300
@@ -745,6 +748,7 @@ type Msg
 
 type GlobalMsg
     = WindowResize Int Int
+    | SetColorScheme ColorScheme
     | Here Zone
     | SetPage String
     | SetMaxTootChars String
@@ -786,6 +790,7 @@ type ColumnsUIMsg
     | FontSize VerticalDirection
     | ColumnWidth VerticalDirection
     | ShowServerDialog
+    | SetStyle String
     | ToggleStyle
     | ReloadAllColumns
     | MarkFeedRead FeedType
@@ -2902,6 +2907,15 @@ globalMsg msg model =
             }
                 |> withNoCmd
 
+        SetColorScheme colorScheme ->
+            { model
+                | renderEnv =
+                    { renderEnv
+                        | colorScheme = Just colorScheme
+                    }
+            }
+                |> withNoCmd
+
         Here zone ->
             { model
                 | renderEnv =
@@ -4001,16 +4015,44 @@ columnsUIMsg msg model =
             }
                 |> withNoCmd
 
+        SetStyle string ->
+            let
+                style =
+                    case labelToStyle string of
+                        Nothing ->
+                            SystemStyle
+
+                        Just s ->
+                            s
+            in
+            { model
+                | renderEnv =
+                    { renderEnv | style = style }
+            }
+                |> withNoCmd
+
         ToggleStyle ->
             { model
                 | renderEnv =
                     { renderEnv
                         | style =
-                            if renderEnv.style == LightStyle then
-                                DarkStyle
+                            case renderEnv.style of
+                                LightStyle ->
+                                    DarkStyle
 
-                            else
-                                LightStyle
+                                DarkStyle ->
+                                    LightStyle
+
+                                SystemStyle ->
+                                    case renderEnv.colorScheme of
+                                        Nothing ->
+                                            DarkStyle
+
+                                        Just LightColorScheme ->
+                                            DarkStyle
+
+                                        Just DarkColorScheme ->
+                                            LightStyle
                     }
             }
                 |> withNoCmd
@@ -11438,6 +11480,7 @@ type alias StyleProperties =
 type Style
     = DarkStyle
     | LightStyle
+    | SystemStyle
 
 
 styles :
@@ -11468,14 +11511,25 @@ styles =
     }
 
 
-getStyle : Style -> StyleProperties
-getStyle style =
-    case style of
+getStyle : RenderEnv -> StyleProperties
+getStyle renderEnv =
+    case renderEnv.style of
         DarkStyle ->
             styles.dark
 
         LightStyle ->
             styles.light
+
+        SystemStyle ->
+            case renderEnv.colorScheme of
+                Nothing ->
+                    styles.light
+
+                Just LightColorScheme ->
+                    styles.light
+
+                Just DarkColorScheme ->
+                    styles.dark
 
 
 {-| Choose the visible section of the user interface.
@@ -11828,7 +11882,7 @@ view : Model -> Document Msg
 view model =
     let
         { backgroundColor, color } =
-            getStyle model.renderEnv.style
+            getStyle model.renderEnv
     in
     { title = "Mammudeck"
     , body =
@@ -11836,6 +11890,9 @@ view model =
             [ BodyColors.color color
             , BodyColors.backgroundColor backgroundColor
             ]
+            []
+        , WatchColorScheme.watchColorScheme
+            [ WatchColorScheme.onChange (GlobalMsg << SetColorScheme) ]
             []
         , renderPopupExplorer model
         , renderDialog model
@@ -11905,7 +11962,7 @@ renderCenteredScreen : Model -> String -> List (Html msg) -> Html msg
 renderCenteredScreen model width body =
     let
         { backgroundColor, color } =
-            getStyle model.renderEnv.style
+            getStyle model.renderEnv
     in
     div
         [ style "background-color" backgroundColor
@@ -11922,6 +11979,58 @@ renderCenteredScreen model width body =
             , style "margin" "auto"
             ]
             body
+        ]
+
+
+styleToLabel : Style -> String
+styleToLabel style =
+    case style of
+        DarkStyle ->
+            "Dark"
+
+        LightStyle ->
+            "Light"
+
+        SystemStyle ->
+            "System"
+
+
+labelToStyle : String -> Maybe Style
+labelToStyle label =
+    case label of
+        "Dark" ->
+            Just DarkStyle
+
+        "Light" ->
+            Just LightStyle
+
+        "System" ->
+            Just SystemStyle
+
+        _ ->
+            Nothing
+
+
+styleOption : Style -> Style -> Html Msg
+styleOption currentStyle style =
+    let
+        label =
+            styleToLabel style
+    in
+    option
+        [ value label
+        , selected <| style == currentStyle
+        ]
+        [ text label ]
+
+
+styleSelect : Style -> Html Msg
+styleSelect currentStyle =
+    select [ onInput (ColumnsUIMsg << SetStyle) ]
+        [ option [ value "" ] [ text "-- select style --" ]
+        , styleOption currentStyle SystemStyle
+        , styleOption currentStyle LightStyle
+        , styleOption currentStyle DarkStyle
         ]
 
 
@@ -11945,7 +12054,7 @@ renderHome model =
         [ h2 [ style "text-align" "center" ]
             [ text "Mammudeck" ]
         , pageSelector True (model.renderEnv.loginServer /= Nothing) model.page
-        , if model.renderEnv.loginServer == Nothing then
+        , if renderEnv.loginServer == Nothing then
             p []
                 [ text "Enter a 'server' name and click 'Login'."
                 ]
@@ -11984,9 +12093,8 @@ There's a huge list of servers at [fediverse.network](https://fediverse.network/
 Mammudeck is a labor of love, but I wouldn't at all mind earning some income from it. That can only happen if you, my customers, support me. If you use it, and like it, please donate at [paypal.me/billstclair](https://www.paypal.me/billstclair).
             """
         , p [ style "text-align" "center" ]
-            [ checkBox (ColumnsUIMsg ToggleStyle)
-                (model.renderEnv.style == DarkStyle)
-                "Dark Mode"
+            [ b "style: "
+            , styleSelect renderEnv.style
             , br
             , link "@billstclair@impeccable.social"
                 "https://impeccable.social/billstclair"
@@ -12053,7 +12161,7 @@ renderLeftColumn : RenderEnv -> Html Msg
 renderLeftColumn renderEnv =
     let
         { color } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     div
         [ style "color" color
@@ -12068,9 +12176,9 @@ renderLeftColumn renderEnv =
             ]
         , p [] [ pageSelector False (renderEnv.loginServer /= Nothing) ColumnsPage ]
         , p []
-            [ checkBox (ColumnsUIMsg ToggleStyle)
-                (renderEnv.style == DarkStyle)
-                "dark"
+            [ text "style"
+            , br
+            , styleSelect renderEnv.style
             ]
         , p []
             [ text "font"
@@ -12169,7 +12277,7 @@ settingsDialogContent model =
             model.renderEnv
 
         { inputBackground, color } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     [ p []
         [ primaryServerLine model ]
@@ -12237,9 +12345,9 @@ settingsDialogContent model =
                     labels.down
                 ]
             , td []
-                [ checkBox (ColumnsUIMsg ToggleStyle)
-                    (renderEnv.style == DarkStyle)
-                    "dark"
+                [ text "style"
+                , br
+                , styleSelect renderEnv.style
                 ]
             ]
         ]
@@ -12330,7 +12438,7 @@ dynamoDBDialogContent model =
             model.renderEnv
 
         { inputBackground, color } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     [ p []
         [ text "This information is stored in your brower's LocalStorage database."
@@ -12390,7 +12498,7 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
             feed.feedType
 
         { color, borderColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
 
         ( _, h ) =
             renderEnv.windowSize
@@ -12696,7 +12804,7 @@ renderFeedElements error newElements feedType renderEnv bodyEnv elements =
                 Just msg ->
                     let
                         { borderColor } =
-                            getStyle renderEnv.style
+                            getStyle renderEnv
                     in
                     [ div [ style "border" <| "1px solid " ++ borderColor ]
                         [ p [ style "color" "red" ]
@@ -12776,7 +12884,7 @@ renderMultiNotification : RenderEnv -> Account -> List Account -> String -> Noti
 renderMultiNotification renderEnv account others ellipsisPrefix notification =
     let
         { color, borderColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
 
         othersCount =
             List.length others
@@ -12963,7 +13071,7 @@ renderNotification renderEnv ellipsisPrefix notification =
             notificationDescription notification renderEnv
 
         { color, borderColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     div [ style "border" <| "1px solid " ++ borderColor ]
         [ div []
@@ -13155,7 +13263,7 @@ renderNotificationBody : RenderEnv -> String -> Notification -> Html Msg
 renderNotificationBody renderEnv ellipsisPrefix notification =
     let
         { color, borderColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     case notification.status of
         Nothing ->
@@ -13429,7 +13537,7 @@ renderFeedLoadingEmojiFooter : RenderEnv -> Html Msg
 renderFeedLoadingEmojiFooter renderEnv =
     let
         { color, borderColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     div
         [ style "border" <| "1px solid " ++ borderColor ]
@@ -13448,7 +13556,7 @@ renderNewMarker : FeedType -> RenderEnv -> Html Msg
 renderNewMarker feedType renderEnv =
     let
         { borderColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
 
         border =
             "1px solid " ++ borderColor
@@ -13526,7 +13634,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                                             Just ( mention.acct, mention.url )
 
         { color, borderColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
 
         displayNameHtml =
             renderDisplayName account.display_name renderEnv
@@ -13668,7 +13776,7 @@ renderStatusCard renderEnv status =
         Just card ->
             let
                 { borderColor } =
-                    getStyle renderEnv.style
+                    getStyle renderEnv
             in
             div
                 [ style "margin" "4px" ]
@@ -13783,7 +13891,7 @@ renderStatusActions : RenderEnv -> String -> Status -> Html Msg
 renderStatusActions renderEnv ellipsisPrefix status =
     let
         { color } =
-            getStyle renderEnv.style
+            getStyle renderEnv
 
         replies_count =
             status.replies_count
@@ -14289,7 +14397,7 @@ renderColumns model =
             model.renderEnv
 
         { color, borderColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
 
         { feeds } =
             model.feedSet
@@ -14446,7 +14554,7 @@ renderExplorer : Model -> Html Msg
 renderExplorer model =
     let
         { backgroundColor, color } =
-            getStyle model.renderEnv.style
+            getStyle model.renderEnv
     in
     renderCenteredScreen model
         "40em"
@@ -16144,7 +16252,7 @@ popupPicker renderEnv =
                 (ColumnsUIMsg << PopupChoose)
 
         { backgroundColor, color } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     { picker
         | divAttributes =
@@ -16221,7 +16329,7 @@ renderPopupChoice renderEnv choice =
         AccountChoice account ->
             span
                 [ title <| "@" ++ account.acct
-                , class (getStyle renderEnv.style |> .popupChoiceClass)
+                , class (getStyle renderEnv |> .popupChoiceClass)
                 ]
                 [ imageFromSpec
                     { imageUrl = account.avatar
@@ -16258,7 +16366,7 @@ renderPopupChoice renderEnv choice =
         GroupChoice group ->
             span
                 [ title group.description
-                , class (getStyle renderEnv.style |> .popupChoiceClass)
+                , class (getStyle renderEnv |> .popupChoiceClass)
                 ]
                 [ imageFromSpec
                     { imageUrl = group.cover_image_url
@@ -16277,7 +16385,7 @@ renderPopupChoice renderEnv choice =
         HashtagChoice hashtag ->
             span
                 [ title <| "#" ++ hashtag
-                , class (getStyle renderEnv.style |> .popupChoiceClass)
+                , class (getStyle renderEnv |> .popupChoiceClass)
                 ]
                 [ text <| "#" ++ hashtag ]
 
@@ -16310,7 +16418,7 @@ renderPopupChoice renderEnv choice =
 
                 _ ->
                     span
-                        [ class (getStyle renderEnv.style |> .popupChoiceClass)
+                        [ class (getStyle renderEnv |> .popupChoiceClass)
                         ]
                         [ text <| commandText command status ]
 
@@ -16473,7 +16581,7 @@ renderThreadExplorer state model =
             { emptyFeedEnv | bodyEnv = bodyEnv }
 
         { backgroundColor, color, highlightStatusColor, repliedToStatusColor, visitedStatusColor } =
-            getStyle renderEnv.style
+            getStyle renderEnv
 
         ( maxWidth, maxHeight ) =
             renderEnv.windowSize
@@ -16725,7 +16833,7 @@ dialogRender : RenderEnv -> Dialog.Config msg -> Dialog.Visible -> Html msg
 dialogRender renderEnv config visible =
     let
         { backgroundColor, color } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     Dialog.render
         { config
@@ -17071,7 +17179,7 @@ editColumnsDialogRows model =
             model.renderEnv
 
         { color } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     -- This will change quite a bit when I add multiple-server support
     [ table [] <|
@@ -17391,7 +17499,7 @@ saveRestoreDialogRows : Model -> List (Html Msg)
 saveRestoreDialogRows model =
     let
         { inputBackground, color } =
-            getStyle model.renderEnv.style
+            getStyle model.renderEnv
 
         feedsText =
             case model.feedsText of
@@ -17662,7 +17770,7 @@ postDialogContent : ( Bool, Bool ) -> RenderEnv -> DropZone.Model -> Int -> Mayb
 postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone max_toot_chars maybeMsg postState =
     let
         { inputBackground, color } =
-            getStyle renderEnv.style
+            getStyle renderEnv
     in
     [ case postState.replyTo of
         Nothing ->
@@ -18838,6 +18946,9 @@ encodeStyle style =
         LightStyle ->
             JE.string "LightStyle"
 
+        SystemStyle ->
+            JE.string "SystemStyle"
+
 
 styleDecoder : Decoder Style
 styleDecoder =
@@ -18851,6 +18962,9 @@ styleDecoder =
                     "LightStyle" ->
                         JD.succeed LightStyle
 
+                    "SystemStyle" ->
+                        JD.succeed SystemStyle
+
                     _ ->
                         JD.fail <| "Unknown Style: " ++ s
             )
@@ -18861,6 +18975,9 @@ encodeRenderEnv env =
     JE.object
         [ ( "loginServer", ED.encodeMaybe JE.string env.loginServer )
         , ( "style", encodeStyle env.style )
+        , ( "colorScheme"
+          , ED.encodeMaybe WatchColorScheme.encodeColorScheme env.colorScheme
+          )
         , ( "fontSizePct", JE.int env.fontSizePct )
         , ( "fontSize", JE.string env.fontSize )
         , ( "columnWidth", JE.int env.columnWidth )
@@ -18870,7 +18987,7 @@ encodeRenderEnv env =
 renderEnvDecoder : Decoder RenderEnv
 renderEnvDecoder =
     JD.succeed
-        (\loginServer style fontSizePct_ fontSize_ columnWidth ->
+        (\loginServer style colorScheme fontSizePct_ fontSize_ columnWidth ->
             let
                 ( fontSizePct, fontSize ) =
                     if fontSizePct_ == 0 then
@@ -18887,6 +19004,7 @@ renderEnvDecoder =
             { emptyRenderEnv
                 | loginServer = loginServer
                 , style = style
+                , colorScheme = colorScheme
                 , fontSizePct = fontSizePct
                 , fontSize = fontSize
                 , columnWidth = columnWidth
@@ -18894,6 +19012,9 @@ renderEnvDecoder =
         )
         |> required "loginServer" (JD.nullable JD.string)
         |> required "style" styleDecoder
+        |> optional "colorScheme"
+            (JD.map Just <| WatchColorScheme.colorSchemeDecoder)
+            Nothing
         |> optional "fontSizePct" JD.int 0
         |> optional "fontSize" JD.string "100"
         |> optional "columnWidth" JD.int 300

@@ -13,6 +13,8 @@
 module CustomElement.WatchColorScheme exposing
     ( watchColorScheme
     , ColorScheme(..)
+    , stringToColorScheme, colorSchemeToString
+    , encodeColorScheme, colorSchemeDecoder
     , onChange
     )
 
@@ -29,6 +31,12 @@ This code won't do anything unless `site/js/watch-color-scheme.js` is loaded.
 # Events
 
 @docs ColorScheme, onRender
+
+
+# JSON encoder & decoder
+
+@docs stringToColorScheme, colorSchemeToString
+@docs encodeColorScheme, colorSchemeDecoder
 
 -}
 
@@ -50,6 +58,56 @@ watchColorScheme =
 type ColorScheme
     = LightColorScheme
     | DarkColorScheme
+
+
+{-| Convert a `ColorScheme` to a `String`.
+-}
+colorSchemeToString : ColorScheme -> String
+colorSchemeToString colorScheme =
+    case colorScheme of
+        LightColorScheme ->
+            "LightColorScheme"
+
+        DarkColorScheme ->
+            "DarkColorScheme"
+
+
+{-| JSON encoder for ColorScheme
+-}
+encodeColorScheme : ColorScheme -> Value
+encodeColorScheme colorScheme =
+    colorSchemeToString colorScheme |> JE.string
+
+
+{-| Convert a String to a ColorScheme
+-}
+stringToColorScheme : String -> Maybe ColorScheme
+stringToColorScheme s =
+    case s of
+        "LightColorScheme" ->
+            Just LightColorScheme
+
+        "DarkColorScheme" ->
+            Just DarkColorScheme
+
+        _ ->
+            Nothing
+
+
+{-| JSON decoder for ColorScheme
+-}
+colorSchemeDecoder : Decoder ColorScheme
+colorSchemeDecoder =
+    JD.string
+        |> JD.andThen
+            (\s ->
+                case stringToColorScheme s of
+                    Just colorScheme ->
+                        JD.succeed colorScheme
+
+                    Nothing ->
+                        JD.fail <| "Unknown ColorScheme: " ++ s
+            )
 
 
 {-| Notification will happen after your `view` function sends a value.
