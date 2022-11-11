@@ -12,7 +12,7 @@
             "andrewMacmurray/elm-delay": "3.0.1",
             "billstclair/elm-custom-element": "1.4.0",
             "billstclair/elm-dialog": "1.0.1",
-            "billstclair/elm-dynamodb": "2.1.0",
+            "billstclair/elm-dynamodb": "2.2.1",
             "billstclair/elm-localstorage": "7.3.1",
             "billstclair/elm-mastodon": "13.0.0",
             "billstclair/elm-mastodon-websocket": "2.0.4",
