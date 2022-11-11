@@ -78,7 +78,7 @@ type alias Model =
 
 type Msg
     = ReceiveAccounts (Result Error (List Account))
-    | ReceiveAppStateStore String (Result AppState.Error Int)
+    | ReceiveAppStateStore (Result AppState.Error Int)
     | SaveRow (Maybe String) (Maybe Row)
     | Tick Posix
     | SetAccount String
@@ -166,7 +166,7 @@ update msg model =
 
                         Just ( appState, task ) ->
                             ( { model | appState = appState }
-                            , Task.attempt (ReceiveAppStateStore "idle") task
+                            , Task.attempt ReceiveAppStateStore task
                             )
             in
             ( { mdl | time = time }
@@ -218,7 +218,7 @@ update msg model =
                     , Cmd.none
                     )
 
-        ReceiveAppStateStore why result ->
+        ReceiveAppStateStore result ->
             case result of
                 Err err ->
                     ( { model | display = Debug.toString err }
@@ -227,12 +227,13 @@ update msg model =
 
                 Ok count ->
                     if count == 0 then
+                        -- Nothing actually done
                         ( model, Cmd.none )
 
                     else
                         ( { model
                             | display =
-                                why ++ " saved " ++ String.fromInt count ++ " items."
+                                "Saved " ++ String.fromInt count ++ " items."
                           }
                         , Cmd.none
                         )
@@ -263,7 +264,7 @@ update msg model =
 
                         Just ( appState, task ) ->
                             ( { model | appState = appState }
-                            , Task.attempt (ReceiveAppStateStore "save") task
+                            , Task.attempt ReceiveAppStateStore task
                             )
 
         SetSelection row ->
