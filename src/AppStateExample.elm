@@ -50,19 +50,21 @@ import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE exposing (Value)
 import List.Extra as LE
 import Task exposing (Task)
+import Time exposing (Posix)
 
 
 main =
     Browser.element
         { init = init
         , update = update
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = \_ -> Time.every 1000 Tick
         , view = view
         }
 
 
 type alias Model =
-    { display : String
+    { time : Int
+    , display : String
     , accounts : List Account
     , account : Account
     , appState : AppState
@@ -76,11 +78,12 @@ type alias Model =
 
 type Msg
     = ReceiveAccounts (Result Error (List Account))
+    | ReceiveAppStateStore String (Result AppState.Error Int)
+    | SaveRow (Maybe String) (Maybe Row)
+    | Tick Posix
     | SetAccount String
     | SetSelection Row
     | SetColumnName String
-    | AddColumn
-    | RemoveColumn
     | SetRowColumn String String
     | AddRow
     | RemoveRow
@@ -101,7 +104,14 @@ emptyAccount =
 
 emptyAppState : AppState
 emptyAppState =
-    AppState.makeAppState emptyAccount
+    let
+        appState =
+            AppState.makeAppState emptyAccount
+    in
+    { appState
+        | keyPrefix = Just "_AppStateExample"
+        , idlePeriod = 5000
+    }
 
 
 type alias Row =
@@ -110,17 +120,15 @@ type alias Row =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { display = "Fetching accounts..."
+    ( { time = 0
+      , display = "Fetching accounts..."
       , accounts = []
       , account = emptyAccount
       , appState = emptyAppState
       , columns = [ "key", "value" ]
       , row = Dict.empty
       , selection = Dict.empty
-      , rows =
-            [ Dict.fromList [ ( "key", "key1" ), ( "value", "value1" ) ]
-            , Dict.fromList [ ( "key", "key2" ), ( "value", "value2" ) ]
-            ]
+      , rows = []
       , columnName = "key"
       }
     , Task.attempt ReceiveAccounts
@@ -138,9 +146,33 @@ findAccount model name =
             a
 
 
+sortRows : List Row -> List Row
+sortRows rows =
+    List.sortBy (\x -> Maybe.withDefault "" <| Dict.get "key" x) rows
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        Tick posix ->
+            let
+                time =
+                    Time.posixToMillis posix
+
+                ( mdl, cmd ) =
+                    case AppState.idle time model.appState of
+                        Nothing ->
+                            ( model, Cmd.none )
+
+                        Just ( appState, task ) ->
+                            ( { model | appState = appState }
+                            , Task.attempt (ReceiveAppStateStore "idle") task
+                            )
+            in
+            ( { mdl | time = time }
+            , cmd
+            )
+
         SetAccount name ->
             let
                 account =
@@ -186,6 +218,54 @@ update msg model =
                     , Cmd.none
                     )
 
+        ReceiveAppStateStore why result ->
+            case result of
+                Err err ->
+                    ( { model | display = Debug.toString err }
+                    , Cmd.none
+                    )
+
+                Ok count ->
+                    if count == 0 then
+                        ( model, Cmd.none )
+
+                    else
+                        ( { model
+                            | display =
+                                why ++ " saved " ++ String.fromInt count ++ " items."
+                          }
+                        , Cmd.none
+                        )
+
+        SaveRow key row ->
+            case key of
+                Nothing ->
+                    ( model, Cmd.none )
+
+                Just k ->
+                    let
+                        val =
+                            case row of
+                                Nothing ->
+                                    Nothing
+
+                                Just mv ->
+                                    case Dict.get "value" mv of
+                                        Nothing ->
+                                            Nothing
+
+                                        Just v ->
+                                            Just <| JE.string v
+                    in
+                    case AppState.save model.time k val model.appState of
+                        Nothing ->
+                            ( model, Cmd.none )
+
+                        Just ( appState, task ) ->
+                            ( { model | appState = appState }
+                            , Task.attempt (ReceiveAppStateStore "save") task
+                            )
+
         SetSelection row ->
             ( { model
                 | selection = row
@@ -198,33 +278,6 @@ update msg model =
             ( { model | columnName = name }
             , Cmd.none
             )
-
-        AddColumn ->
-            if
-                (model.columnName == "*")
-                    || List.member model.columnName model.columns
-            then
-                ( model, Cmd.none )
-
-            else
-                ( { model
-                    | columns =
-                        List.append model.columns [ model.columnName ]
-                  }
-                , Cmd.none
-                )
-
-        RemoveColumn ->
-            if model.columnName == "key" then
-                ( model, Cmd.none )
-
-            else
-                ( { model
-                    | columns =
-                        LE.filterNot ((==) model.columnName) model.columns
-                  }
-                , Cmd.none
-                )
 
         SetRowColumn columnName v ->
             let
@@ -240,43 +293,68 @@ update msg model =
             )
 
         AddRow ->
-            ( { model
-                | selection = model.row
-                , rows =
-                    model.rows ++ [ model.row ]
-              }
-            , Cmd.none
-            )
+            let
+                keyValue =
+                    Dict.get "key" model.row
+            in
+            case LE.find (\row -> Dict.get "key" row == keyValue) model.rows of
+                Just _ ->
+                    update UpdateRow model
+
+                Nothing ->
+                    ( { model
+                        | selection = model.row
+                        , rows =
+                            model.rows ++ [ model.row ] |> sortRows
+                      }
+                    , saveRow keyValue <| Just model.row
+                    )
 
         RemoveRow ->
+            let
+                keyValue =
+                    Dict.get "key" model.row
+            in
             ( { model
                 | selection =
-                    if model.row == model.selection then
-                        Dict.empty
+                    case keyValue of
+                        Nothing ->
+                            Dict.empty
 
-                    else
-                        model.selection
-                , rows = LE.filterNot ((==) model.row) model.rows
+                        _ ->
+                            model.selection
+                , rows = LE.filterNot ((==) keyValue << Dict.get "key") model.rows
               }
-            , Cmd.none
+            , saveRow keyValue Nothing
             )
 
         UpdateRow ->
-            ( { model
-                | selection = model.row
-                , rows =
-                    List.map
-                        (\row ->
-                            if row == model.selection then
-                                model.row
+            case Dict.get "key" model.row of
+                Nothing ->
+                    ( model, Cmd.none )
 
-                            else
-                                row
-                        )
-                        model.rows
-              }
-            , Cmd.none
-            )
+                keyValue ->
+                    ( { model
+                        | selection = model.row
+                        , rows =
+                            List.map
+                                (\row ->
+                                    if Dict.get "key" row == keyValue then
+                                        model.row
+
+                                    else
+                                        row
+                                )
+                                model.rows
+                                |> sortRows
+                      }
+                    , saveRow keyValue <| Just model.row
+                    )
+
+
+saveRow : Maybe String -> Maybe Row -> Cmd Msg
+saveRow key row =
+    Task.perform (SaveRow key) <| Task.succeed row
 
 
 b : String -> Html msg
@@ -340,21 +418,6 @@ view model =
             , br
             , b "TableName: "
             , text model.account.tableName
-            ]
-        , p []
-            [ b "Column name: "
-            , input
-                [ size 20
-                , onInput SetColumnName
-                , value model.columnName
-                ]
-                []
-            , br
-            , button [ onClick AddColumn ]
-                [ text "Add column" ]
-            , text " "
-            , button [ onClick RemoveColumn ]
-                [ text "Remove column" ]
             ]
         , p []
             [ rowTable model.row model

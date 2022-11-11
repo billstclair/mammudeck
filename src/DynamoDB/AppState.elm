@@ -80,7 +80,6 @@ import Task exposing (Task)
 -}
 type alias AppState =
     { account : Account
-    , savePeriod : Int
     , idlePeriod : Int
     , updatePeriod : Int
     , keyName : String
@@ -88,11 +87,10 @@ type alias AppState =
     , saveCountAttributeName : String
     , saveCountKey : String
     , keyCountsKey : String
+    , keyPrefix : Maybe String
 
     -- Above here is usually constant. Below changes.
-    , lastSaveTime : Int
     , lastIdleTime : Int
-    , lastUpdateTime : Int
     , saveCount : Int
     , updates : Dict String (Maybe Value)
     , keyCounts : Dict String Int
@@ -119,7 +117,6 @@ emptyAccount =
 makeAppState : Account -> AppState
 makeAppState account =
     { account = account
-    , savePeriod = 5000
     , idlePeriod = 2000
     , updatePeriod = 10000
     , keyName = "key"
@@ -127,12 +124,11 @@ makeAppState account =
     , saveCountAttributeName = "saveCount"
     , saveCountKey = "DynamoDB.saveCount"
     , keyCountsKey = "DynamoDB.keyCounts"
+    , keyPrefix = Nothing
 
     -- Times are in milliseconds, as returned by `Time.posixToMillis` applied
     -- to the result of `Time.now`.
-    , lastSaveTime = 0
     , lastIdleTime = 0
-    , lastUpdateTime = 0
     , saveCount = 0
     , updates = Dict.empty
     , keyCounts = Dict.empty
@@ -159,12 +155,12 @@ type alias Error =
 
 {-| Add a new key/value pair to the DynamoDB store.
 
-Don't actually push it to DynamoDB unless it's time (or we've
-accumulated as many keys as can fit in one transaction).
+Don't actually push it to DynamoDB you've accumulated as many keys as
+can fit in one transaction. Call `idle` to force a push.
 
 The task that saves to DynamoDB has as its value the number of keys
-that were saved. It does nothing and returns 0 if it's not time to
-save.
+that were saved. It does nothing and has a value of 0, if the
+save doesn't yet fill a transaction.
 
 -}
 save : Int -> String -> Maybe Value -> AppState -> Maybe ( AppState, Task Error Int )
@@ -174,18 +170,9 @@ save time key value appState =
             { appState
                 | updates = Dict.insert key value appState.updates
                 , lastIdleTime = time
-                , lastSaveTime =
-                    if Dict.size appState.updates == 0 then
-                        time
-
-                    else
-                        appState.lastSaveTime
             }
     in
-    if
-        (time <= state.lastSaveTime + state.savePeriod)
-            && (Dict.size state.updates < maxSaves)
-    then
+    if Dict.size state.updates < maxSaves then
         Just
             ( state
             , Task.succeed 0
@@ -208,7 +195,16 @@ idle time appState =
 
 makeKey : AppState -> String -> Key
 makeKey appState key =
-    SimpleKey ( appState.keyName, StringValue key )
+    let
+        prefixedKey =
+            case appState.keyPrefix of
+                Nothing ->
+                    key
+
+                Just prefix ->
+                    prefix ++ "." ++ key
+    in
+    SimpleKey ( appState.keyName, StringValue prefixedKey )
 
 
 makeValueItem : AppState -> Value -> Item
@@ -256,8 +252,7 @@ store time appState =
                     (\( k, v ) ->
                         let
                             key =
-                                SimpleKey
-                                    ( appState.keyName, StringValue k )
+                                makeKey appState k
                         in
                         case v of
                             Nothing ->
@@ -293,9 +288,7 @@ store time appState =
 
             state =
                 { appState
-                    | lastSaveTime = time
-                    , lastIdleTime = time
-                    , lastUpdateTime = time
+                    | lastIdleTime = time
                     , saveCount = saveCount
                     , updates = Dict.empty
                     , keyCounts = keyCounts
