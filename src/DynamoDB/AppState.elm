@@ -332,21 +332,30 @@ makeGetItem appState keyValue =
     }
 
 
+saveAndKeyCountsGets : AppState -> ( TransactGetItem, TransactGetItem )
+saveAndKeyCountsGets appState =
+    ( makeGetItem appState appState.saveCountKey
+    , makeGetItem appState appState.keyCountsKey
+    )
+
+
 {-| Load the `saveCount` and `keyCounts` from DynamoDB.
 -}
 initialLoad : AppState -> Int -> Dict String Int -> Task Error InitialLoad
 initialLoad appState saveCount keyCounts =
-    let
-        saveCountGet =
-            makeGetItem appState appState.saveCountKey
+    initialLoadInternal appState saveCount keyCounts
+        |> Task.onError (Task.fail << Error appState)
 
-        keyCountsGet =
-            makeGetItem appState appState.keyCountsKey
+
+initialLoadInternal : AppState -> Int -> Dict String Int -> Task Types.Error InitialLoad
+initialLoadInternal appState saveCount keyCounts =
+    let
+        ( saveCountGet, keyCountsGet ) =
+            saveAndKeyCountsGets appState
     in
     DynamoDB.transactGetItems [ saveCountGet, keyCountsGet ]
         |> DynamoDB.send appState.account
         |> Task.andThen (continueInitialLoad appState saveCount keyCounts)
-        |> Task.onError (Task.fail << Error appState)
 
 
 getTransactGetItemValue : AppState -> String -> Maybe Item -> Decoder x -> Result Types.Error x
@@ -394,28 +403,41 @@ getMaybeTransactGetItemValue appState valueName maybeItem decoder =
                                     (valueName ++ ": not a StringValue")
 
 
+unpackSaveCountAndKeyCountValues : AppState -> TransactGetItemValue -> TransactGetItemValue -> Result Types.Error ( Int, Dict String Int )
+unpackSaveCountAndKeyCountValues appState saveCountValue keyCountValue =
+    case getTransactGetItemValue appState appState.valueAttributeName saveCountValue.item JD.int of
+        Err err ->
+            Err err
+
+        Ok saveCount ->
+            case getTransactGetItemValue appState appState.valueAttributeName keyCountValue.item <| JD.dict JD.int of
+                Err err ->
+                    Err err
+
+                Ok keyCounts ->
+                    Ok ( saveCount, keyCounts )
+
+
 continueInitialLoad : AppState -> Int -> Dict String Int -> List TransactGetItemValue -> Task Types.Error InitialLoad
 continueInitialLoad appState saveCount keyCounts values =
     case values of
         [ saveCountValue, keyCountValue ] ->
-            case getTransactGetItemValue appState appState.valueAttributeName saveCountValue.item JD.int of
+            case
+                unpackSaveCountAndKeyCountValues appState
+                    saveCountValue
+                    keyCountValue
+            of
                 Err err ->
                     Task.fail err
 
-                Ok savedCount ->
-                    case getTransactGetItemValue appState appState.valueAttributeName keyCountValue.item <| JD.dict JD.int of
-                        Err err ->
-                            Task.fail err
-
-                        Ok savedKeyCounts ->
-                            -- TODO: load the changed keys
-                            doInitialLoadUpdates appState
-                                saveCount
-                                keyCounts
-                                { saveCount = savedCount
-                                , keyCounts = savedKeyCounts
-                                , updates = Dict.empty
-                                }
+                Ok ( savedCount, savedKeyCounts ) ->
+                    doInitialLoadUpdates appState
+                        saveCount
+                        keyCounts
+                        { saveCount = savedCount
+                        , keyCounts = savedKeyCounts
+                        , updates = Dict.empty
+                        }
 
         _ ->
             Task.fail <|
@@ -434,7 +456,7 @@ doInitialLoadUpdates appState saveCount keyCounts res =
 
     else
         -- TODO: limit to 100 operations per transaction.
-        -- TODO: refetch `saveCount` and `keyCounts`. Redo if changed.
+        -- For now, that will get an error. Let them report it as a bug.
         let
             folder key count ( keys, gets ) =
                 if Dict.get key keyCounts == Just count then
@@ -445,41 +467,72 @@ doInitialLoadUpdates appState saveCount keyCounts res =
 
             ( fetchKeys, fetchGets ) =
                 Dict.foldr folder ( [], [] ) savedKeyCounts
+
+            ( saveCountGet, keyCountsGet ) =
+                saveAndKeyCountsGets appState
+
+            allGets =
+                saveCountGet :: (keyCountsGet :: fetchGets)
         in
-        DynamoDB.transactGetItems fetchGets
+        DynamoDB.transactGetItems allGets
             |> DynamoDB.send appState.account
             |> Task.andThen (continueInitialLoadUpdates appState res fetchKeys)
 
 
 continueInitialLoadUpdates : AppState -> InitialLoad -> List String -> List TransactGetItemValue -> Task Types.Error InitialLoad
 continueInitialLoadUpdates appState res keys values =
-    let
-        folder : ( String, Maybe Item ) -> Result Types.Error (Dict String (Maybe String)) -> Result Types.Error (Dict String (Maybe String))
-        folder ( key, item ) updatesRes =
-            case updatesRes of
+    case values of
+        saveCountValue :: (keyCountValue :: otherValues) ->
+            case
+                unpackSaveCountAndKeyCountValues appState
+                    saveCountValue
+                    keyCountValue
+            of
                 Err err ->
-                    Err err
+                    Task.fail err
 
-                Ok updates ->
-                    case getMaybeTransactGetItemValue appState key item JD.string of
-                        Err err ->
-                            Err err
+                Ok ( savedCount, savedKeyCounts ) ->
+                    if
+                        (savedCount /= res.saveCount)
+                            || (savedKeyCounts /= res.keyCounts)
+                    then
+                        -- Somebody changed the saveCount or keyCounts
+                        -- between our two transactions. Try again.
+                        initialLoadInternal appState res.saveCount res.keyCounts
 
-                        Ok value ->
-                            Ok <| Dict.insert key value updates
+                    else
+                        let
+                            loop : List ( String, Maybe Item ) -> Dict String (Maybe String) -> Task Types.Error InitialLoad
+                            loop namesAndItems updates =
+                                case namesAndItems of
+                                    [] ->
+                                        Task.succeed { res | updates = updates }
 
-        newUpdatesResult =
-            List.foldr folder
-                (Ok res.updates)
-            <|
-                List.map2 (\key tgiv -> ( key, tgiv.item )) keys values
-    in
-    case newUpdatesResult of
-        Err err ->
-            Task.fail err
+                                    ( key, item ) :: rest ->
+                                        case
+                                            getMaybeTransactGetItemValue
+                                                appState
+                                                key
+                                                item
+                                                JD.string
+                                        of
+                                            Err err ->
+                                                Task.fail err
 
-        Ok newUpdates ->
-            Task.succeed { res | updates = newUpdates }
+                                            Ok value ->
+                                                loop rest <|
+                                                    Dict.insert key value updates
+                        in
+                        loop
+                            (List.map2 (\key tgiv -> ( key, tgiv.item ))
+                                keys
+                                otherValues
+                            )
+                            Dict.empty
+
+        _ ->
+            Task.fail <|
+                Types.DecodeError "Wrong number of values from transactGetItems."
 
 
 b : String -> Html msg
