@@ -227,14 +227,18 @@ encodeKeyCounts keyCounts =
 {-| Push all saved updates to DynamoDB.
 -}
 store : Int -> AppState -> Maybe ( AppState, Task Error Int )
-store time appState =
-    if appState.updates == Dict.empty then
+store time aState =
+    if aState.updates == Dict.empty then
         Nothing
 
     else
         let
             saveCount =
-                appState.saveCount + 1
+                aState.saveCount + 1
+
+            appState =
+                -- `saveCount` is used by `makeValueItem`
+                { aState | saveCount = saveCount }
 
             keyCounts =
                 Dict.foldl
@@ -316,7 +320,7 @@ store time appState =
 type alias InitialLoad =
     { saveCount : Int
     , keyCounts : Dict String Int
-    , updates : Dict String AttributeValue
+    , updates : Dict String (Maybe String)
     }
 
 
@@ -347,9 +351,22 @@ initialLoad appState saveCount keyCounts =
 
 getTransactGetItemValue : AppState -> String -> Maybe Item -> Decoder x -> Result Types.Error x
 getTransactGetItemValue appState valueName maybeItem decoder =
+    case getMaybeTransactGetItemValue appState valueName maybeItem decoder of
+        Err err ->
+            Err err
+
+        Ok Nothing ->
+            Err <| Types.DecodeError (valueName ++ ": no value")
+
+        Ok (Just x) ->
+            Ok x
+
+
+getMaybeTransactGetItemValue : AppState -> String -> Maybe Item -> Decoder x -> Result Types.Error (Maybe x)
+getMaybeTransactGetItemValue appState valueName maybeItem decoder =
     case maybeItem of
         Nothing ->
-            Err <| Types.DecodeError (valueName ++ ": no value")
+            Ok Nothing
 
         Just item ->
             case Dict.get appState.valueAttributeName item of
@@ -369,7 +386,7 @@ getTransactGetItemValue appState valueName maybeItem decoder =
                                             )
 
                                 Ok res ->
-                                    Ok res
+                                    Ok <| Just res
 
                         _ ->
                             Err <|
@@ -392,7 +409,9 @@ continueInitialLoad appState saveCount keyCounts values =
 
                         Ok savedKeyCounts ->
                             -- TODO: load the changed keys
-                            Task.succeed
+                            doInitialLoadUpdates appState
+                                saveCount
+                                keyCounts
                                 { saveCount = savedCount
                                 , keyCounts = savedKeyCounts
                                 , updates = Dict.empty
@@ -402,6 +421,65 @@ continueInitialLoad appState saveCount keyCounts values =
             Task.fail <|
                 Types.DecodeError
                     "Other than two values from load of saveCount and keyCounts"
+
+
+doInitialLoadUpdates : AppState -> Int -> Dict String Int -> InitialLoad -> Task Types.Error InitialLoad
+doInitialLoadUpdates appState saveCount keyCounts res =
+    let
+        savedKeyCounts =
+            res.keyCounts
+    in
+    if (saveCount > res.saveCount) || (keyCounts == savedKeyCounts) then
+        Task.succeed res
+
+    else
+        -- TODO: limit to 100 operations per transaction.
+        -- TODO: refetch `saveCount` and `keyCounts`. Redo if changed.
+        let
+            folder key count ( keys, gets ) =
+                if Dict.get key keyCounts == Just count then
+                    ( keys, gets )
+
+                else
+                    ( key :: keys, makeGetItem appState key :: gets )
+
+            ( fetchKeys, fetchGets ) =
+                Dict.foldr folder ( [], [] ) savedKeyCounts
+        in
+        DynamoDB.transactGetItems fetchGets
+            |> DynamoDB.send appState.account
+            |> Task.andThen (continueInitialLoadUpdates appState res fetchKeys)
+
+
+continueInitialLoadUpdates : AppState -> InitialLoad -> List String -> List TransactGetItemValue -> Task Types.Error InitialLoad
+continueInitialLoadUpdates appState res keys values =
+    let
+        folder : ( String, Maybe Item ) -> Result Types.Error (Dict String (Maybe String)) -> Result Types.Error (Dict String (Maybe String))
+        folder ( key, item ) updatesRes =
+            case updatesRes of
+                Err err ->
+                    Err err
+
+                Ok updates ->
+                    case getMaybeTransactGetItemValue appState key item JD.string of
+                        Err err ->
+                            Err err
+
+                        Ok value ->
+                            Ok <| Dict.insert key value updates
+
+        newUpdatesResult =
+            List.foldr folder
+                (Ok res.updates)
+            <|
+                List.map2 (\key tgiv -> ( key, tgiv.item )) keys values
+    in
+    case newUpdatesResult of
+        Err err ->
+            Task.fail err
+
+        Ok newUpdates ->
+            Task.succeed { res | updates = newUpdates }
 
 
 b : String -> Html msg

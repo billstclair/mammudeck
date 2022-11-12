@@ -15,13 +15,12 @@ module AppStateExample exposing (main)
 import Browser
 import Dict exposing (Dict)
 import DynamoDB
-import DynamoDB.AppState as AppState exposing (AppState, Error, InitialLoad)
+import DynamoDB.AppState as AppState exposing (AppState, InitialLoad)
 import DynamoDB.Html exposing (renderTable)
 import DynamoDB.Types as Types
     exposing
         ( Account
         , AttributeValue(..)
-        , Error(..)
         , Item
         , Key(..)
         , TableName
@@ -77,7 +76,8 @@ type alias Model =
 
 
 type Msg
-    = ReceiveAccounts (Result Error (List Account))
+    = ReceiveAccounts (Result Types.Error (List Account))
+    | ReceiveInitialLoad (Result AppState.Error InitialLoad)
     | ReceiveAppStateStore (Result AppState.Error Int)
     | SaveRow (Maybe String) (Maybe Row)
     | Tick Posix
@@ -197,23 +197,45 @@ update msg model =
 
                 Ok accounts ->
                     let
-                        account =
+                        ( account, cmdp ) =
                             case accounts of
                                 a :: _ ->
-                                    a
+                                    ( a, True )
 
                                 _ ->
-                                    emptyAccount
+                                    ( emptyAccount, False )
+
+                        astate =
+                            model.appState
 
                         appState =
-                            model.appState
+                            { astate | account = account }
                     in
                     ( { model
                         | accounts = accounts
                         , account = account
-                        , appState =
-                            { appState | account = account }
+                        , appState = appState
                         , display = "Accounts received."
+                      }
+                    , if not cmdp then
+                        Cmd.none
+
+                      else
+                        AppState.initialLoad appState appState.saveCount appState.keyCounts
+                            |> Task.attempt ReceiveInitialLoad
+                    )
+
+        ReceiveInitialLoad result ->
+            case result of
+                Err err ->
+                    ( { model | display = Debug.toString err }
+                    , Cmd.none
+                    )
+
+                Ok initialLoad ->
+                    ( { model
+                        | display =
+                            "InitialLoad: " ++ Debug.toString initialLoad
                       }
                     , Cmd.none
                     )
