@@ -91,6 +91,7 @@ type alias AppState =
 
     -- Above here is usually constant. Below changes.
     , lastIdleTime : Int
+    , lastUpdateTime : Int
     , saveCount : Int
     , updates : Dict String (Maybe Value)
     , keyCounts : Dict String Int
@@ -129,6 +130,7 @@ makeAppState account =
     -- Times are in milliseconds, as returned by `Time.posixToMillis` applied
     -- to the result of `Time.now`.
     , lastIdleTime = 0
+    , lastUpdateTime = 0
     , saveCount = 0
     , updates = Dict.empty
     , keyCounts = Dict.empty

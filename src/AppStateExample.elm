@@ -110,7 +110,7 @@ emptyAppState =
     in
     { appState
         | keyPrefix = Just "_AppStateExample"
-        , idlePeriod = 5000
+        , idlePeriod = 2000
     }
 
 
