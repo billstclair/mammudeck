@@ -17,23 +17,11 @@
 
 if (typeof window === 'undefined') {
     console.log('worker.js running as a worker.');
-    self.addEventListener('fetch', (event) => {
-    });
-    onmessage = (e) => {
-        self.postMessage(e.data);
-    }
+    self.addEventListener('fetch', (event) => {});
 } else {
-    var count = 0;
-    if (window.Worker) {
-        const worker = new Worker(document.currentScript.src);
-        worker.onmessage = (e) => {
-            //console.log("message: ", e.data);
-            setTimeout(tick, 1000);
-        };
-        function tick() {
-            count++;
-            worker.postMessage(count);
-        };
-        setTimeout(tick, 1000);
+    if ('serviceWorker' in navigator) {
+        const url = document.currentScript.src;
+        navigator.serviceWorker.register(url);
+        const worker = new Worker(url);
     }
 }
