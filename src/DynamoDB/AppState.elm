@@ -345,10 +345,63 @@ initialLoad appState saveCount keyCounts =
         |> Task.onError (Task.fail << Error appState)
 
 
+getTransactGetItemValue : AppState -> String -> Maybe Item -> Decoder x -> Result Types.Error x
+getTransactGetItemValue appState valueName maybeItem decoder =
+    case maybeItem of
+        Nothing ->
+            Err <| Types.DecodeError (valueName ++ ": no value")
+
+        Just item ->
+            case Dict.get appState.valueAttributeName item of
+                Nothing ->
+                    Err <| Types.DecodeError (valueName ++ ": missing value.")
+
+                Just value ->
+                    case value of
+                        StringValue s ->
+                            case JD.decodeString decoder s of
+                                Err err ->
+                                    Err <|
+                                        Types.DecodeError
+                                            (valueName
+                                                ++ " "
+                                                ++ JD.errorToString err
+                                            )
+
+                                Ok res ->
+                                    Ok res
+
+                        _ ->
+                            Err <|
+                                Types.DecodeError
+                                    (valueName ++ ": not a StringValue")
+
+
 continueInitialLoad : AppState -> Int -> Dict String Int -> List TransactGetItemValue -> Task Types.Error InitialLoad
 continueInitialLoad appState saveCount keyCounts values =
-    -- TODO
-    Task.fail <| Types.DecodeError "TODO"
+    case values of
+        [ saveCountValue, keyCountValue ] ->
+            case getTransactGetItemValue appState appState.valueAttributeName saveCountValue.item JD.int of
+                Err err ->
+                    Task.fail err
+
+                Ok savedCount ->
+                    case getTransactGetItemValue appState appState.valueAttributeName keyCountValue.item <| JD.dict JD.int of
+                        Err err ->
+                            Task.fail err
+
+                        Ok savedKeyCounts ->
+                            -- TODO: load the changed keys
+                            Task.succeed
+                                { saveCount = savedCount
+                                , keyCounts = savedKeyCounts
+                                , updates = Dict.empty
+                                }
+
+        _ ->
+            Task.fail <|
+                Types.DecodeError
+                    "Other than two values from load of saveCount and keyCounts"
 
 
 b : String -> Html msg
