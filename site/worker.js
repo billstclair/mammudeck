@@ -21,7 +21,11 @@ if (typeof window === 'undefined') {
 } else {
     if ('serviceWorker' in navigator) {
         const url = document.currentScript.src;
-        navigator.serviceWorker.register(url);
-        const worker = new Worker(url);
+        var registration = null;
+        navigator.serviceWorker.register(url).then((reg) => {
+            registration = reg;
+        });
+    } else {
+        console.log('serviceWorker does not exist. Not started.');
     }
 }
