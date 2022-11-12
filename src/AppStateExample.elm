@@ -233,9 +233,30 @@ update msg model =
                     )
 
                 Ok initialLoad ->
+                    let
+                        appState =
+                            model.appState
+
+                        folder k mv rowsTail =
+                            case mv of
+                                Nothing ->
+                                    rowsTail
+
+                                Just v ->
+                                    Dict.fromList [ ( "key", k ), ( "value", v ) ]
+                                        :: rowsTail
+
+                        rows =
+                            Dict.foldr folder [] initialLoad.updates
+                    in
                     ( { model
-                        | display =
-                            "InitialLoad: " ++ Debug.toString initialLoad
+                        | display = "InitialLoad received."
+                        , appState =
+                            { appState
+                                | saveCount = initialLoad.saveCount
+                                , keyCounts = initialLoad.keyCounts
+                            }
+                        , rows = rows
                       }
                     , Cmd.none
                     )
