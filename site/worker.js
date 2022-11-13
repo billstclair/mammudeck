@@ -2,11 +2,12 @@
 //
 // worker.js
 //
-// A simple worker. Load this file in your top-level HTML.
-// It will load itself as a worker, then, once a second, send
-// a message from top-level to worker, which is sent back.
-// It exists only to convince Chromium-based browsers to all saving
-// the webapp as a separate application.
+// A simple service worker.
+// Load this file in your top-level HTML.
+// It must be in the same directory as index.html, or it
+// won't get the right default scope.
+// It exists only to convince Chromium-based browsers to allow
+// saving the webapp as a separate application.
 //
 // Copyright (c) 2022 Bill St. Clair <billstclair@gmail.com>
 // Some rights reserved.
@@ -16,9 +17,11 @@
 //////////////////////////////////////////////////////////////////////
 
 if (typeof window === 'undefined') {
-    console.log('worker.js running as a worker.');
+    // We're running as a service worker.
+    console.log('worker.js running as a service worker.');
     self.addEventListener('fetch', (event) => {});
 } else {
+    // We're running in normal browser mode.
     if ('serviceWorker' in navigator) {
         const url = document.currentScript.src;
         var registration = null;

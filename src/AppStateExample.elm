@@ -15,7 +15,7 @@ module AppStateExample exposing (main)
 import Browser
 import Dict exposing (Dict)
 import DynamoDB
-import DynamoDB.AppState as AppState exposing (AppState, InitialLoad)
+import DynamoDB.AppState as AppState exposing (AppState, Updates)
 import DynamoDB.Html exposing (renderTable)
 import DynamoDB.Types as Types
     exposing
@@ -77,7 +77,7 @@ type alias Model =
 
 type Msg
     = ReceiveAccounts (Result Types.Error (List Account))
-    | ReceiveInitialLoad (Result AppState.Error InitialLoad)
+    | ReceiveInitialLoad (Result AppState.Error Updates)
     | ReceiveAppStateStore (Result AppState.Error Int)
     | SaveRow (Maybe String) (Maybe Row)
     | Tick Posix

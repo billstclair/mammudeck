@@ -12,24 +12,23 @@
 
 module DynamoDB.AppState exposing
     ( AppState, makeAppState, emptyAccount
-    , Error, save, idle
-    , InitialLoad, initialLoad
+    , Error, save, idle, Updates, update
+    , initialLoad
     , renderAccount
-    , store
-    , mergeAccount
+    , store, mergeAccount
     )
 
 {-| Support for storing application state in DynamoDB.
 
-You specify key/value pairs to save by calling `save`.
-They are stored until the `savePeriod` has passed, then pushed to DynamoDB.
-Each time the clock ticks, call `idle` to make sure unstored changes get pushed to DynamoDB.
-
 Call `initialLoad` when your application starts, to get the `saveCount` and
-`keyCounts` from DynamoDB.
+`keyCounts` from DynamoDB, and compare them to local versions, usually
+saved in `LocalStorage`.
 
-Call `update` to pull changes from S3, at `updatePeriod` intervals.
-It returns a list of key/value pairs that have been changed by another machine pushing to DynamoDB.
+Specify key/value pairs to save by calling `save`.
+
+Once a second, call `idle` to make sure unstored changes get pushed to DynamoDB, at `idlePeriod` intervals.
+
+Call `update` to pull changes from DynamoDB, at `updatePeriod` intervals.
 
 
 # State
@@ -39,12 +38,12 @@ It returns a list of key/value pairs that have been changed by another machine p
 
 # Updating state
 
-@docs Error, save, idle
+@docs Error, save, idle, Updates, update
 
 
 # Getting updates from other browsers.
 
-@docs InitialLoad, initialLoad
+@docs initialLoad
 
 
 # User Interface
@@ -54,7 +53,7 @@ It returns a list of key/value pairs that have been changed by another machine p
 
 # Internals
 
-@docs store
+@docs store, mergeAccount
 
 -}
 
@@ -195,6 +194,32 @@ idle time appState =
         store time appState
 
 
+{-| The successful Result of `update` and `initialLoad`.
+-}
+type alias Updates =
+    { saveCount : Int
+    , keyCounts : Dict String Int
+    , updates : Dict String (Maybe String)
+    }
+
+
+{-| Probe the database for updates from other browsers.
+
+Returns `Nothing` if its not yet time for the update.
+
+-}
+update : Int -> AppState -> Maybe ( AppState, Task Error Updates )
+update time appState =
+    if time <= appState.lastUpdateTime + appState.updatePeriod then
+        Nothing
+
+    else
+        Just <|
+            ( { appState | lastUpdateTime = time }
+            , initialLoad appState appState.saveCount appState.keyCounts
+            )
+
+
 makeKey : AppState -> String -> Key
 makeKey appState key =
     let
@@ -317,15 +342,6 @@ store time aState =
             )
 
 
-{-| The successful Result of `initialLoad`.
--}
-type alias InitialLoad =
-    { saveCount : Int
-    , keyCounts : Dict String Int
-    , updates : Dict String (Maybe String)
-    }
-
-
 makeGetItem : AppState -> String -> TransactGetItem
 makeGetItem appState keyValue =
     { tableName = appState.account.tableName
@@ -334,28 +350,24 @@ makeGetItem appState keyValue =
     }
 
 
-saveAndKeyCountsGets : AppState -> ( TransactGetItem, TransactGetItem )
+saveAndKeyCountsGets : AppState -> List TransactGetItem
 saveAndKeyCountsGets appState =
-    ( makeGetItem appState appState.saveCountKey
+    [ makeGetItem appState appState.saveCountKey
     , makeGetItem appState appState.keyCountsKey
-    )
+    ]
 
 
 {-| Load the `saveCount` and `keyCounts` from DynamoDB.
 -}
-initialLoad : AppState -> Int -> Dict String Int -> Task Error InitialLoad
+initialLoad : AppState -> Int -> Dict String Int -> Task Error Updates
 initialLoad appState saveCount keyCounts =
     initialLoadInternal appState saveCount keyCounts
         |> Task.onError (Task.fail << Error appState)
 
 
-initialLoadInternal : AppState -> Int -> Dict String Int -> Task Types.Error InitialLoad
+initialLoadInternal : AppState -> Int -> Dict String Int -> Task Types.Error Updates
 initialLoadInternal appState saveCount keyCounts =
-    let
-        ( saveCountGet, keyCountsGet ) =
-            saveAndKeyCountsGets appState
-    in
-    DynamoDB.transactGetItems [ saveCountGet, keyCountsGet ]
+    DynamoDB.transactGetItems (saveAndKeyCountsGets appState)
         |> DynamoDB.send appState.account
         |> Task.andThen (continueInitialLoad appState saveCount keyCounts)
 
@@ -420,7 +432,7 @@ unpackSaveCountAndKeyCountValues appState saveCountValue keyCountValue =
                     Ok ( saveCount, keyCounts )
 
 
-continueInitialLoad : AppState -> Int -> Dict String Int -> List TransactGetItemValue -> Task Types.Error InitialLoad
+continueInitialLoad : AppState -> Int -> Dict String Int -> List TransactGetItemValue -> Task Types.Error Updates
 continueInitialLoad appState saveCount keyCounts values =
     case values of
         [ saveCountValue, keyCountValue ] ->
@@ -447,7 +459,7 @@ continueInitialLoad appState saveCount keyCounts values =
                     "Other than two values from load of saveCount and keyCounts"
 
 
-doInitialLoadUpdates : AppState -> Int -> Dict String Int -> InitialLoad -> Task Types.Error InitialLoad
+doInitialLoadUpdates : AppState -> Int -> Dict String Int -> Updates -> Task Types.Error Updates
 doInitialLoadUpdates appState saveCount keyCounts res =
     let
         savedKeyCounts =
@@ -458,7 +470,7 @@ doInitialLoadUpdates appState saveCount keyCounts res =
 
     else
         -- TODO: limit to 100 operations per transaction.
-        -- For now, that will get an error. Let them report it as a bug.
+        -- For now, that will get an error.
         let
             folder key count ( keys, gets ) =
                 if Dict.get key keyCounts == Just count then
@@ -469,19 +481,13 @@ doInitialLoadUpdates appState saveCount keyCounts res =
 
             ( fetchKeys, fetchGets ) =
                 Dict.foldr folder ( [], [] ) savedKeyCounts
-
-            ( saveCountGet, keyCountsGet ) =
-                saveAndKeyCountsGets appState
-
-            allGets =
-                saveCountGet :: (keyCountsGet :: fetchGets)
         in
-        DynamoDB.transactGetItems allGets
+        DynamoDB.transactGetItems (saveAndKeyCountsGets appState ++ fetchGets)
             |> DynamoDB.send appState.account
             |> Task.andThen (continueInitialLoadUpdates appState res fetchKeys)
 
 
-continueInitialLoadUpdates : AppState -> InitialLoad -> List String -> List TransactGetItemValue -> Task Types.Error InitialLoad
+continueInitialLoadUpdates : AppState -> Updates -> List String -> List TransactGetItemValue -> Task Types.Error Updates
 continueInitialLoadUpdates appState res keys values =
     case values of
         saveCountValue :: (keyCountValue :: otherValues) ->
@@ -504,7 +510,7 @@ continueInitialLoadUpdates appState res keys values =
 
                     else
                         let
-                            loop : List ( String, Maybe Item ) -> Dict String (Maybe String) -> Task Types.Error InitialLoad
+                            loop : List ( String, Maybe Item ) -> Dict String (Maybe String) -> Task Types.Error Updates
                             loop namesAndItems updates =
                                 case namesAndItems of
                                     [] ->
