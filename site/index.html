@@ -25,6 +25,7 @@
     <script type='text/javascript' src='js/body-colors.js'></script>
     <script type='text/javascript' src='js/watch-color-scheme.js'></script>
     <script type='text/javascript' src='js/render-notify.js'></script>
+    <script type='text/javascript' src='js/idleNotify.js'></script
     <script type='text/javascript' src='js/text-area-tracker.js'></script>
     <script type='text/javascript' src='worker.js'></script>
     <script type='text/javascript' src='elm.js'></script>
@@ -71,30 +72,7 @@
       }
 
       // Idle time
-      var idleNotify = app.ports.idleNotify;
-      if (idleNotify) {
-          var timeout;
-          var lastEventTime = Date.now();
-          function resetTimer() {
-              var now = Date.now();
-              var diff = now - lastEventTime;
-              lastEventTime = now;
-              if (diff > 10000) {
-                  notify();
-              }
-          }
-          function notify(skipTimeout) {
-              clearTimeout(timeout);
-              var diff = Date.now() - lastEventTime;
-              idleNotify.send(diff);
-              timeout = window.setTimeout(notify, 1000);
-              }
-          notify();
-          var events = ['mousedown','mousemove','keypress','scroll','touchstart'];
-          events.forEach(function(name) {
-              document.addEventListener(name, resetTimer, true);
-          });
-      }
+      idleNotify(app.ports.idleNotify);
 
       // Focus monitoring
       var focusNotify = app.ports.focusNotify;
