@@ -289,6 +289,11 @@ port focusNotify : (Bool -> msg) -> Sub msg
 port mobileFocus : String -> Cmd msg
 
 
+{-| Track idle time, so we don't probe DynamoDB if nobody is here.
+-}
+port idleNotify : (Int -> msg) -> Sub msg
+
+
 type Started
     = NotStarted
     | StartedReadingModel
@@ -723,6 +728,7 @@ type alias Model =
     , started : Started
     , funnelState : State
     , now : Posix
+    , idleTime : Int
     }
 
 
@@ -743,6 +749,7 @@ type Msg
     | ExplorerSendMsg ExplorerSendMsg
     | ScrollNotify Value
     | FocusNotify Bool
+    | IdleNotify Int
     | ApplyToModel (Model -> ( Model, Cmd Msg ))
 
 
@@ -1167,6 +1174,7 @@ subscriptions model =
         , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
         , scrollNotify ScrollNotify
         , focusNotify FocusNotify
+        , idleNotify IdleNotify
         , Events.onKeyDown <| keyDecoder True
         , Events.onKeyUp <| keyDecoder False
         , Events.onClick mouseDecoder
@@ -1496,6 +1504,7 @@ init value url key =
     , started = NotStarted
     , funnelState = initialFunnelState
     , now = Time.millisToPosix 0
+    , idleTime = 0
     }
         -- As soon as the localStorage module reports in,
         -- we'll load the saved model,
@@ -2808,6 +2817,10 @@ updateInternal msg model =
              else
                 model
             )
+                |> withNoCmd
+
+        IdleNotify idleTime ->
+            { model | idleTime = idleTime }
                 |> withNoCmd
 
         ApplyToModel f ->

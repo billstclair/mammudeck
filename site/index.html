@@ -70,6 +70,32 @@
         });
       }
 
+      // Idle time
+      var idleNotify = app.ports.idleNotify;
+      if (idleNotify) {
+          var timeout;
+          var lastEventTime = Date.now();
+          function resetTimer() {
+              var now = Date.now();
+              var diff = now - lastEventTime;
+              lastEventTime = now;
+              if (diff > 10000) {
+                  notify();
+              }
+          }
+          function notify(skipTimeout) {
+              clearTimeout(timeout);
+              var diff = Date.now() - lastEventTime;
+              idleNotify.send(diff);
+              timeout = window.setTimeout(notify, 1000);
+              }
+          notify();
+          var events = ['mousedown','mousemove','keypress','scroll','touchstart'];
+          events.forEach(function(name) {
+              document.addEventListener(name, resetTimer, true);
+          });
+      }
+
       // Focus monitoring
       var focusNotify = app.ports.focusNotify;
       if (focusNotify) {
