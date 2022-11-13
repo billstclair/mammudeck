@@ -77,7 +77,7 @@ type alias Model =
 
 type Msg
     = ReceiveAccounts (Result Types.Error (List Account))
-    | ReceiveInitialLoad (Result AppState.Error Updates)
+    | ReceiveAppStateUpdates (Result AppState.Error (Maybe Updates))
     | ReceiveAppStateStore (Result AppState.Error Int)
     | SaveRow (Maybe String) (Maybe Row)
     | Tick Posix
@@ -111,6 +111,7 @@ emptyAppState =
     { appState
         | keyPrefix = Just "_AppStateExample"
         , idlePeriod = 2000
+        , updatePeriod = 2000
     }
 
 
@@ -162,7 +163,14 @@ update msg model =
                 ( mdl, cmd ) =
                     case AppState.idle time model.appState of
                         Nothing ->
-                            ( model, Cmd.none )
+                            case AppState.update time model.appState of
+                                Nothing ->
+                                    ( model, Cmd.none )
+
+                                Just ( appState, task ) ->
+                                    ( { model | appState = appState }
+                                    , Task.attempt ReceiveAppStateUpdates task
+                                    )
 
                         Just ( appState, task ) ->
                             ( { model | appState = appState }
@@ -222,17 +230,20 @@ update msg model =
 
                       else
                         AppState.initialLoad appState appState.saveCount appState.keyCounts
-                            |> Task.attempt ReceiveInitialLoad
+                            |> Task.attempt ReceiveAppStateUpdates
                     )
 
-        ReceiveInitialLoad result ->
+        ReceiveAppStateUpdates result ->
             case result of
                 Err err ->
                     ( { model | display = Debug.toString err }
                     , Cmd.none
                     )
 
-                Ok initialLoad ->
+                Ok Nothing ->
+                    ( model, Cmd.none )
+
+                Ok (Just updates) ->
                     let
                         appState =
                             model.appState
@@ -246,17 +257,35 @@ update msg model =
                                     Dict.fromList [ ( "key", k ), ( "value", v ) ]
                                         :: rowsTail
 
+                        oldRows =
+                            List.filter
+                                (\row ->
+                                    case Dict.get "key" row of
+                                        Nothing ->
+                                            True
+
+                                        Just k ->
+                                            Nothing
+                                                == Dict.get k updates.updates
+                                )
+                                model.rows
+
                         rows =
-                            Dict.foldr folder [] initialLoad.updates
+                            Dict.foldr folder oldRows updates.updates
                     in
                     ( { model
-                        | display = "InitialLoad received."
+                        | display =
+                            if model.appState.saveCount == 0 then
+                                "InitialLoad received."
+
+                            else
+                                "Updates received."
                         , appState =
                             { appState
-                                | saveCount = initialLoad.saveCount
-                                , keyCounts = initialLoad.keyCounts
+                                | saveCount = updates.saveCount
+                                , keyCounts = updates.keyCounts
                             }
-                        , rows = rows
+                        , rows = sortRows rows
                       }
                     , Cmd.none
                     )

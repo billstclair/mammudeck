@@ -8,6 +8,12 @@
 -- See LICENSE.txt
 --
 ----------------------------------------------------------------------
+--
+-- See TODO below.
+-- Doesn't handle more than 98 updates.
+-- Doesn't handle change in DB with stores pending.
+--
+----------------------------------------------------------------------
 
 
 module DynamoDB.AppState exposing
@@ -205,10 +211,10 @@ type alias Updates =
 
 {-| Probe the database for updates from other browsers.
 
-Returns `Nothing` if its not yet time for the update.
+Returns `Nothing` if it's not yet time for the update.
 
 -}
-update : Int -> AppState -> Maybe ( AppState, Task Error Updates )
+update : Int -> AppState -> Maybe ( AppState, Task Error (Maybe Updates) )
 update time appState =
     if time <= appState.lastUpdateTime + appState.updatePeriod then
         Nothing
@@ -320,6 +326,7 @@ store time aState =
             state =
                 { appState
                     | lastIdleTime = time
+                    , lastUpdateTime = time
                     , saveCount = saveCount
                     , updates = Dict.empty
                     , keyCounts = keyCounts
@@ -359,13 +366,13 @@ saveAndKeyCountsGets appState =
 
 {-| Load the `saveCount` and `keyCounts` from DynamoDB.
 -}
-initialLoad : AppState -> Int -> Dict String Int -> Task Error Updates
+initialLoad : AppState -> Int -> Dict String Int -> Task Error (Maybe Updates)
 initialLoad appState saveCount keyCounts =
     initialLoadInternal appState saveCount keyCounts
         |> Task.onError (Task.fail << Error appState)
 
 
-initialLoadInternal : AppState -> Int -> Dict String Int -> Task Types.Error Updates
+initialLoadInternal : AppState -> Int -> Dict String Int -> Task Types.Error (Maybe Updates)
 initialLoadInternal appState saveCount keyCounts =
     DynamoDB.transactGetItems (saveAndKeyCountsGets appState)
         |> DynamoDB.send appState.account
@@ -432,7 +439,7 @@ unpackSaveCountAndKeyCountValues appState saveCountValue keyCountValue =
                     Ok ( saveCount, keyCounts )
 
 
-continueInitialLoad : AppState -> Int -> Dict String Int -> List TransactGetItemValue -> Task Types.Error Updates
+continueInitialLoad : AppState -> Int -> Dict String Int -> List TransactGetItemValue -> Task Types.Error (Maybe Updates)
 continueInitialLoad appState saveCount keyCounts values =
     case values of
         [ saveCountValue, keyCountValue ] ->
@@ -459,18 +466,21 @@ continueInitialLoad appState saveCount keyCounts values =
                     "Other than two values from load of saveCount and keyCounts"
 
 
-doInitialLoadUpdates : AppState -> Int -> Dict String Int -> Updates -> Task Types.Error Updates
+doInitialLoadUpdates : AppState -> Int -> Dict String Int -> Updates -> Task Types.Error (Maybe Updates)
 doInitialLoadUpdates appState saveCount keyCounts res =
     let
         savedKeyCounts =
             res.keyCounts
     in
     if (saveCount > res.saveCount) || (keyCounts == savedKeyCounts) then
-        Task.succeed res
+        Task.succeed Nothing
 
     else
         -- TODO: limit to 100 operations per transaction.
         -- For now, that will get an error.
+        -- TODO: This needs to handle outstanding stores somehow.
+        -- If `appState.updates` is not empty, we have a problem.
+        -- Given the intended use, it shouldn't happen, but what if it does?
         let
             folder key count ( keys, gets ) =
                 if Dict.get key keyCounts == Just count then
@@ -487,7 +497,7 @@ doInitialLoadUpdates appState saveCount keyCounts res =
             |> Task.andThen (continueInitialLoadUpdates appState res fetchKeys)
 
 
-continueInitialLoadUpdates : AppState -> Updates -> List String -> List TransactGetItemValue -> Task Types.Error Updates
+continueInitialLoadUpdates : AppState -> Updates -> List String -> List TransactGetItemValue -> Task Types.Error (Maybe Updates)
 continueInitialLoadUpdates appState res keys values =
     case values of
         saveCountValue :: (keyCountValue :: otherValues) ->
@@ -510,11 +520,12 @@ continueInitialLoadUpdates appState res keys values =
 
                     else
                         let
-                            loop : List ( String, Maybe Item ) -> Dict String (Maybe String) -> Task Types.Error Updates
+                            loop : List ( String, Maybe Item ) -> Dict String (Maybe String) -> Task Types.Error (Maybe Updates)
                             loop namesAndItems updates =
                                 case namesAndItems of
                                     [] ->
-                                        Task.succeed { res | updates = updates }
+                                        Task.succeed <|
+                                            Just { res | updates = updates }
 
                                     ( key, item ) :: rest ->
                                         case
