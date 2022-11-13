@@ -18,7 +18,7 @@
   customElements.define('watch-color-scheme', class extends HTMLElement {
     constructor() {
       super();
-      this._mediaQuery = window.matchMedia("(prefers-color-scheme:dark");
+        this._mediaQuery = window.matchMedia("(prefers-color-scheme:dark)");
     }
 
     // https://developer.mozilla.org/en-US/docs/Web/Web_Components/Using_custom_elements#using_the_lifecycle_callbacks
