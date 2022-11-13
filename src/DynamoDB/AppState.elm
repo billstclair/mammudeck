@@ -18,8 +18,8 @@
 
 module DynamoDB.AppState exposing
     ( AppState, makeAppState, emptyAccount
-    , Error, save, idle, Updates, update
-    , initialLoad
+    , Error, save, idle
+    , Updates, update, initialLoad
     , renderAccount
     , store, mergeAccount
     )
@@ -44,12 +44,12 @@ Call `update` to pull changes from DynamoDB, at `updatePeriod` intervals.
 
 # Updating state
 
-@docs Error, save, idle, Updates, update
+@docs Error, save, idle
 
 
 # Getting updates from other browsers.
 
-@docs initialLoad
+@docs Updates, update, initialLoad
 
 
 # User Interface
@@ -213,6 +213,13 @@ type alias Updates =
 
 Returns `Nothing` if it's not yet time for the update.
 
+The Task's value will be `Nothing` if your state is up-to-date with
+the database. Otherwise, you'll need to update your copy of the
+`AppState` with the returned `updates.saveCount` & `updates.keyCounts`,
+and process the `updates.updates`, likely running appropriate JSON
+decoders on the values (which will be `Nothing` if the key was deleted
+in the database).
+
 -}
 update : Int -> AppState -> Maybe ( AppState, Task Error (Maybe Updates) )
 update time appState =
@@ -365,6 +372,12 @@ saveAndKeyCountsGets appState =
 
 
 {-| Load the `saveCount` and `keyCounts` from DynamoDB.
+
+Also load any key/value pairs that are more recent in the database than
+they are in the passed `keyCounts`:
+
+    initialLoad appState saveCount keyCounts
+
 -}
 initialLoad : AppState -> Int -> Dict String Int -> Task Error (Maybe Updates)
 initialLoad appState saveCount keyCounts =
