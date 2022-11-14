@@ -4166,17 +4166,21 @@ columnsUIMsg msg model =
                     Time.posixToMillis now
 
                 ( mdl, cmd ) =
-                    case AppState.idle millis model.appState of
-                        Nothing ->
-                            if model.idleTime >= 10000 then
-                                model |> withNoCmd
+                    if AppState.accountIncomplete model.appState then
+                        model |> withNoCmd
 
-                            else
-                                AppState.update millis model.appState
-                                    |> processAppStateUpdate model
+                    else
+                        case AppState.idle millis model.appState of
+                            Nothing ->
+                                if model.idleTime >= 10000 then
+                                    model |> withNoCmd
 
-                        res ->
-                            processAppStateSave model res
+                                else
+                                    AppState.update millis model.appState
+                                        |> processAppStateUpdate model
+
+                            res ->
+                                processAppStateSave model res
             in
             { mdl | now = now }
                 |> withCmd cmd
@@ -4944,10 +4948,8 @@ columnsUIMsg msg model =
             in
             if
                 (key == pk.dynamoDBAccount)
-                    || (appState.account.accessKey == "")
-                    || (appState.account.secretKey == "")
-                    || (appState.account.tableName == "")
                     || model.appStateUpdating
+                    || AppState.accountIncomplete appState
             then
                 model |> withNoCmd
 

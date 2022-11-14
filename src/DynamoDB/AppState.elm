@@ -18,7 +18,7 @@
 
 module DynamoDB.AppState exposing
     ( AppState, makeAppState, emptyAccount
-    , Error, save, idle
+    , Error, accountIncomplete, save, idle
     , Updates, update, initialLoad
     , renderAccount
     , store, mergeAccount
@@ -44,7 +44,7 @@ Call `update` to pull changes from DynamoDB, at `updatePeriod` intervals.
 
 # Updating state
 
-@docs Error, save, idle
+@docs Error, accountIncomplete, save, idle
 
 
 # Getting updates from other browsers.
@@ -158,6 +158,23 @@ type alias Error =
     { appState : AppState
     , error : Types.Error
     }
+
+
+{-| Return `True` if an `Account` does not have all its field filled in.
+
+Do NOT call `save`, `idle`, or `update` if this returns `True`.
+You'll get an error on attempting to connect to the DynamoDB server.
+
+-}
+accountIncomplete : AppState -> Bool
+accountIncomplete appState =
+    let
+        account =
+            appState.account
+    in
+    (account.accessKey == "")
+        || (account.secretKey == "")
+        || (account.tableName == "")
 
 
 {-| Add a new key/value pair to the DynamoDB store.

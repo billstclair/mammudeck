@@ -161,21 +161,25 @@ update msg model =
                     Time.posixToMillis posix
 
                 ( mdl, cmd ) =
-                    case AppState.idle time model.appState of
-                        Nothing ->
-                            case AppState.update time model.appState of
-                                Nothing ->
-                                    ( model, Cmd.none )
+                    if AppState.accountIncomplete model.appState then
+                        ( model, Cmd.none )
 
-                                Just ( appState, task ) ->
-                                    ( { model | appState = appState }
-                                    , Task.attempt ReceiveAppStateUpdates task
-                                    )
+                    else
+                        case AppState.idle time model.appState of
+                            Nothing ->
+                                case AppState.update time model.appState of
+                                    Nothing ->
+                                        ( model, Cmd.none )
 
-                        Just ( appState, task ) ->
-                            ( { model | appState = appState }
-                            , Task.attempt ReceiveAppStateStore task
-                            )
+                                    Just ( appState, task ) ->
+                                        ( { model | appState = appState }
+                                        , Task.attempt ReceiveAppStateUpdates task
+                                        )
+
+                            Just ( appState, task ) ->
+                                ( { model | appState = appState }
+                                , Task.attempt ReceiveAppStateStore task
+                                )
             in
             ( { mdl | time = time }
             , cmd
@@ -226,6 +230,9 @@ update msg model =
                         , display = "Accounts received."
                       }
                     , if not cmdp then
+                        Cmd.none
+
+                      else if AppState.accountIncomplete appState then
                         Cmd.none
 
                       else
@@ -330,14 +337,23 @@ update msg model =
                                         Just v ->
                                             Just <| JE.string v
                     in
-                    case AppState.save model.time k val model.appState of
-                        Nothing ->
-                            ( model, Cmd.none )
+                    if AppState.accountIncomplete model.appState then
+                        ( { model
+                            | display =
+                                "Can't save to DynamoDB: account incomplete."
+                          }
+                        , Cmd.none
+                        )
 
-                        Just ( appState, task ) ->
-                            ( { model | appState = appState }
-                            , Task.attempt ReceiveAppStateStore task
-                            )
+                    else
+                        case AppState.save model.time k val model.appState of
+                            Nothing ->
+                                ( model, Cmd.none )
+
+                            Just ( appState, task ) ->
+                                ( { model | appState = appState }
+                                , Task.attempt ReceiveAppStateStore task
+                                )
 
         SetSelection row ->
             ( { model
