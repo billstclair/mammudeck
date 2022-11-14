@@ -628,6 +628,7 @@ type alias Model =
     -- Non-persistent below here
     , appState : AppState
     , appStateAccount : DynamoDB.Types.Account
+    , appStateUpdating : Bool
     , docSection : DocSection
     , maxTootCharsString : Maybe String
     , tokenText : String
@@ -881,6 +882,7 @@ type ColumnsUIMsg
     | DynamoDBSave String (Maybe Value)
     | AppStateSaved (Result AppState.Error Int)
     | AppStateUpdated (Result AppState.Error (Maybe Updates))
+    | AppStateUpdateDone Bool
 
 
 type ReceiveFeedType
@@ -1409,6 +1411,7 @@ init value url key =
     -- Non-persistent below here
     , appState = AppState.makeAppState emptyAppStateAccount
     , appStateAccount = emptyAppStateAccount
+    , appStateUpdating = False
     , docSection = DocIntro --should be persistent?
     , maxTootCharsString = Nothing
     , tokenText = ""
@@ -4824,24 +4827,9 @@ columnsUIMsg msg model =
         ClearPostStateReplyTo ->
             let
                 postState =
-                    model.postState
-
-                text =
-                    if postState.text == postState.mentionsString then
-                        ""
-
-                    else
-                        postState.text
+                    clearPostStateReplyTo model.postState
             in
-            { model
-                | postState =
-                    { postState
-                        | replyTo = Nothing
-                        , replyType = NoReply
-                        , text = text
-                        , mentionsString = ""
-                    }
-            }
+            { model | postState = postState }
                 |> withNoCmd
 
         Post ->
@@ -4959,6 +4947,7 @@ columnsUIMsg msg model =
                     || (appState.account.accessKey == "")
                     || (appState.account.secretKey == "")
                     || (appState.account.tableName == "")
+                    || model.appStateUpdating
             then
                 model |> withNoCmd
 
@@ -4999,6 +4988,36 @@ columnsUIMsg msg model =
                         Just updates ->
                             appStateUpdated model updates
 
+        AppStateUpdateDone doNow ->
+            if doNow then
+                { model | appStateUpdating = False }
+                    |> withNoCmd
+
+            else
+                model
+                    |> withCmd
+                        (Task.perform (ColumnsUIMsg << AppStateUpdateDone) <|
+                            Task.succeed True
+                        )
+
+
+clearPostStateReplyTo : PostState -> PostState
+clearPostStateReplyTo postState =
+    let
+        text =
+            if postState.text == postState.mentionsString then
+                ""
+
+            else
+                postState.text
+    in
+    { postState
+        | replyTo = Nothing
+        , replyType = NoReply
+        , text = text
+        , mentionsString = ""
+    }
+
 
 appStateUpdated : Model -> Updates -> ( Model, Cmd Msg )
 appStateUpdated model { saveCount, keyCounts, updates } =
@@ -5012,6 +5031,7 @@ appStateUpdated model { saveCount, keyCounts, updates } =
                 | saveCount = Debug.log "appStateUpdated, saveCount" saveCount
                 , keyCounts = Debug.log "  keyCounts" keyCounts
             }
+        , appStateUpdating = True
     }
         |> applyUpdates updates
 
@@ -5019,26 +5039,30 @@ appStateUpdated model { saveCount, keyCounts, updates } =
 applyUpdates : Dict String (Maybe String) -> Model -> ( Model, Cmd Msg )
 applyUpdates updates model =
     let
-        folder key value mdl =
+        folder : String -> Maybe String -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+        folder key value ( mdl, cmd ) =
             case String.split "." key of
-                prefix :: tail ->
+                prefix :: rest ->
                     case Dict.get prefix pkToUpdater of
                         Nothing ->
                             let
                                 msg =
                                     Debug.log "No pkToUpdater for" prefix
                             in
-                            mdl
+                            mdl |> withCmd cmd
 
                         Just updater ->
-                            updater (String.join "." tail) value mdl
+                            let
+                                ( mdl2, cmd2 ) =
+                                    updater (String.join "." rest) value mdl
+                            in
+                            mdl2 |> withCmds [ cmd, cmd2 ]
 
                 [] ->
                     -- Can't happen
-                    mdl
+                    mdl |> withNoCmd
     in
-    Dict.foldl folder model updates
-        |> withNoCmd
+    Dict.foldl folder ( model, Cmd.none ) updates
 
 
 {-| TODO: Test that the DynamoDB secrets actually work.
@@ -12186,9 +12210,6 @@ Mammudeck is a labor of love, but I wouldn't at all mind earning some income fro
             , br
             , link "@billstclair@impeccable.social"
                 "https://impeccable.social/billstclair"
-            , br
-            , link "@billstclair@gab.com"
-                "https://gab.com/billstclair"
             , br
             , text <| "Copyright " ++ special.copyright ++ " 2019-2022, Bill St. Clair"
             , br
@@ -19723,7 +19744,7 @@ pk =
     }
 
 
-pkToUpdater : Dict String (String -> Maybe String -> Model -> Model)
+pkToUpdater : Dict String (String -> Maybe String -> Model -> ( Model, Cmd Msg ))
 pkToUpdater =
     Dict.fromList
         [ ( pk.model, updateModel )
@@ -19737,44 +19758,111 @@ pkToUpdater =
         ]
 
 
-updateModel : String -> Maybe String -> Model -> Model
+debugAndAppend : String -> x -> Maybe String
+debugAndAppend label x =
+    Just <|
+        let
+            x2 =
+                Debug.log label x
+        in
+        if label == "" then
+            Debug.toString x ++ "."
+
+        else
+            label ++ ": " ++ Debug.toString x
+
+
+updateModel : String -> Maybe String -> Model -> ( Model, Cmd Msg )
 updateModel key value model =
-    model
+    case value of
+        Nothing ->
+            { model | msg = debugAndAppend "" "WTF! model deleted in DynamoDB" }
+                |> withNoCmd
+
+        Just v ->
+            case JD.decodeString savedModelDecoder v of
+                Err err ->
+                    { model
+                        | msg = debugAndAppend "Error decoding model" err
+                    }
+                        |> withNoCmd
+
+                Ok savedModel ->
+                    let
+                        mdl =
+                            savedModelToModel savedModel model
+                    in
+                    mdl
+                        |> withCmd
+                            (put pk.model (Just <| encodeSavedModel savedModel))
 
 
-updateToken : String -> Maybe String -> Model -> Model
-updateToken key value model =
-    model
+updateToken : String -> Maybe String -> Model -> ( Model, Cmd Msg )
+updateToken server value model =
+    let
+        result =
+            case value of
+                Nothing ->
+                    Ok Nothing
+
+                Just v ->
+                    JD.decodeString tokenApiDecoder v
+                        |> Result.map Just
+    in
+    case result of
+        Err err ->
+            { model
+                | msg =
+                    debugAndAppend ("Error decoding " ++ tokenStorageKey server) err
+            }
+                |> withNoCmd
+
+        Ok maybeTokenApi ->
+            case maybeTokenApi of
+                Nothing ->
+                    -- Token deleted.
+                    if Just server == model.renderEnv.loginServer then
+                        model
+                            |> withCmd
+                                (Task.perform GlobalMsg <| Task.succeed Logout)
+
+                    else
+                        { model | tokens = Dict.remove server model.tokens }
+                            |> withNoCmd
+
+                Just tokenApi ->
+                    { model | tokens = Dict.insert server tokenApi model.tokens }
+                        |> withNoCmd
 
 
-updateFeedSetDefinition : String -> Maybe String -> Model -> Model
+updateFeedSetDefinition : String -> Maybe String -> Model -> ( Model, Cmd Msg )
 updateFeedSetDefinition key value model =
-    model
+    model |> withNoCmd
 
 
-updateAccountIds : String -> Maybe String -> Model -> Model
+updateAccountIds : String -> Maybe String -> Model -> ( Model, Cmd Msg )
 updateAccountIds key value model =
-    model
+    model |> withNoCmd
 
 
-updateMaxTootChars : String -> Maybe String -> Model -> Model
+updateMaxTootChars : String -> Maybe String -> Model -> ( Model, Cmd Msg )
 updateMaxTootChars key value model =
-    model
+    model |> withNoCmd
 
 
-updateTimestamp : String -> Maybe String -> Model -> Model
+updateTimestamp : String -> Maybe String -> Model -> ( Model, Cmd Msg )
 updateTimestamp key value model =
-    model
+    model |> withNoCmd
 
 
-updateTimestamps : String -> Maybe String -> Model -> Model
+updateTimestamps : String -> Maybe String -> Model -> ( Model, Cmd Msg )
 updateTimestamps key value model =
-    model
+    model |> withNoCmd
 
 
-updateApp : String -> Maybe String -> Model -> Model
+updateApp : String -> Maybe String -> Model -> ( Model, Cmd Msg )
 updateApp key value model =
-    model
+    model |> withNoCmd
 
 
 pkTimestampLength : Int
