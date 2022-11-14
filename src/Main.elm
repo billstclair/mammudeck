@@ -101,7 +101,7 @@ import Dialog
 import Dict exposing (Dict)
 import DropZone
 import DynamoDB
-import DynamoDB.AppState as AppState exposing (AppState)
+import DynamoDB.AppState as AppState exposing (AppState, Updates)
 import DynamoDB.Types
 import File exposing (File)
 import File.Select
@@ -880,6 +880,7 @@ type ColumnsUIMsg
     | CommitDynamoDBDialog
     | DynamoDBSave String (Maybe Value)
     | AppStateSaved (Result AppState.Error Int)
+    | AppStateUpdated (Result AppState.Error (Maybe Updates))
 
 
 type ReceiveFeedType
@@ -3915,15 +3916,27 @@ secondFeedElementId elements =
             Nothing
 
 
-processAppStateUpdate : Model -> Maybe ( AppState, Task AppState.Error Int ) -> ( Model, Cmd Msg )
-processAppStateUpdate model result =
+processAppStateSave : Model -> Maybe ( AppState, Task AppState.Error Int ) -> ( Model, Cmd Msg )
+processAppStateSave model result =
     case result of
         Nothing ->
             model |> withNoCmd
 
         Just ( appState, task ) ->
-            ( { model | appState = Debug.log "processAppState" appState }
+            ( { model | appState = Debug.log "processAppStateSave" appState }
             , Task.attempt (ColumnsUIMsg << AppStateSaved) task
+            )
+
+
+processAppStateUpdate : Model -> Maybe ( AppState, Task AppState.Error (Maybe Updates) ) -> ( Model, Cmd Msg )
+processAppStateUpdate model maybeStuff =
+    case maybeStuff of
+        Nothing ->
+            model |> withNoCmd
+
+        Just ( appState, task ) ->
+            ( { model | appState = Debug.log "processAppStateUpdate" appState }
+            , Task.attempt (ColumnsUIMsg << AppStateUpdated) task
             )
 
 
@@ -4150,8 +4163,17 @@ columnsUIMsg msg model =
                     Time.posixToMillis now
 
                 ( mdl, cmd ) =
-                    processAppStateUpdate model <|
-                        AppState.idle millis model.appState
+                    case AppState.idle millis model.appState of
+                        Nothing ->
+                            if model.idleTime >= 10000 then
+                                model |> withNoCmd
+
+                            else
+                                AppState.update millis model.appState
+                                    |> processAppStateUpdate model
+
+                        res ->
+                            processAppStateSave model res
             in
             { mdl | now = now }
                 |> withCmd cmd
@@ -4945,7 +4967,7 @@ columnsUIMsg msg model =
                     key
                     value
                     appState
-                    |> processAppStateUpdate model
+                    |> processAppStateSave model
 
         AppStateSaved result ->
             case result of
@@ -4962,6 +4984,61 @@ columnsUIMsg msg model =
                             Debug.log "AppStateSaved OK" count
                     in
                     model |> withNoCmd
+
+        AppStateUpdated result ->
+            case result of
+                Err err ->
+                    { model | msg = Just <| Debug.toString err }
+                        |> withNoCmd
+
+                Ok maybeUpdates ->
+                    case maybeUpdates of
+                        Nothing ->
+                            model |> withNoCmd
+
+                        Just updates ->
+                            appStateUpdated model updates
+
+
+appStateUpdated : Model -> Updates -> ( Model, Cmd Msg )
+appStateUpdated model { saveCount, keyCounts, updates } =
+    let
+        appState =
+            model.appState
+    in
+    { model
+        | appState =
+            { appState
+                | saveCount = Debug.log "appStateUpdated, saveCount" saveCount
+                , keyCounts = Debug.log "  keyCounts" keyCounts
+            }
+    }
+        |> applyUpdates updates
+
+
+applyUpdates : Dict String (Maybe String) -> Model -> ( Model, Cmd Msg )
+applyUpdates updates model =
+    let
+        folder key value mdl =
+            case String.split "." key of
+                prefix :: tail ->
+                    case Dict.get prefix pkToUpdater of
+                        Nothing ->
+                            let
+                                msg =
+                                    Debug.log "No pkToUpdater for" prefix
+                            in
+                            mdl
+
+                        Just updater ->
+                            updater (String.join "." tail) value mdl
+
+                [] ->
+                    -- Can't happen
+                    mdl
+    in
+    Dict.foldl folder model updates
+        |> withNoCmd
 
 
 {-| TODO: Test that the DynamoDB secrets actually work.
@@ -7837,7 +7914,7 @@ receiveFeed request paging feedType result model =
                                                 ( mdl6, cmd6, timestamp ) =
                                                     let
                                                         ( maybeTs, ( mdl7, cmd7 ) ) =
-                                                            updateTimestamp
+                                                            updateFeedTimestamp
                                                                 feedId
                                                                 receiveType
                                                                 elem
@@ -7900,8 +7977,8 @@ receiveFeed request paging feedType result model =
 -- The returned (Maybe String) is the OLD timestamp.
 
 
-updateTimestamp : String -> ReceiveFeedType -> FeedElements -> Model -> ( Maybe String, ( Model, Cmd Msg ) )
-updateTimestamp timestampId receiveType elem model =
+updateFeedTimestamp : String -> ReceiveFeedType -> FeedElements -> Model -> ( Maybe String, ( Model, Cmd Msg ) )
+updateFeedTimestamp timestampId receiveType elem model =
     case receiveType of
         ReceiveMoreFeed ->
             ( Nothing, model |> withNoCmd )
@@ -7943,21 +8020,17 @@ updateTimestamp timestampId receiveType elem model =
                             timestamps =
                                 model.timestamps
 
-                            maybeDict =
-                                Dict.get server timestamps
-
-                            dict =
-                                maybeDict
-                                    |> Maybe.withDefault Dict.empty
-                                    |> Dict.insert timestampId id
-
-                            oldTs =
+                            ( dict, oldTs ) =
                                 case Dict.get server timestamps of
                                     Nothing ->
-                                        Nothing
+                                        ( Dict.fromList [ ( timestampId, id ) ]
+                                        , Nothing
+                                        )
 
                                     Just d ->
-                                        Dict.get timestampId d
+                                        ( Dict.insert timestampId id d
+                                        , Dict.get timestampId d
+                                        )
                         in
                         ( oldTs
                         , { model
@@ -19648,6 +19721,60 @@ pk =
     , appStateSaveCount = appState.saveCountKey
     , appStateKeyCounts = appState.keyCountsKey
     }
+
+
+pkToUpdater : Dict String (String -> Maybe String -> Model -> Model)
+pkToUpdater =
+    Dict.fromList
+        [ ( pk.model, updateModel )
+        , ( pk.token, updateToken )
+        , ( pk.feedSetDefinition, updateFeedSetDefinition )
+        , ( pk.accountIds, updateAccountIds )
+        , ( pk.maxTootChars, updateMaxTootChars )
+        , ( pk.timestamp, updateTimestamp )
+        , ( pk.timestamps, updateTimestamps )
+        , ( pk.app, updateApp )
+        ]
+
+
+updateModel : String -> Maybe String -> Model -> Model
+updateModel key value model =
+    model
+
+
+updateToken : String -> Maybe String -> Model -> Model
+updateToken key value model =
+    model
+
+
+updateFeedSetDefinition : String -> Maybe String -> Model -> Model
+updateFeedSetDefinition key value model =
+    model
+
+
+updateAccountIds : String -> Maybe String -> Model -> Model
+updateAccountIds key value model =
+    model
+
+
+updateMaxTootChars : String -> Maybe String -> Model -> Model
+updateMaxTootChars key value model =
+    model
+
+
+updateTimestamp : String -> Maybe String -> Model -> Model
+updateTimestamp key value model =
+    model
+
+
+updateTimestamps : String -> Maybe String -> Model -> Model
+updateTimestamps key value model =
+    model
+
+
+updateApp : String -> Maybe String -> Model -> Model
+updateApp key value model =
+    model
 
 
 pkTimestampLength : Int
