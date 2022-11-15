@@ -17919,7 +17919,7 @@ accountDialogContent account model =
         displayNameHtml =
             renderDisplayName account.display_name renderEnv
 
-        { backgroundColor } =
+        { color, backgroundColor } =
             getStyle renderEnv
 
         myAccount =
@@ -17947,7 +17947,11 @@ accountDialogContent account model =
             Nothing
         , p []
             [ if myAccount then
-                text ""
+                span []
+                    [ text "This is your account"
+                    , br
+                    , br
+                    ]
 
               else
                 let
@@ -17960,16 +17964,20 @@ accountDialogContent account model =
 
                         else
                             ( "Follow", "Follow this account" )
+
+                    followedLabel =
+                        if not known then
+                            "Fetching relationships..."
+
+                        else if followed_by then
+                            "Follows you"
+
+                        else
+                            "Does NOT follow you"
                 in
                 span []
-                    [ if followed_by then
-                        span []
-                            [ text "Follows you"
-                            , br
-                            ]
-
-                      else
-                        text ""
+                    [ text followedLabel
+                    , br
                     , titledButton followTitle
                         known
                         (ColumnsUIMsg <| FollowAccount following account)
