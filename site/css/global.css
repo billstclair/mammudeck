@@ -14,6 +14,11 @@ body {
 }
 
 
+/* Used by accountDialog */
+.tall-dialog-title-height .mdl-dialog__title {
+    height: 100px;
+}
+
 .invisible {
     display: none;
 }

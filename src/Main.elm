@@ -22,6 +22,11 @@
 
 See ../TODO.md for the full list.
 
+* User dialog, showing images, bio, and at least a "Follow" button.
+
+* Better link parsing. Shouldn't need "https://" prefix, and links at
+  beginning of post, or just before punctuation, should work.
+
 * Auto-refresh:
     "Show all undisplayed", maybe on "u".
     Periodic auto-update of user feeds.
@@ -343,6 +348,7 @@ type Dialog
     | ReportDialog Status
     | AreYouSureDialog AreYouSureReason Status
     | DocsDialog
+    | AccountDialog Account
 
 
 type Popup
@@ -691,6 +697,7 @@ type alias Model =
     , tokens : Dict String TokenApi
     , account : Maybe Account
     , displayName : String
+    , relationships : Dict String Relationship
     , note : String
     , fields : List Field
     , avatarFile : Maybe File
@@ -816,6 +823,9 @@ type ColumnsUIMsg
     | ScrollPageAtTime ScrollDirection Posix
     | ReloadFromServer
     | ClearFeatures
+    | ShowMentionDialog Mention
+    | ShowAccountDialog Account
+    | FollowAccount Bool Account
     | ShowDocsDialog
     | ShowPostDialog (Maybe Status)
     | PostWithMention String
@@ -1472,6 +1482,7 @@ init value url key =
     , tokens = Dict.empty
     , account = Nothing
     , displayName = ""
+    , relationships = Dict.empty
     , note = ""
     , fields = []
     , avatarFile = Nothing
@@ -4238,6 +4249,44 @@ columnsUIMsg msg model =
         ShowDocsDialog ->
             { model | dialog = DocsDialog }
                 |> withNoCmd
+
+        ShowMentionDialog mention ->
+            -- TODO: get Account for mention and ShowAccountDialog
+            model |> withNoCmd
+
+        ShowAccountDialog account ->
+            let
+                mdl =
+                    { model | dialog = AccountDialog account }
+
+                myAccount =
+                    case mdl.account of
+                        Just acct ->
+                            account.id == acct.id
+
+                        Nothing ->
+                            False
+            in
+            if myAccount then
+                mdl |> withNoCmd
+
+            else
+                sendRequest
+                    (AccountsRequest <|
+                        Request.GetRelationships { ids = [ account.id ] }
+                    )
+                    mdl
+
+        FollowAccount following account ->
+            sendRequest
+                (AccountsRequest <|
+                    if following then
+                        Request.PostUnfollow { id = account.id }
+
+                    else
+                        Request.PostFollow { id = account.id, reblogs = True }
+                )
+                model
 
         ShowPostDialog maybeStatus ->
             let
@@ -10677,11 +10726,13 @@ applyResponseSideEffects response model =
                 _ ->
                     mdl
 
-        AccountsRequest (Request.PostFollow _) ->
+        AccountsRequest (Request.PostFollow { id }) ->
             { model | isAccountFollowed = True }
+                |> updateFollowing id True
 
-        AccountsRequest (Request.PostUnfollow _) ->
+        AccountsRequest (Request.PostUnfollow { id }) ->
             { model | isAccountFollowed = False }
+                |> updateFollowing id False
 
         AccountsRequest (Request.PatchUpdateCredentials _) ->
             case response.entity of
@@ -10700,7 +10751,11 @@ applyResponseSideEffects response model =
             case response.entity of
                 RelationshipListEntity [ relationship ] ->
                     { model
-                        | popupChoices =
+                        | relationships =
+                            Dict.insert (Debug.log "new relationship" relationship.id)
+                                relationship
+                                model.relationships
+                        , popupChoices =
                             List.map
                                 (\choice ->
                                     case choice of
@@ -11098,6 +11153,21 @@ applyResponseSideEffects response model =
 
         _ ->
             model
+
+
+updateFollowing : String -> Bool -> Model -> Model
+updateFollowing id following model =
+    case Dict.get id model.relationships of
+        Nothing ->
+            model
+
+        Just relationship ->
+            { model
+                | relationships =
+                    Dict.insert id
+                        { relationship | following = following }
+                        model.relationships
+            }
 
 
 {-| Just received an update to a StatusEntity.
@@ -13187,12 +13257,11 @@ renderNotification renderEnv ellipsisPrefix notification =
     div [ style "border" <| "1px solid " ++ borderColor ]
         [ div []
             [ div [ headerFontSizeStyle ]
-                [ renderAccount renderEnv.fontSizePct
-                    color
-                    renderEnv.here
+                [ renderAccount renderEnv
                     notification.account
                     description
-                    notification.created_at
+                    False
+                    (Just notification.created_at)
                     Nothing
                 ]
             , renderNotificationBody renderEnv ellipsisPrefix notification
@@ -13348,20 +13417,20 @@ replaceEmojiReferences renderEnv nodes =
     List.map updater nodes
 
 
-statusBody : RenderEnv -> Status -> List (Html Msg)
-statusBody renderEnv status =
-    case Html.Parser.run status.content of
+statusBody : RenderEnv -> String -> Maybe String -> List (Html Msg)
+statusBody renderEnv html maybeMarkdown =
+    case Html.Parser.run html of
         Ok nodes ->
             replaceEmojiReferences renderEnv nodes
                 |> Util.toVirtualDom
 
         Err _ ->
-            [ case status.plain_markdown of
+            [ case maybeMarkdown of
                 Just markdown ->
                     text markdown
 
                 Nothing ->
-                    text status.content
+                    text html
             ]
 
 
@@ -13383,7 +13452,7 @@ renderNotificationBody renderEnv ellipsisPrefix notification =
         Just status ->
             let
                 body =
-                    statusBody renderEnv status
+                    statusBody renderEnv status.content status.plain_markdown
 
                 timeString =
                     formatIso8601 renderEnv.here status.created_at
@@ -13516,8 +13585,15 @@ blueCheckBody =
     ]
 
 
-renderAccount : Int -> String -> Zone -> Account -> Html Msg -> Datetime -> Maybe Status -> Html Msg
-renderAccount fontSizePct color zone account description datetime maybeStatus =
+renderAccount : RenderEnv -> Account -> Html Msg -> Bool -> Maybe Datetime -> Maybe Status -> Html Msg
+renderAccount renderEnv account description useLink datetime maybeStatus =
+    let
+        { fontSizePct, here } =
+            renderEnv
+
+        { color } =
+            getStyle renderEnv
+    in
     table []
         [ tr []
             [ td []
@@ -13537,23 +13613,46 @@ renderAccount fontSizePct color zone account description datetime maybeStatus =
             , td [ style "color" color ]
                 [ description
                 , br
-                , link ("@" ++ account.username) account.url
+                , if useLink then
+                    a
+                        [ href account.url
+                        , title "Open account page on server."
+                        , blankTarget
+                        ]
+                        [ text ("@" ++ account.username)
+                        , Html.i [ class "icon-link-ext" ] []
+                        ]
+
+                  else
+                    Html.a
+                        [ href "#"
+                        , Html.Attributes.title "Show account dialog."
+                        , onClick (ColumnsUIMsg <| ShowAccountDialog account)
+                        ]
+                        [ text ("@" ++ account.username) ]
                 , if account.is_verified && fontSizePct > 0 then
                     blueCheck fontSizePct
 
                   else
                     text ""
-                , br
-                , let
-                    timeString =
-                        formatIso8601 zone datetime
-                  in
-                  case maybeStatus of
+                , case datetime of
                     Nothing ->
-                        text timeString
+                        text ""
 
-                    Just status ->
-                        renderStatusUrl timeString status
+                    Just dt ->
+                        span []
+                            [ br
+                            , let
+                                timeString =
+                                    formatIso8601 renderEnv.here dt
+                              in
+                              case maybeStatus of
+                                Nothing ->
+                                    text timeString
+
+                                Just status ->
+                                    renderStatusUrl timeString status
+                            ]
                 ]
             ]
         ]
@@ -13751,7 +13850,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
             renderDisplayName account.display_name renderEnv
 
         body =
-            statusBody renderEnv status
+            statusBody renderEnv status.content status.plain_markdown
     in
     div
         (List.append
@@ -13805,12 +13904,11 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                                     ]
                                     [ text <| "@" ++ acct ]
                             ]
-                , renderAccount renderEnv.fontSizePct
-                    color
-                    renderEnv.here
+                , renderAccount renderEnv
                     account
                     displayNameHtml
-                    status.created_at
+                    False
+                    (Just status.created_at)
                     (Just status)
                 ]
             , case status.group of
@@ -14915,9 +15013,6 @@ renderExplorer model =
                 , br
                 , link "@billstclair@impeccable.social"
                     "https://impeccable.social/billstclair"
-                , br
-                , link "@billstclair@gab.com"
-                    "https://gab.com/billstclair"
                 , br
                 , text "API Docs: "
                 , link "docs.joinmastodon.org"
@@ -16915,6 +17010,9 @@ renderDialog model =
         DocsDialog ->
             docsDialog model
 
+        AccountDialog account ->
+            accountDialog account model
+
         AreYouSureDialog reason status ->
             areYouSureDialog reason status model
 
@@ -17765,6 +17863,123 @@ initialPostState =
     , deleteAndRedraft = False
     , posting = False
     }
+
+
+accountDialog : Account -> Model -> Html Msg
+accountDialog account model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
+    div [ class "tall-dialog-title-height" ]
+        [ dialogRender
+            renderEnv
+            { styles =
+                [ ( "width", "30em" )
+                , ( "max-width", "95%" )
+                , ( "font-size", fspct renderEnv )
+                , ( "text-align", "center" )
+                , ( "background-image", "url(\"" ++ account.header ++ "\")" )
+                , ( "background-size", "100%" )
+                , ( "background-repeat", "no-repeat" )
+                ]
+            , title = ""
+            , content =
+                accountDialogContent account model
+            , actionBar =
+                [ button (ColumnsUIMsg DismissDialog) "Ok"
+                ]
+            }
+            True
+        ]
+
+
+emptyRelationship : Relationship
+emptyRelationship =
+    { id = ""
+    , following = False
+    , followed_by = False
+    , blocking = False
+    , muting = False
+    , muting_notifications = False
+    , requested = False
+    , domain_blocking = False
+    , showing_reblogs = False
+    , endorsed = False
+    , v = JE.null
+    }
+
+
+accountDialogContent : Account -> Model -> List (Html Msg)
+accountDialogContent account model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        displayNameHtml =
+            renderDisplayName account.display_name renderEnv
+
+        { backgroundColor } =
+            getStyle renderEnv
+
+        myAccount =
+            case model.account of
+                Nothing ->
+                    False
+
+                Just acct ->
+                    acct.id == account.id
+
+        ( known, { following, followed_by, blocking, muting } ) =
+            case Dict.get account.id model.relationships of
+                Just relationship ->
+                    ( True, relationship )
+
+                Nothing ->
+                    ( False, emptyRelationship )
+    in
+    [ div [ style "background-color" backgroundColor ]
+        [ renderAccount renderEnv
+            account
+            displayNameHtml
+            True
+            Nothing
+            Nothing
+        , p []
+            [ if myAccount then
+                text ""
+
+              else
+                let
+                    ( followLabel, followTitle ) =
+                        if following then
+                            ( "Unfollow", "Unfollow this account" )
+
+                        else if followed_by then
+                            ( "Follow Back", "Follow this account" )
+
+                        else
+                            ( "Follow", "Follow this account" )
+                in
+                span []
+                    [ if followed_by then
+                        span []
+                            [ text "Follows you"
+                            , br
+                            ]
+
+                      else
+                        text ""
+                    , titledButton followTitle
+                        known
+                        (ColumnsUIMsg <| FollowAccount following account)
+                        followLabel
+                    , br
+                    ]
+            , span [] <| statusBody renderEnv account.note Nothing
+            ]
+        ]
+    ]
 
 
 postDialog : Model -> Html Msg
