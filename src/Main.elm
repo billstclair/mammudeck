@@ -17099,6 +17099,7 @@ dialogRender renderEnv config visible =
                 List.append
                     [ ( "color", color )
                     , ( "background-color", backgroundColor )
+                    , ( "max-height", "95%" )
                     ]
                     config.styles
         }
