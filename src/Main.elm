@@ -824,6 +824,7 @@ type ColumnsUIMsg
     | ReloadFromServer
     | ClearFeatures
     | ShowMentionDialog Mention
+    | ReceiveAccountDialogAccount Mention (Result Error Response)
     | ShowAccountDialog Account
     | FollowAccount Bool Account
     | MuteAccount Bool Account
@@ -2766,6 +2767,11 @@ update msg model =
             ]
 
 
+openExternalUrl : String -> Cmd Msg
+openExternalUrl url =
+    Task.perform OnUrlRequest <| Task.succeed (External url)
+
+
 updateInternal : Msg -> Model -> ( Model, Cmd Msg )
 updateInternal msg model =
     case msg of
@@ -4253,8 +4259,29 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
         ShowMentionDialog mention ->
-            -- TODO: get Account for mention and ShowAccountDialog
-            model |> withNoCmd
+            model
+                |> withCmd
+                    (Request.serverRequest (\id res -> ColumnsUIMsg <| ReceiveAccountDialogAccount id res)
+                        []
+                        { server = Maybe.withDefault "" <| renderEnv.loginServer
+                        , token = model.token
+                        }
+                        mention
+                        (AccountsRequest <| Request.GetAccount { id = mention.id })
+                    )
+
+        ReceiveAccountDialogAccount mention result ->
+            case result of
+                Err _ ->
+                    model |> withCmd (openExternalUrl mention.url)
+
+                Ok { entity } ->
+                    case entity of
+                        AccountEntity account ->
+                            update (ColumnsUIMsg <| ShowAccountDialog account) model
+
+                        _ ->
+                            model |> withCmd (openExternalUrl mention.url)
 
         ShowAccountDialog account ->
             let
