@@ -13137,7 +13137,7 @@ renderMultiNotification renderEnv account others ellipsisPrefix notification =
                                 Nothing
                         , h = "1.5em"
                         , onClick =
-                            Just (ColumnsUIMsg <| ShowAccountDialog other)
+                            Just <| showAccountDialogMsg other
                         }
                 )
                 (account :: others)
@@ -13621,6 +13621,16 @@ blueCheckBody =
     ]
 
 
+showMentionDialogMsg : Mention -> Msg
+showMentionDialogMsg mention =
+    ColumnsUIMsg <| ShowMentionDialog mention
+
+
+showAccountDialogMsg : Account -> Msg
+showAccountDialogMsg account =
+    ColumnsUIMsg <| ShowAccountDialog account
+
+
 renderAccount : RenderEnv -> Account -> Html Msg -> Bool -> Maybe Datetime -> Maybe Status -> Html Msg
 renderAccount renderEnv account description useLink datetime maybeStatus =
     let
@@ -13630,15 +13640,15 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
         { color } =
             getStyle renderEnv
 
-        showDialogMessage =
-            ColumnsUIMsg <| ShowAccountDialog account
-
         ( url, maybeOnClick, linkTitle ) =
             if useLink then
                 ( account.url, Nothing, "Open host page for @" ++ account.acct )
 
             else
-                ( "#", Just showDialogMessage, "Show account dialog for @" ++ account.acct )
+                ( "#"
+                , Just <| showAccountDialogMsg account
+                , "Show account dialog for @" ++ account.acct
+                )
     in
     table []
         [ tr []
@@ -13673,8 +13683,8 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
                   else
                     Html.a
                         [ href url
-                        , Html.Attributes.title "Show account dialog."
-                        , onClick (ColumnsUIMsg <| ShowAccountDialog account)
+                        , title <| "Show account dialog for @" ++ account.acct
+                        , onClick <| showAccountDialogMsg account
                         ]
                         [ text ("@" ++ account.username) ]
                 , if account.is_verified && fontSizePct > 0 then
@@ -13880,15 +13890,23 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                         Just account_id ->
                             case Dict.get account_id bodyEnv.references of
                                 Nothing ->
-                                    Just ( account_id, "" )
+                                    Just ( ( account_id, account_id ), "", Nothing )
 
                                 Just reference ->
                                     case reference of
                                         ReferencedAccount acct ->
-                                            Just ( acct.acct, acct.url )
+                                            Just
+                                                ( ( acct.acct, account_id )
+                                                , acct.url
+                                                , Just acct
+                                                )
 
                                         ReferencedMention mention ->
-                                            Just ( mention.acct, mention.url )
+                                            Just
+                                                ( ( mention.acct, account_id )
+                                                , mention.url
+                                                , Nothing
+                                                )
 
         { color, borderColor } =
             getStyle renderEnv
@@ -13922,7 +13940,11 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
 
                     Just acct ->
                         span []
-                            [ a [ href acct.url ]
+                            [ a
+                                [ href ""
+                                , onClick <| showAccountDialogMsg acct
+                                , title <| "Show account dialog for @" ++ acct.acct
+                                ]
                                 [ renderDisplayName acct.display_name
                                     renderEnv
                                 ]
@@ -13932,7 +13954,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                     Nothing ->
                         text ""
 
-                    Just ( acct, url ) ->
+                    Just ( ( acct, id ), url, maybeAccount ) ->
                         div
                             [ class "status-el media-body"
                             , class "reply-to-and-account-name"
@@ -13941,15 +13963,24 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                             [ Html.i [ class "icon-reply" ]
                                 []
                             , text " Reply to "
-                            , if url == "" then
-                                text acct
+                            , a
+                                [ href "#"
+                                , style "margin-left" "0.4em"
+                                , onClick <|
+                                    case maybeAccount of
+                                        Just a ->
+                                            showAccountDialogMsg a
 
-                              else
-                                a
-                                    [ href url
-                                    , style "margin-left" "0.4em"
-                                    ]
-                                    [ text <| "@" ++ acct ]
+                                        Nothing ->
+                                            showMentionDialogMsg <|
+                                                { url = url
+                                                , username = acct
+                                                , acct = acct
+                                                , id = id
+                                                }
+                                , title <| "Show account dialog for @" ++ acct
+                                ]
+                                [ text <| "@" ++ acct ]
                             ]
                 , renderAccount renderEnv
                     account
