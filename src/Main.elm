@@ -826,6 +826,8 @@ type ColumnsUIMsg
     | ShowMentionDialog Mention
     | ShowAccountDialog Account
     | FollowAccount Bool Account
+    | MuteAccount Bool Account
+    | BlockAccount Bool Account
     | ShowDocsDialog
     | ShowPostDialog (Maybe Status)
     | PostWithMention String
@@ -4261,8 +4263,8 @@ columnsUIMsg msg model =
 
                 myAccount =
                     case mdl.account of
-                        Just acct ->
-                            account.id == acct.id
+                        Just acc ->
+                            account.id == acc.id
 
                         Nothing ->
                             False
@@ -4285,6 +4287,29 @@ columnsUIMsg msg model =
 
                     else
                         Request.PostFollow { id = account.id, reblogs = True }
+                )
+                model
+
+        MuteAccount muting account ->
+            sendRequest
+                (MutesRequest <|
+                    if muting then
+                        Request.PostAccountUnmute { id = account.id }
+
+                    else
+                        Request.PostAccountMute
+                            { id = account.id, notifications = True }
+                )
+                model
+
+        BlockAccount blocking account ->
+            sendRequest
+                (BlocksRequest <|
+                    if blocking then
+                        Request.PostUnblock { id = account.id }
+
+                    else
+                        Request.PostBlock { id = account.id }
                 )
                 model
 
@@ -11988,15 +12013,22 @@ type alias ImageSpec =
     , altText : String
     , borderColor : Maybe String
     , h : String
+    , onClick : Maybe Msg
     }
 
 
 imageLink : ImageSpec -> Html Msg
 imageLink spec =
     a
-        [ href spec.linkUrl
-        , blankTarget
-        ]
+        ([ href spec.linkUrl ]
+            ++ (case spec.onClick of
+                    Nothing ->
+                        [ blankTarget ]
+
+                    Just onc ->
+                        [ onClick onc ]
+               )
+        )
         [ imageFromSpec spec ]
 
 
@@ -12291,6 +12323,7 @@ Mammudeck is a labor of love, but I wouldn't at all mind earning some income fro
                 , altText = "Elm Inside"
                 , borderColor = Nothing
                 , h = "32px"
+                , onClick = Nothing
                 }
             , text " "
             , imageLink
@@ -12304,6 +12337,7 @@ Mammudeck is a labor of love, but I wouldn't at all mind earning some income fro
                 , altText = "GitHub"
                 , borderColor = Nothing
                 , h = "32px"
+                , onClick = Nothing
                 }
             ]
         ]
@@ -13093,8 +13127,8 @@ renderMultiNotification renderEnv account others ellipsisPrefix notification =
                 (\other ->
                     imageLink
                         { imageUrl = other.avatar
-                        , linkUrl = other.url
-                        , altText = other.display_name
+                        , linkUrl = "#"
+                        , altText = "Show account dialog for " ++ other.display_name
                         , borderColor =
                             if other.is_pro then
                                 Just "gold"
@@ -13102,6 +13136,8 @@ renderMultiNotification renderEnv account others ellipsisPrefix notification =
                             else
                                 Nothing
                         , h = "1.5em"
+                        , onClick =
+                            Just (ColumnsUIMsg <| ShowAccountDialog other)
                         }
                 )
                 (account :: others)
@@ -13593,14 +13629,24 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
 
         { color } =
             getStyle renderEnv
+
+        showDialogMessage =
+            ColumnsUIMsg <| ShowAccountDialog account
+
+        ( url, maybeOnClick, linkTitle ) =
+            if useLink then
+                ( account.url, Nothing, "Open host page for @" ++ account.acct )
+
+            else
+                ( "#", Just showDialogMessage, "Show account dialog for @" ++ account.acct )
     in
     table []
         [ tr []
             [ td []
                 [ imageLink
                     { imageUrl = account.avatar
-                    , linkUrl = account.url
-                    , altText = ""
+                    , linkUrl = url
+                    , altText = linkTitle
                     , borderColor =
                         if account.is_pro then
                             Just "gold"
@@ -13608,6 +13654,7 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
                         else
                             Nothing
                     , h = "3em"
+                    , onClick = maybeOnClick
                     }
                 ]
             , td [ style "color" color ]
@@ -13615,7 +13662,7 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
                 , br
                 , if useLink then
                     a
-                        [ href account.url
+                        [ href url
                         , title "Open account page on server."
                         , blankTarget
                         ]
@@ -13625,7 +13672,7 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
 
                   else
                     Html.a
-                        [ href "#"
+                        [ href url
                         , Html.Attributes.title "Show account dialog."
                         , onClick (ColumnsUIMsg <| ShowAccountDialog account)
                         ]
@@ -16548,6 +16595,7 @@ renderPopupChoice renderEnv choice =
                         else
                             Nothing
                     , h = "1.5em"
+                    , onClick = Nothing
                     }
                 , text " "
                 , renderDisplayName account.display_name renderEnv
@@ -16580,6 +16628,7 @@ renderPopupChoice renderEnv choice =
                     , altText = group.title
                     , borderColor = Nothing
                     , h = "1.5em"
+                    , onClick = Nothing
                     }
                 , text " "
                 , text group.title
@@ -17919,6 +17968,9 @@ accountDialogContent account model =
         displayNameHtml =
             renderDisplayName account.display_name renderEnv
 
+        userAtServer =
+            account.acct
+
         { color, backgroundColor } =
             getStyle renderEnv
 
@@ -17957,13 +18009,13 @@ accountDialogContent account model =
                 let
                     ( followLabel, followTitle ) =
                         if following then
-                            ( "Unfollow", "Unfollow this account" )
+                            ( "Unfollow", "Unfollow @" ++ userAtServer )
 
                         else if followed_by then
-                            ( "Follow Back", "Follow this account" )
+                            ( "Follow Back", "Follow @" ++ userAtServer )
 
                         else
-                            ( "Follow", "Follow this account" )
+                            ( "Follow", "Follow @" ++ userAtServer )
 
                     followedLabel =
                         if not known then
@@ -17974,6 +18026,20 @@ accountDialogContent account model =
 
                         else
                             "Does NOT follow you"
+
+                    ( muteLabel, muteTitle ) =
+                        if muting then
+                            ( "Unmute", "Unmute @" ++ userAtServer )
+
+                        else
+                            ( "Mute", "Mute @" ++ userAtServer )
+
+                    ( blockLabel, blockTitle ) =
+                        if blocking then
+                            ( "Unblock", "Unblock @" ++ userAtServer )
+
+                        else
+                            ( "Block", "Block @" ++ userAtServer )
                 in
                 span []
                     [ text followedLabel
@@ -17982,6 +18048,16 @@ accountDialogContent account model =
                         known
                         (ColumnsUIMsg <| FollowAccount following account)
                         followLabel
+                    , text " "
+                    , titledButton muteTitle
+                        known
+                        (ColumnsUIMsg <| MuteAccount muting account)
+                        muteLabel
+                    , text " "
+                    , titledButton blockTitle
+                        known
+                        (ColumnsUIMsg <| BlockAccount blocking account)
+                        blockLabel
                     , br
                     ]
             , span [] <| statusBody renderEnv account.note Nothing
