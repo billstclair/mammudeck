@@ -33,6 +33,8 @@ See ../TODO.md for the full list.
 * Better link parsing. Shouldn't need "https://" prefix, and links at
   beginning of post, or just before punctuation, should work.
 
+* Look up custom emojis on the poster's server, but only if he uses one.
+
 * Auto-refresh:
     "Show all undisplayed", maybe on "u".
     Periodic auto-update of user feeds.
@@ -856,6 +858,8 @@ type ColumnsUIMsg
     | ShowSaveRestoreDialog
     | YesImSure AreYouSureReason Status
     | DismissDialog
+    | AddFeedType FeedType
+    | DeleteFeedType FeedType
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType
@@ -4556,6 +4560,12 @@ columnsUIMsg msg model =
         DismissDialog ->
             dismissDialog model
 
+        AddFeedType feedType ->
+            addFeedType feedType model
+
+        DeleteFeedType feedType ->
+            deleteFeedType feedType model
+
         AddFeedColumn feedType ->
             addFeedType (fillinFeedType feedType model) model
 
@@ -7326,28 +7336,38 @@ adjustColumnsForPost status model =
     }
 
 
+splitUserAtServer : String -> ( String, String )
+splitUserAtServer userAtServer =
+    case String.split "@" userAtServer of
+        [] ->
+            -- Can't happen
+            ( "", "" )
+
+        [ name ] ->
+            ( name, "" )
+
+        name :: s :: _ ->
+            ( name, s )
+
+
+makeUserFeed : String -> FeedType
+makeUserFeed userAtServer =
+    let
+        ( username, server ) =
+            splitUserAtServer userAtServer
+    in
+    UserFeed
+        { username = username
+        , server = server
+        , flags = Nothing
+        }
+
+
 fillinFeedType : FeedType -> Model -> FeedType
 fillinFeedType feedType model =
     case feedType of
         UserFeed _ ->
-            let
-                ( username, server ) =
-                    case String.split "@" model.userNameInput of
-                        [] ->
-                            -- Can't happen
-                            ( "", "" )
-
-                        [ name ] ->
-                            ( name, "" )
-
-                        name :: s :: _ ->
-                            ( name, s )
-            in
-            UserFeed
-                { username = username
-                , server = server
-                , flags = Nothing
-                }
+            makeUserFeed model.userNameInput
 
         GroupFeed _ ->
             GroupFeed <|
@@ -18199,7 +18219,7 @@ accountDialogContent account maybeStatuses model =
                 Just acct ->
                     acct.id == account.id
 
-        ( known, { following, followed_by, blocking, muting } ) =
+        ( known, { following, followed_by, requested, blocking, muting } ) =
             case Dict.get account.id model.relationships of
                 Just relationship ->
                     ( True, relationship )
@@ -18213,6 +18233,19 @@ accountDialogContent account maybeStatuses model =
                 , text " "
                 , button (ColumnsUIMsg <| ShowAccountDialogHeader account)
                     "Show Header"
+                , text " "
+                , let
+                    feedType =
+                        makeUserFeed userAtServer
+                  in
+                  case findFeed feedType model.feedSet of
+                    Nothing ->
+                        button (ColumnsUIMsg <| AddFeedType feedType)
+                            "Add Column"
+
+                    Just _ ->
+                        button (ColumnsUIMsg <| DeleteFeedType feedType)
+                            "Remove Column"
                 ]
     in
     [ div
@@ -18236,7 +18269,10 @@ accountDialogContent account maybeStatuses model =
               else
                 let
                     ( followLabel, followTitle ) =
-                        if following then
+                        if not following && requested then
+                            ( "Requested", "Unfollow @" ++ userAtServer )
+
+                        else if following then
                             ( "Unfollow", "Unfollow @" ++ userAtServer )
 
                         else if followed_by then
