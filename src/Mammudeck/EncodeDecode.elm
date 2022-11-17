@@ -16,8 +16,10 @@ module Mammudeck.EncodeDecode exposing
     , encodeFeedSetDefinition
     , encodeFeedType
     , encodePropertyAsList
+    , encodeUserFeedFlags
     , feedSetDefinitionDecoder
     , feedTypeDecoder
+    , userFeedFlagsDecoder
     )
 
 import Json.Decode as JD exposing (Decoder)

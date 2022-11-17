@@ -22,7 +22,13 @@
 
 See ../TODO.md for the full list.
 
-* User dialog, showing images, bio, and at least a "Follow" button.
+* Account dialog, showing images, bio, and at least a "Follow" button.
+  Mostly works now. Need to load statuses from the account,
+  including the pinned ones (with a checkbox to omit them).
+  "Add Column" button.
+
+* Clicking on #foo should go to that column, if it exists, or bring
+  up a dialog, showing those posts, with an "Add Column" button.
 
 * Better link parsing. Shouldn't need "https://" prefix, and links at
   beginning of post, or just before punctuation, should work.
@@ -348,7 +354,13 @@ type Dialog
     | ReportDialog Status
     | AreYouSureDialog AreYouSureReason Status
     | DocsDialog
-    | AccountDialog Account
+    | AccountDialog Account (Maybe AccountDialogStatuses)
+
+
+type alias AccountDialogStatuses =
+    { flags : UserFeedFlags
+    , statuses : List Status
+    }
 
 
 type Popup
@@ -630,6 +642,7 @@ type alias Model =
     , groupNameInput : String
     , groupInput : Maybe Group
     , hashtagInput : String
+    , accountDialogFlags : UserFeedFlags
 
     -- Non-persistent below here
     , appState : AppState
@@ -826,6 +839,8 @@ type ColumnsUIMsg
     | ShowMentionDialog Mention
     | ReceiveAccountDialogAccount Mention (Result Error Response)
     | ShowAccountDialog Account
+    | ToggleShowAccountDialogStatuses
+    | SetAccountDialogFlags UserFeedFlags
     | FollowAccount Bool Account
     | MuteAccount Bool Account
     | BlockAccount Bool Account
@@ -1420,6 +1435,7 @@ init value url key =
     , groupNameInput = ""
     , groupInput = Nothing
     , hashtagInput = ""
+    , accountDialogFlags = Types.defaultUserFeedFlags
 
     -- Non-persistent below here
     , appState = AppState.makeAppState emptyAppStateAccount
@@ -4330,7 +4346,7 @@ columnsUIMsg msg model =
         ShowAccountDialog account ->
             let
                 mdl =
-                    { model | dialog = AccountDialog account }
+                    { model | dialog = AccountDialog account Nothing }
 
                 myAccount =
                     case mdl.account of
@@ -4349,6 +4365,43 @@ columnsUIMsg msg model =
                         Request.GetRelationships { ids = [ account.id ] }
                     )
                     mdl
+
+        ToggleShowAccountDialogStatuses ->
+            case model.dialog of
+                AccountDialog account maybeStatuses ->
+                    let
+                        ms =
+                            if maybeStatuses == Nothing then
+                                Just
+                                    { flags = model.accountDialogFlags
+                                    , statuses = []
+                                    }
+
+                            else
+                                Nothing
+                    in
+                    { model | dialog = AccountDialog account ms }
+                        |> withNoCmd
+
+                _ ->
+                    model |> withNoCmd
+
+        SetAccountDialogFlags flags ->
+            let
+                mdl =
+                    { model | accountDialogFlags = flags }
+            in
+            case mdl.dialog of
+                AccountDialog account (Just statuses) ->
+                    { mdl
+                        | dialog =
+                            AccountDialog account <|
+                                Just { statuses | flags = flags }
+                    }
+                        |> withNoCmd
+
+                _ ->
+                    mdl |> withNoCmd
 
         FollowAccount following account ->
             sendRequest
@@ -17216,8 +17269,8 @@ renderDialog model =
         DocsDialog ->
             docsDialog model
 
-        AccountDialog account ->
-            accountDialog account model
+        AccountDialog account statuses ->
+            accountDialog account statuses model
 
         AreYouSureDialog reason status ->
             areYouSureDialog reason status model
@@ -17256,7 +17309,6 @@ dialogRender renderEnv config visible =
                 List.append
                     [ ( "color", color )
                     , ( "background-color", backgroundColor )
-                    , ( "max-height", "95%" )
                     ]
                     config.styles
         }
@@ -18072,8 +18124,8 @@ initialPostState =
     }
 
 
-accountDialog : Account -> Model -> Html Msg
-accountDialog account model =
+accountDialog : Account -> Maybe AccountDialogStatuses -> Model -> Html Msg
+accountDialog account maybeStatuses model =
     let
         renderEnv =
             model.renderEnv
@@ -18084,6 +18136,9 @@ accountDialog account model =
             { styles =
                 [ ( "width", "30em" )
                 , ( "max-width", "95%" )
+                , ( "max-height", "95%" )
+                , ( "overflow-y", "auto" )
+                , ( "overflow-x", "hidden" )
                 , ( "font-size", fspct renderEnv )
                 , ( "text-align", "center" )
                 , ( "background-image", "url(\"" ++ account.header ++ "\")" )
@@ -18092,7 +18147,7 @@ accountDialog account model =
                 ]
             , title = ""
             , content =
-                accountDialogContent account model
+                accountDialogContent account maybeStatuses model
             , actionBar =
                 [ button (ColumnsUIMsg DismissDialog) "Ok"
                 ]
@@ -18117,8 +18172,8 @@ emptyRelationship =
     }
 
 
-accountDialogContent : Account -> Model -> List (Html Msg)
-accountDialogContent account model =
+accountDialogContent : Account -> Maybe AccountDialogStatuses -> Model -> List (Html Msg)
+accountDialogContent account maybeStatuses model =
     let
         renderEnv =
             model.renderEnv
@@ -18148,7 +18203,8 @@ accountDialogContent account model =
                 Nothing ->
                     ( False, emptyRelationship )
     in
-    [ div [ style "background-color" backgroundColor ]
+    [ div
+        [ style "background-color" backgroundColor ]
         [ renderAccount renderEnv
             account
             displayNameHtml
@@ -18159,6 +18215,8 @@ accountDialogContent account model =
             [ if myAccount then
                 span []
                     [ text "This is your account"
+                    , br
+                    , button (ColumnsUIMsg DismissDialog) "Hide Dialog"
                     , br
                     , br
                     ]
@@ -18217,11 +18275,57 @@ accountDialogContent account model =
                         (ColumnsUIMsg <| BlockAccount blocking account)
                         blockLabel
                     , br
+                    , button (ColumnsUIMsg DismissDialog) "Hide Dialog"
+                    , br
+                    , br
                     ]
-            , span [] <| statusBody renderEnv Nothing account.note Nothing
+            , p [] <| statusBody renderEnv Nothing account.note Nothing
+            , p []
+                [ titledCheckBox "Toggle status display"
+                    (ColumnsUIMsg ToggleShowAccountDialogStatuses)
+                    (maybeStatuses /= Nothing)
+                    "show statuses"
+                , case maybeStatuses of
+                    Nothing ->
+                        text ""
+
+                    Just { flags } ->
+                        span []
+                            [ br
+                            , renderUserFeedFlags
+                                (ColumnsUIMsg << SetAccountDialogFlags)
+                                flags
+                            ]
+                ]
             ]
         ]
     ]
+
+
+renderUserFeedFlags : (UserFeedFlags -> Msg) -> UserFeedFlags -> Html Msg
+renderUserFeedFlags wrapper flags =
+    let
+        makeMsg : (UserFeedFlags -> Bool) -> (Bool -> UserFeedFlags) -> Msg
+        makeMsg reader writer =
+            wrapper <| writer (not <| reader flags)
+    in
+    span []
+        [ checkBox (makeMsg .pinned (\bool -> { flags | pinned = bool }))
+            flags.pinned
+            "pinned"
+        , text " "
+        , checkBox (makeMsg .replies (\bool -> { flags | replies = bool }))
+            flags.replies
+            "replies"
+        , text " "
+        , checkBox (makeMsg .reblogs (\bool -> { flags | reblogs = bool }))
+            flags.reblogs
+            "reblogs"
+        , text " "
+        , checkBox (makeMsg .only_media (\bool -> { flags | only_media = bool }))
+            flags.only_media
+            "only media"
+        ]
 
 
 postDialog : Model -> Html Msg
@@ -19275,6 +19379,7 @@ type alias SavedModel =
     , groupNameInput : String
     , groupInput : Maybe Group
     , hashtagInput : String
+    , accountDialogFlags : UserFeedFlags
     }
 
 
@@ -19335,6 +19440,7 @@ modelToSavedModel model =
     , groupNameInput = model.groupNameInput
     , groupInput = model.groupInput
     , hashtagInput = model.hashtagInput
+    , accountDialogFlags = model.accountDialogFlags
     }
 
 
@@ -19409,6 +19515,7 @@ savedModelToModel savedModel model =
         , groupNameInput = savedModel.groupNameInput
         , groupInput = savedModel.groupInput
         , hashtagInput = savedModel.hashtagInput
+        , accountDialogFlags = savedModel.accountDialogFlags
     }
 
 
@@ -19902,6 +20009,10 @@ encodeSavedModel savedModel =
                 savedModel.hashtagInput
                 JE.string
                 ""
+            , encodePropertyAsList "accountDialogFlags"
+                savedModel.accountDialogFlags
+                MED.encodeUserFeedFlags
+                Types.defaultUserFeedFlags
             ]
 
 
@@ -19965,6 +20076,7 @@ savedModelDecoder =
         |> optional "groupNameInput" JD.string ""
         |> optional "groupInput" (JD.nullable ED.groupDecoder) Nothing
         |> optional "hashtagInput" JD.string ""
+        |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags
 
 
 put : String -> Maybe Value -> Cmd Msg

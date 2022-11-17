@@ -23,9 +23,7 @@ module Mammudeck.Types exposing
     , NotificationFeedParams
     , ProFeedFlags
     , PublicFeedFlags
-    ,  PublicFeedParams
-       --, Renderer
-
+    , PublicFeedParams
     , ScrollNotification
     , UndisplayedElements(..)
     , UserFeedFlags
@@ -358,10 +356,6 @@ type FetchType
     = FetchNew
     | FetchNextPage
     | FetchPreviousPage
-
-
-type alias Renderer msg =
-    FeedElements -> Html msg
 
 
 type alias Fetcher msg =
