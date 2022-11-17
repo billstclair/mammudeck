@@ -841,6 +841,7 @@ type ColumnsUIMsg
     | ShowAccountDialog Account
     | ToggleShowAccountDialogStatuses
     | SetAccountDialogFlags UserFeedFlags
+    | ShowAccountDialogHeader Account
     | FollowAccount Bool Account
     | MuteAccount Bool Account
     | BlockAccount Bool Account
@@ -4402,6 +4403,9 @@ columnsUIMsg msg model =
 
                 _ ->
                     mdl |> withNoCmd
+
+        ShowAccountDialogHeader account ->
+            model |> withCmd (openWindow <| JE.string account.header)
 
         FollowAccount following account ->
             sendRequest
@@ -18202,6 +18206,14 @@ accountDialogContent account maybeStatuses model =
 
                 Nothing ->
                     ( False, emptyRelationship )
+
+        hideDialogRow =
+            span []
+                [ button (ColumnsUIMsg DismissDialog) "Hide Dialog"
+                , text " "
+                , button (ColumnsUIMsg <| ShowAccountDialogHeader account)
+                    "Show Header"
+                ]
     in
     [ div
         [ style "background-color" backgroundColor ]
@@ -18216,7 +18228,7 @@ accountDialogContent account maybeStatuses model =
                 span []
                     [ text "This is your account"
                     , br
-                    , button (ColumnsUIMsg DismissDialog) "Hide Dialog"
+                    , hideDialogRow
                     , br
                     , br
                     ]
@@ -18275,7 +18287,7 @@ accountDialogContent account maybeStatuses model =
                         (ColumnsUIMsg <| BlockAccount blocking account)
                         blockLabel
                     , br
-                    , button (ColumnsUIMsg DismissDialog) "Hide Dialog"
+                    , hideDialogRow
                     , br
                     , br
                     ]
