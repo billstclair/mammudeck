@@ -167,7 +167,7 @@ import Html.Attributes
         )
 import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
 import Html.Lazy as Lazy
-import Html.Parser exposing (Node)
+import Html.Parser exposing (Node(..))
 import Html.Parser.Util as Util
 import Http
 import Iso8601
@@ -2780,11 +2780,46 @@ updateInternal msg model =
 
         OnUrlRequest urlRequest ->
             case Debug.log "OnUrlRequest" urlRequest of
-                Internal _ ->
-                    model |> withNoCmd
-
                 External url ->
                     model |> withCmd (openWindow <| JE.string url)
+
+                Internal url ->
+                    case url.fragment of
+                        Nothing ->
+                            model |> withNoCmd
+
+                        Just fragment ->
+                            -- This is created by `replaceMentionLinks`
+                            -- It assumes there are no periods in a user ID.
+                            if String.startsWith "mentionDialog." fragment then
+                                let
+                                    idAndUrl =
+                                        Debug.log "idAndUrl" <|
+                                            (String.dropLeft 14 fragment
+                                                |> String.split "."
+                                            )
+                                in
+                                case idAndUrl of
+                                    [] ->
+                                        model |> withNoCmd
+
+                                    id :: rest ->
+                                        let
+                                            mention =
+                                                { url = String.join "." rest
+                                                , username = ""
+                                                , acct = ""
+                                                , id = id
+                                                }
+                                        in
+                                        model
+                                            |> withCmd
+                                                (Task.perform ColumnsUIMsg <|
+                                                    Task.succeed (ShowMentionDialog mention)
+                                                )
+
+                            else
+                                model |> withNoCmd
 
         OnUrlChange url ->
             let
@@ -4278,7 +4313,16 @@ columnsUIMsg msg model =
                 Ok { entity } ->
                     case entity of
                         AccountEntity account ->
-                            update (ColumnsUIMsg <| ShowAccountDialog account) model
+                            let
+                                mdl =
+                                    { model
+                                        | references =
+                                            Dict.insert account.id
+                                                (ReferencedAccount account)
+                                                model.references
+                                    }
+                            in
+                            update (ColumnsUIMsg <| ShowAccountDialog account) mdl
 
                         _ ->
                             model |> withCmd (openExternalUrl mention.url)
@@ -13480,11 +13524,63 @@ replaceEmojiReferences renderEnv nodes =
     List.map updater nodes
 
 
-statusBody : RenderEnv -> String -> Maybe String -> List (Html Msg)
-statusBody renderEnv html maybeMarkdown =
+replaceMentionLinks : RenderEnv -> Maybe Status -> List Html.Parser.Node -> List Html.Parser.Node
+replaceMentionLinks renderEnv maybeStatus nodes =
+    case maybeStatus of
+        Nothing ->
+            nodes
+
+        Just status ->
+            if status.mentions == [] then
+                nodes
+
+            else
+                let
+                    mentionFolder : Mention -> Dict String Mention -> Dict String Mention
+                    mentionFolder mention dict =
+                        Dict.insert mention.url mention dict
+
+                    urlToMention =
+                        List.foldr mentionFolder Dict.empty status.mentions
+
+                    mapper : Node -> Node
+                    mapper node =
+                        case node of
+                            Element e attributes subNodes ->
+                                if e /= "a" then
+                                    Element e attributes <| List.map mapper subNodes
+
+                                else
+                                    case LE.find (\( href, _ ) -> href == "href") attributes of
+                                        Nothing ->
+                                            Element e attributes <| List.map mapper subNodes
+
+                                        Just ( href, url ) ->
+                                            case Dict.get url urlToMention of
+                                                Nothing ->
+                                                    node
+
+                                                Just mention ->
+                                                    Element e
+                                                        (( "title", "Show account dialog for @" ++ mention.acct )
+                                                            :: LE.setIf ((==) ( href, url ))
+                                                                ( href, "#mentionDialog." ++ mention.id ++ "." ++ mention.url )
+                                                                attributes
+                                                        )
+                                                        subNodes
+
+                            _ ->
+                                node
+                in
+                List.map mapper nodes
+
+
+statusBody : RenderEnv -> Maybe Status -> String -> Maybe String -> List (Html Msg)
+statusBody renderEnv maybeStatus html maybeMarkdown =
     case Html.Parser.run html of
         Ok nodes ->
             replaceEmojiReferences renderEnv nodes
+                |> replaceMentionLinks renderEnv maybeStatus
                 |> Util.toVirtualDom
 
         Err _ ->
@@ -13515,7 +13611,10 @@ renderNotificationBody renderEnv ellipsisPrefix notification =
         Just status ->
             let
                 body =
-                    statusBody renderEnv status.content status.plain_markdown
+                    statusBody renderEnv
+                        (Just status)
+                        status.content
+                        status.plain_markdown
 
                 timeString =
                     formatIso8601 renderEnv.here status.created_at
@@ -13942,7 +14041,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
             renderDisplayName account.display_name renderEnv
 
         body =
-            statusBody renderEnv status.content status.plain_markdown
+            statusBody renderEnv (Just status) status.content status.plain_markdown
     in
     div
         (List.append
@@ -18119,7 +18218,7 @@ accountDialogContent account model =
                         blockLabel
                     , br
                     ]
-            , span [] <| statusBody renderEnv account.note Nothing
+            , span [] <| statusBody renderEnv Nothing account.note Nothing
             ]
         ]
     ]
