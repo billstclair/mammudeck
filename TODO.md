@@ -92,6 +92,7 @@ Comes from instance.max_toot_chars in JSON. That's where Pleroma puts it, In Mas
   Groups mostly done, except:
   * Incremental search for group name in "Edit Columns" dialog,
     instead of entering ID.
+* Non-Mastodon feed types: Twitter (https://unofficialbird.com/about), RSS
 * Popup interactive search for users
 * Popup interactive search for hashtags
 * Popup interactive search for groups

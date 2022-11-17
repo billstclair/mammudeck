@@ -4374,19 +4374,23 @@ columnsUIMsg msg model =
         ToggleShowAccountDialogStatuses ->
             case model.dialog of
                 AccountDialog account maybeStatuses ->
-                    let
-                        ms =
-                            if maybeStatuses == Nothing then
-                                Just
-                                    { flags = model.accountDialogFlags
-                                    , statuses = []
-                                    }
+                    if maybeStatuses == Nothing then
+                        sendRequest
+                            (accountRequestFromUserFeedFlags account.id
+                                model.accountDialogFlags
+                            )
+                            { model
+                                | dialog =
+                                    AccountDialog account <|
+                                        Just
+                                            { flags = model.accountDialogFlags
+                                            , statuses = []
+                                            }
+                            }
 
-                            else
-                                Nothing
-                    in
-                    { model | dialog = AccountDialog account ms }
-                        |> withNoCmd
+                    else
+                        { model | dialog = AccountDialog account Nothing }
+                            |> withNoCmd
 
                 _ ->
                     model |> withNoCmd
@@ -4398,12 +4402,17 @@ columnsUIMsg msg model =
             in
             case mdl.dialog of
                 AccountDialog account (Just statuses) ->
-                    { mdl
-                        | dialog =
-                            AccountDialog account <|
-                                Just { statuses | flags = flags }
-                    }
-                        |> withNoCmd
+                    sendRequest
+                        (accountRequestFromUserFeedFlags account.id flags)
+                        { model
+                            | dialog =
+                                AccountDialog account <|
+                                    Just
+                                        { statuses
+                                            | flags = flags
+                                            , statuses = []
+                                        }
+                        }
 
                 _ ->
                     mdl |> withNoCmd
@@ -5213,6 +5222,23 @@ columnsUIMsg msg model =
                         (Task.perform (ColumnsUIMsg << AppStateUpdateDone) <|
                             Task.succeed True
                         )
+
+
+accountRequestFromUserFeedFlags : String -> UserFeedFlags -> Request
+accountRequestFromUserFeedFlags id flags =
+    let
+        { only_media, pinned, replies, reblogs } =
+            flags
+    in
+    AccountsRequest <|
+        Request.GetStatuses
+            { id = id
+            , only_media = only_media
+            , pinned = pinned
+            , exclude_replies = not replies
+            , paging = Nothing
+            , exclude_reblogs = not reblogs
+            }
 
 
 clearPostStateReplyTo : PostState -> PostState
