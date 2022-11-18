@@ -26,6 +26,7 @@ See ../TODO.md for the full list.
   Mostly works now. Need to load statuses from the account,
   including the pinned ones (with a checkbox to omit them).
   Add "Mention" button.
+  Add "followers" and "followed by" counts, with a popup to list them.
 
 * Clicking on #foo should go to that column, if it exists, or bring
   up a dialog, showing those posts, with an "Add Column" button.
@@ -305,6 +306,11 @@ port mobileFocus : String -> Cmd msg
 {-| Track idle time, so we don't probe DynamoDB if nobody is here.
 -}
 port idleNotify : (Int -> msg) -> Sub msg
+
+
+{-| Reset a `select` element to its `selected` option.
+-}
+port resetSelectOption : String -> Cmd msg
 
 
 type Started
@@ -841,6 +847,7 @@ type ColumnsUIMsg
     | ShowMentionDialog Mention
     | ReceiveAccountDialogAccount Mention (Result Error Response)
     | ShowAccountDialog Account
+    | AccountDialogCommand (List ( String, ColumnsUIMsg )) String
     | ToggleShowAccountDialogStatuses
     | SetAccountDialogFlags UserFeedFlags
     | ShowAccountDialogHeader Account
@@ -4370,6 +4377,27 @@ columnsUIMsg msg model =
                         Request.GetRelationships { ids = [ account.id ] }
                     )
                     mdl
+
+        AccountDialogCommand options name ->
+            case LE.find (\( n, _ ) -> name == n) options of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just ( _, m ) ->
+                    let
+                        dialog =
+                            case model.dialog of
+                                AccountDialog account statuses ->
+                                    AccountDialog account statuses
+
+                                d ->
+                                    d
+                    in
+                    { model | dialog = dialog }
+                        |> withCmds
+                            [ Task.perform ColumnsUIMsg <| Task.succeed m
+                            , resetSelectOption nodeIds.accountDialogSelect
+                            ]
 
         ToggleShowAccountDialogStatuses ->
             case model.dialog of
@@ -10893,7 +10921,28 @@ applyProTimelineSideEffects response model =
 
 
 applyResponseSideEffects : Response -> Model -> Model
-applyResponseSideEffects response model =
+applyResponseSideEffects response model1 =
+    let
+        model =
+            let
+                insertRelationship relationship m =
+                    { m
+                        | relationships =
+                            Dict.insert relationship.id
+                                relationship
+                                model1.relationships
+                    }
+            in
+            case response.entity of
+                RelationshipListEntity [ relationship ] ->
+                    insertRelationship relationship model1
+
+                RelationshipEntity relationship ->
+                    insertRelationship relationship model1
+
+                _ ->
+                    model1
+    in
     case response.request of
         AccountsRequest Request.GetVerifyCredentials ->
             case response.entity of
@@ -10927,11 +10976,9 @@ applyResponseSideEffects response model =
 
         AccountsRequest (Request.PostFollow { id }) ->
             { model | isAccountFollowed = True }
-                |> updateFollowing id True
 
         AccountsRequest (Request.PostUnfollow { id }) ->
             { model | isAccountFollowed = False }
-                |> updateFollowing id False
 
         AccountsRequest (Request.PatchUpdateCredentials _) ->
             case response.entity of
@@ -10950,11 +10997,7 @@ applyResponseSideEffects response model =
             case response.entity of
                 RelationshipListEntity [ relationship ] ->
                     { model
-                        | relationships =
-                            Dict.insert (Debug.log "new relationship" relationship.id)
-                                relationship
-                                model.relationships
-                        , popupChoices =
+                        | popupChoices =
                             List.map
                                 (\choice ->
                                     case choice of
@@ -11352,21 +11395,6 @@ applyResponseSideEffects response model =
 
         _ ->
             model
-
-
-updateFollowing : String -> Bool -> Model -> Model
-updateFollowing id following model =
-    case Dict.get id model.relationships of
-        Nothing ->
-            model
-
-        Just relationship ->
-            { model
-                | relationships =
-                    Dict.insert id
-                        { relationship | following = following }
-                        model.relationships
-            }
 
 
 {-| Just received an update to a StatusEntity.
@@ -13905,7 +13933,7 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
                         , title "Open account page on server."
                         , blankTarget
                         ]
-                        [ text ("@" ++ account.username)
+                        [ text ("@" ++ account.acct)
                         , Html.i [ class "icon-link-ext" ] []
                         ]
 
@@ -16749,6 +16777,7 @@ nodeIds =
     , threadExplorerStatusDiv = "threadExplorerStatusDiv"
     , threadExplorerHeader = "threadExplorerHeader"
     , threadExplorerStatus = "threadExplorerStatus"
+    , accountDialogSelect = "accountDialogSelect"
     }
 
 
@@ -18253,6 +18282,56 @@ accountDialogContent account maybeStatuses model =
                 Nothing ->
                     ( False, emptyRelationship )
 
+        feedType =
+            makeUserFeed userAtServer
+
+        optionList =
+            let
+                ( acName, acMsg ) =
+                    case findFeed feedType model.feedSet of
+                        Just _ ->
+                            ( "remove column", DeleteFeedType feedType )
+
+                        Nothing ->
+                            ( "add column", AddFeedType feedType )
+
+                muteName =
+                    if muting then
+                        "unmute"
+
+                    else
+                        "mute"
+
+                blockName =
+                    if blocking then
+                        "unblock"
+
+                    else
+                        "block"
+            in
+            [ ( acName, acMsg )
+            , ( "mention", PostWithMention userAtServer )
+            , ( muteName, MuteAccount muting account )
+            , ( blockName, BlockAccount blocking account )
+            , ( "hide dialog", DismissDialog )
+            , ( "show header", ShowAccountDialogHeader account )
+            ]
+
+        commandOption ( name, _ ) =
+            option [ value name ]
+                [ text name ]
+
+        commandSelect =
+            select
+                [ onInput (ColumnsUIMsg << AccountDialogCommand optionList)
+                , id nodeIds.accountDialogSelect
+                ]
+            <|
+                option
+                    [ value "", selected True ]
+                    [ text "-- select a command --" ]
+                    :: List.map commandOption optionList
+
         hideDialogRow =
             span []
                 [ button (ColumnsUIMsg DismissDialog) "Hide Dialog"
@@ -18260,18 +18339,6 @@ accountDialogContent account maybeStatuses model =
                 , button (ColumnsUIMsg <| ShowAccountDialogHeader account)
                     "Show Header"
                 , text " "
-                , let
-                    feedType =
-                        makeUserFeed userAtServer
-                  in
-                  case findFeed feedType model.feedSet of
-                    Nothing ->
-                        button (ColumnsUIMsg <| AddFeedType feedType)
-                            "Add Column"
-
-                    Just _ ->
-                        button (ColumnsUIMsg <| DeleteFeedType feedType)
-                            "Remove Column"
                 ]
     in
     [ div
@@ -18316,20 +18383,6 @@ accountDialogContent account maybeStatuses model =
 
                         else
                             "Does NOT follow you"
-
-                    ( muteLabel, muteTitle ) =
-                        if muting then
-                            ( "Unmute", "Unmute @" ++ userAtServer )
-
-                        else
-                            ( "Mute", "Mute @" ++ userAtServer )
-
-                    ( blockLabel, blockTitle ) =
-                        if blocking then
-                            ( "Unblock", "Unblock @" ++ userAtServer )
-
-                        else
-                            ( "Block", "Block @" ++ userAtServer )
                 in
                 span []
                     [ text followedLabel
@@ -18339,17 +18392,7 @@ accountDialogContent account maybeStatuses model =
                         (ColumnsUIMsg <| FollowAccount following account)
                         followLabel
                     , text " "
-                    , titledButton muteTitle
-                        known
-                        (ColumnsUIMsg <| MuteAccount muting account)
-                        muteLabel
-                    , text " "
-                    , titledButton blockTitle
-                        known
-                        (ColumnsUIMsg <| BlockAccount blocking account)
-                        blockLabel
-                    , br
-                    , hideDialogRow
+                    , commandSelect
                     , br
                     , br
                     ]

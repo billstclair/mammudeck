@@ -71,6 +71,30 @@
         });
       }
 
+      // Reset a `select` option to the `selected` option
+      var resetSelectOption = app.ports.resetSelectOption;
+      if (resetSelectOption) {
+          resetSelectOption.subscribe(function(id) {
+              var select = document.getElementById(id);
+              var firstOption = null;
+              if (select) {
+                  for (const option of select.options) {
+                      if (!firstOption) {
+                          firstOption = option;
+                      }
+                      if (option.selected) {
+                          select.value = option.value;
+                          break;
+                      }
+                  }
+                  if (firstOption) {
+                      select.value = firstOption.value;
+                  }
+              }
+          });
+      }
+              
+
       // Idle time
       idleNotify(app.ports.idleNotify);
 
