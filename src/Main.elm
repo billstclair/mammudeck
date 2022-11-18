@@ -313,6 +313,11 @@ port idleNotify : (Int -> msg) -> Sub msg
 port resetSelectOption : String -> Cmd msg
 
 
+{-| Stop all videos that have an `id` from playing.
+-}
+port stopVideos : () -> Cmd msg
+
+
 type Started
     = NotStarted
     | StartedReadingModel
@@ -3854,123 +3859,6 @@ findFeed feedType feedSet =
     LE.find (\feed -> feedType == feed.feedType) feedSet.feeds
 
 
-uniqueifyAttachmentIds : FeedSet -> FeedSet
-uniqueifyAttachmentIds { name, feeds } =
-    let
-        statusFold status ( dict, statuses ) =
-            let
-                ( dict2, s2 ) =
-                    uniqueifyStatus dict status
-            in
-            ( dict2, s2 :: statuses )
-
-        notificationFold notification ( dict, notifications ) =
-            case notification.status of
-                Nothing ->
-                    ( dict, notification :: notifications )
-
-                Just status ->
-                    let
-                        ( dict2, s2 ) =
-                            uniqueifyStatus dict status
-                    in
-                    ( dict2, { notification | status = Just s2 } :: notifications )
-
-        feedFold feed ( dict, feeds2 ) =
-            let
-                ( dict2, elements ) =
-                    uniqueifyElements dict feed.elements
-
-                ( dict3, undisplayedElements ) =
-                    case feed.undisplayedElements of
-                        Undisplayed els2 ->
-                            let
-                                ( dict4, els4 ) =
-                                    uniqueifyElements dict2 els2
-                            in
-                            ( dict4, Undisplayed els4 )
-
-                        x ->
-                            ( dict2, x )
-            in
-            ( dict3
-            , { feed
-                | elements = elements
-                , undisplayedElements = undisplayedElements
-              }
-                :: feeds2
-            )
-
-        uniqueifyElements dict elements =
-            case elements of
-                StatusElements statuses ->
-                    List.foldr statusFold ( dict, [] ) statuses
-                        |> (\( dict2, els2 ) -> ( dict2, StatusElements els2 ))
-
-                NotificationElements notifications ->
-                    List.foldr notificationFold ( dict, [] ) notifications
-                        |> (\( dict2, ns2 ) -> ( dict2, NotificationElements ns2 ))
-
-                x ->
-                    ( dict, x )
-
-        uniqueifyId dict id =
-            case Dict.get id dict of
-                Nothing ->
-                    ( Dict.insert id 0 dict, id )
-
-                Just idx ->
-                    let
-                        newidx =
-                            Debug.log ("uniqueify " ++ id) <|
-                                idx
-                                    + 1
-                    in
-                    ( Dict.insert id newidx dict
-                    , id ++ "/" ++ String.fromInt newidx
-                    )
-
-        attachmentFold attachment ( dict, attachments ) =
-            if
-                (attachment.type_ /= VideoAttachment)
-                    && (attachment.type_ /= GifvAttachment)
-            then
-                ( dict, attachment :: attachments )
-
-            else
-                let
-                    ( dict2, id2 ) =
-                        uniqueifyId dict attachment.id
-
-                    a2 =
-                        if id2 == attachment.id then
-                            attachment
-
-                        else
-                            Debug.log "attachmentFold uniqueify"
-                                { attachment | id = id2 }
-                in
-                ( dict2, a2 :: attachments )
-
-        uniqueifyStatus dict status =
-            case status.media_attachments of
-                [] ->
-                    ( dict, status )
-
-                mediaAttachments ->
-                    let
-                        ( dict2, attachments2 ) =
-                            List.foldr attachmentFold ( dict, [] ) mediaAttachments
-                    in
-                    ( dict2, { status | media_attachments = attachments2 } )
-    in
-    { name = name
-    , feeds =
-        List.foldr feedFold ( Dict.empty, [] ) feeds
-            |> Tuple.second
-    }
-
-
 replaceFeed : Feed -> FeedSet -> FeedSet
 replaceFeed feed feedSet =
     { feedSet
@@ -3979,8 +3867,6 @@ replaceFeed feed feedSet =
                 (\_ -> feed)
                 feedSet.feeds
     }
-        -- All this to stop playing media
-        |> uniqueifyAttachmentIds
 
 
 loadMoreCmd : String -> Model -> ( Model, Cmd Msg )
@@ -4692,7 +4578,7 @@ columnsUIMsg msg model =
                         , index = index
                         }
             }
-                |> withNoCmd
+                |> withCmd (stopVideos ())
 
         ShowSettingsDialog ->
             { model | dialog = SettingsDialog }
@@ -7490,7 +7376,6 @@ adjustColumnsForPost status model =
                 { feedSet
                     | feeds = List.map updateFeed feedSet.feeds
                 }
-                    |> uniqueifyAttachmentIds
 
             else
                 model.feedSet
@@ -7715,7 +7600,6 @@ addFeedType feedType model =
                     | feeds =
                         List.append feedSet.feeds [ newFeed ]
                 }
-                    |> uniqueifyAttachmentIds
 
             userNameInput =
                 case feedType of
@@ -8387,7 +8271,6 @@ receiveFeed request paging feedType result model =
                     { mdl4
                         | feedSet =
                             { feedSet | feeds = feeds }
-                                |> uniqueifyAttachmentIds
                         , references = references
                     }
                         |> updateNewElementsLeftRight
@@ -14765,7 +14648,7 @@ renderAttachment renderEnv status index attachment =
                                 [ href "#"
                                 , onClick showAttachmentMsg
                                 ]
-                                [ case attachmentElement True False maxes attachment of
+                                [ case attachmentElement True True False maxes attachment of
                                     Nothing ->
                                         popupLink
 
@@ -19097,11 +18980,11 @@ attachmentDialogEmbed renderEnv attachmentView =
             Nothing
 
         Just attachment ->
-            attachmentElement False True (Just ( maxws, maxhs )) attachment
+            attachmentElement False False True (Just ( maxws, maxhs )) attachment
 
 
-attachmentElement : Bool -> Bool -> Maybe ( String, String ) -> Attachment -> Maybe (Html Msg)
-attachmentElement usePreviewUrl isAutoplay maxes attachment =
+attachmentElement : Bool -> Bool -> Bool -> Maybe ( String, String ) -> Attachment -> Maybe (Html Msg)
+attachmentElement useId usePreviewUrl isAutoplay maxes attachment =
     let
         url =
             if usePreviewUrl then
@@ -19118,6 +19001,27 @@ attachmentElement usePreviewUrl isAutoplay maxes attachment =
                 Just ( maxws, maxhs ) ->
                     magicFitAttributes maxws maxhs
     in
+    let
+        eid =
+            if useId then
+                attachmentElementId attachment
+
+            else
+                ""
+
+        videoElement _ =
+            video
+                (List.concat
+                    [ [ src url
+                      , controls True
+                      , autoplay isAutoplay
+                      , id eid
+                      ]
+                    , fitAttributes
+                    ]
+                )
+                []
+    in
     case attachment.type_ of
         ImageAttachment ->
             img
@@ -19126,35 +19030,18 @@ attachmentElement usePreviewUrl isAutoplay maxes attachment =
                 |> Just
 
         GifvAttachment ->
-            video
-                (List.concat
-                    [ [ src url
-                      , controls True
-                      , autoplay isAutoplay
-                      , id attachment.id
-                      ]
-                    , fitAttributes
-                    ]
-                )
-                []
-                |> Just
+            Just <| videoElement ()
 
         VideoAttachment ->
-            video
-                (List.concat
-                    [ [ src url
-                      , controls True
-                      , autoplay isAutoplay
-                      , id attachment.id
-                      ]
-                    , fitAttributes
-                    ]
-                )
-                []
-                |> Just
+            Just <| videoElement ()
 
         _ ->
             Nothing
+
+
+attachmentElementId : Attachment -> String
+attachmentElementId attachment =
+    "i" ++ attachment.id
 
 
 {-| Pure black magic.

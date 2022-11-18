@@ -71,6 +71,21 @@
         });
       }
 
+      // Stop all videos with a given id from playing.
+      var stopVideos = app.ports.stopVideos;
+      if (stopVideos) {
+          stopVideos.subscribe(function() {
+              var videos = document.querySelectorAll("video");
+              for (var i=0; i<videos.length; i++) {
+                  var v = videos[i];
+                  var pause = v.pause;
+                  if (pause && v.id) {
+                      v.pause();
+                  }
+              }
+          });
+      }
+
       // Reset a `select` option to the `selected` option
       var resetSelectOption = app.ports.resetSelectOption;
       if (resetSelectOption) {
