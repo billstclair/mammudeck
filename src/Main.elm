@@ -25,8 +25,8 @@ See ../TODO.md for the full list.
 * Account dialog, showing images, bio, and at least a "Follow" button.
   Mostly works now. Need to load statuses from the account,
   including the pinned ones (with a checkbox to omit them).
-  Add "Mention" button.
-  Add "followers" and "followed by" counts, with a popup to list them.
+  On "show header", open the image in the image viewer, not as
+  a pop-up window, to avoid blocking.
 
 * Clicking on #foo should go to that column, if it exists, or bring
   up a dialog, showing those posts, with an "Add Column" button.
@@ -3854,6 +3854,123 @@ findFeed feedType feedSet =
     LE.find (\feed -> feedType == feed.feedType) feedSet.feeds
 
 
+uniqueifyAttachmentIds : FeedSet -> FeedSet
+uniqueifyAttachmentIds { name, feeds } =
+    let
+        statusFold status ( dict, statuses ) =
+            let
+                ( dict2, s2 ) =
+                    uniqueifyStatus dict status
+            in
+            ( dict2, s2 :: statuses )
+
+        notificationFold notification ( dict, notifications ) =
+            case notification.status of
+                Nothing ->
+                    ( dict, notification :: notifications )
+
+                Just status ->
+                    let
+                        ( dict2, s2 ) =
+                            uniqueifyStatus dict status
+                    in
+                    ( dict2, { notification | status = Just s2 } :: notifications )
+
+        feedFold feed ( dict, feeds2 ) =
+            let
+                ( dict2, elements ) =
+                    uniqueifyElements dict feed.elements
+
+                ( dict3, undisplayedElements ) =
+                    case feed.undisplayedElements of
+                        Undisplayed els2 ->
+                            let
+                                ( dict4, els4 ) =
+                                    uniqueifyElements dict2 els2
+                            in
+                            ( dict4, Undisplayed els4 )
+
+                        x ->
+                            ( dict2, x )
+            in
+            ( dict3
+            , { feed
+                | elements = elements
+                , undisplayedElements = undisplayedElements
+              }
+                :: feeds2
+            )
+
+        uniqueifyElements dict elements =
+            case elements of
+                StatusElements statuses ->
+                    List.foldr statusFold ( dict, [] ) statuses
+                        |> (\( dict2, els2 ) -> ( dict2, StatusElements els2 ))
+
+                NotificationElements notifications ->
+                    List.foldr notificationFold ( dict, [] ) notifications
+                        |> (\( dict2, ns2 ) -> ( dict2, NotificationElements ns2 ))
+
+                x ->
+                    ( dict, x )
+
+        uniqueifyId dict id =
+            case Dict.get id dict of
+                Nothing ->
+                    ( Dict.insert id 0 dict, id )
+
+                Just idx ->
+                    let
+                        newidx =
+                            Debug.log ("uniqueify " ++ id) <|
+                                idx
+                                    + 1
+                    in
+                    ( Dict.insert id newidx dict
+                    , id ++ "/" ++ String.fromInt newidx
+                    )
+
+        attachmentFold attachment ( dict, attachments ) =
+            if
+                (attachment.type_ /= VideoAttachment)
+                    && (attachment.type_ /= GifvAttachment)
+            then
+                ( dict, attachment :: attachments )
+
+            else
+                let
+                    ( dict2, id2 ) =
+                        uniqueifyId dict attachment.id
+
+                    a2 =
+                        if id2 == attachment.id then
+                            attachment
+
+                        else
+                            Debug.log "attachmentFold uniqueify"
+                                { attachment | id = id2 }
+                in
+                ( dict2, a2 :: attachments )
+
+        uniqueifyStatus dict status =
+            case status.media_attachments of
+                [] ->
+                    ( dict, status )
+
+                mediaAttachments ->
+                    let
+                        ( dict2, attachments2 ) =
+                            List.foldr attachmentFold ( dict, [] ) mediaAttachments
+                    in
+                    ( dict2, { status | media_attachments = attachments2 } )
+    in
+    { name = name
+    , feeds =
+        List.foldr feedFold ( Dict.empty, [] ) feeds
+            |> Tuple.second
+    }
+
+
 replaceFeed : Feed -> FeedSet -> FeedSet
 replaceFeed feed feedSet =
     { feedSet
@@ -3862,6 +3979,8 @@ replaceFeed feed feedSet =
                 (\_ -> feed)
                 feedSet.feeds
     }
+        -- All this to stop playing media
+        |> uniqueifyAttachmentIds
 
 
 loadMoreCmd : String -> Model -> ( Model, Cmd Msg )
@@ -7371,6 +7490,7 @@ adjustColumnsForPost status model =
                 { feedSet
                     | feeds = List.map updateFeed feedSet.feeds
                 }
+                    |> uniqueifyAttachmentIds
 
             else
                 model.feedSet
@@ -7595,6 +7715,7 @@ addFeedType feedType model =
                     | feeds =
                         List.append feedSet.feeds [ newFeed ]
                 }
+                    |> uniqueifyAttachmentIds
 
             userNameInput =
                 case feedType of
@@ -8266,6 +8387,7 @@ receiveFeed request paging feedType result model =
                     { mdl4
                         | feedSet =
                             { feedSet | feeds = feeds }
+                                |> uniqueifyAttachmentIds
                         , references = references
                     }
                         |> updateNewElementsLeftRight
@@ -14606,6 +14728,20 @@ renderAttachment renderEnv status index attachment =
             ColumnsUIMsg (ShowAttachmentDialog index status)
 
         standardDiv imageType =
+            let
+                popupLink =
+                    a
+                        [ href "#"
+                        , onClick showAttachmentMsg
+                        ]
+                        [ text "popup" ]
+
+                maxws =
+                    renderEnv.columnWidth - 5 |> String.fromInt
+
+                maxes =
+                    Just ( maxws, "" )
+            in
             div []
                 [ span [ style "font-size" smallTextFontSize ]
                     [ text "["
@@ -14619,11 +14755,7 @@ renderAttachment renderEnv status index attachment =
                     Nothing ->
                         span []
                             [ br
-                            , a
-                                [ href "#"
-                                , onClick showAttachmentMsg
-                                ]
-                                [ text "popup" ]
+                            , popupLink
                             ]
 
                     Just preview_url ->
@@ -14633,12 +14765,12 @@ renderAttachment renderEnv status index attachment =
                                 [ href "#"
                                 , onClick showAttachmentMsg
                                 ]
-                                [ img
-                                    [ src preview_url
-                                    , alt "image"
-                                    , style "width" "100%"
-                                    ]
-                                    []
+                                [ case attachmentElement True False maxes attachment of
+                                    Nothing ->
+                                        popupLink
+
+                                    Just html ->
+                                        html
                                 ]
                             ]
                 ]
@@ -18965,52 +19097,81 @@ attachmentDialogEmbed renderEnv attachmentView =
             Nothing
 
         Just attachment ->
-            case attachment.type_ of
-                ImageAttachment ->
-                    img
-                        (src attachment.url
-                            :: magicFitAttributes maxws maxhs
-                        )
-                        []
-                        |> Just
+            attachmentElement False True (Just ( maxws, maxhs )) attachment
 
-                GifvAttachment ->
-                    video
-                        (List.concat
-                            [ [ src attachment.url
-                              , controls True
-                              , autoplay True
-                              ]
-                            , magicFitAttributes maxws maxhs
-                            ]
-                        )
-                        []
-                        |> Just
 
-                VideoAttachment ->
-                    video
-                        (List.concat
-                            [ [ src attachment.url
-                              , controls True
-                              , autoplay True
-                              ]
-                            , magicFitAttributes maxws maxhs
-                            ]
-                        )
-                        []
-                        |> Just
+attachmentElement : Bool -> Bool -> Maybe ( String, String ) -> Attachment -> Maybe (Html Msg)
+attachmentElement usePreviewUrl isAutoplay maxes attachment =
+    let
+        url =
+            if usePreviewUrl then
+                Maybe.withDefault attachment.url attachment.preview_url
 
-                _ ->
-                    Nothing
+            else
+                attachment.url
+
+        fitAttributes =
+            case maxes of
+                Nothing ->
+                    []
+
+                Just ( maxws, maxhs ) ->
+                    magicFitAttributes maxws maxhs
+    in
+    case attachment.type_ of
+        ImageAttachment ->
+            img
+                (src url :: fitAttributes)
+                []
+                |> Just
+
+        GifvAttachment ->
+            video
+                (List.concat
+                    [ [ src url
+                      , controls True
+                      , autoplay isAutoplay
+                      , id attachment.id
+                      ]
+                    , fitAttributes
+                    ]
+                )
+                []
+                |> Just
+
+        VideoAttachment ->
+            video
+                (List.concat
+                    [ [ src url
+                      , controls True
+                      , autoplay isAutoplay
+                      , id attachment.id
+                      ]
+                    , fitAttributes
+                    ]
+                )
+                []
+                |> Just
+
+        _ ->
+            Nothing
 
 
 {-| Pure black magic.
 -}
 magicFitAttributes : String -> String -> List (Attribute Msg)
 magicFitAttributes maxws maxhs =
+    let
+        xOrNone x =
+            if x == "" then
+                "none"
+
+            else
+                x
+    in
     [ style "object-fit" "contain"
-    , style "max-width" maxws
-    , style "max-height" maxhs
+    , style "max-width" <| xOrNone maxws
+    , style "max-height" <| xOrNone maxhs
     , style "border" "2px solid black"
     , style "width" "auto"
     , style "height" "auto"
