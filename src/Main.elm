@@ -4578,7 +4578,7 @@ columnsUIMsg msg model =
                         , index = index
                         }
             }
-                |> withCmd (stopVideos ())
+                |> withCmd (stopVideosForAttachment index status.media_attachments)
 
         ShowSettingsDialog ->
             { model | dialog = SettingsDialog }
@@ -5050,15 +5050,19 @@ columnsUIMsg msg model =
         IncrementAttachmentIndex delta ->
             case model.dialog of
                 AttachmentDialog attachmentView ->
+                    let
+                        index =
+                            attachmentView.index + delta
+                    in
                     { model
                         | dialog =
                             AttachmentDialog
-                                { attachmentView
-                                    | index =
-                                        attachmentView.index + delta
-                                }
+                                { attachmentView | index = index }
                     }
-                        |> withNoCmd
+                        |> withCmd
+                            (stopVideosForAttachment index
+                                attachmentView.attachments
+                            )
 
                 _ ->
                     model |> withNoCmd
@@ -5255,6 +5259,23 @@ columnsUIMsg msg model =
                         (Task.perform (ColumnsUIMsg << AppStateUpdateDone) <|
                             Task.succeed True
                         )
+
+
+stopVideosForAttachment : Int -> List Attachment -> Cmd Msg
+stopVideosForAttachment index attachments =
+    case LE.getAt (Debug.log "stopVideosForAttachment" index) attachments of
+        Nothing ->
+            Cmd.none
+
+        Just { type_ } ->
+            if
+                (type_ == GifvAttachment)
+                    || (type_ == VideoAttachment)
+            then
+                stopVideos ()
+
+            else
+                Cmd.none
 
 
 accountRequestFromUserFeedFlags : String -> UserFeedFlags -> Request
@@ -6995,8 +7016,11 @@ reportDialog status model =
 scrollAttachmentDialog : Bool -> ScrollDirection -> AttachmentView -> Model -> ( Model, Cmd Msg )
 scrollAttachmentDialog allTheWay direction attachmentView model =
     let
+        attachments =
+            attachmentView.attachments
+
         attachmentCnt =
-            List.length attachmentView.attachments
+            List.length attachments
 
         attachmentIndex =
             attachmentView.index
@@ -7023,7 +7047,7 @@ scrollAttachmentDialog allTheWay direction attachmentView model =
             AttachmentDialog
                 { attachmentView | index = newIndex }
     }
-        |> withNoCmd
+        |> withCmd (stopVideosForAttachment newIndex attachments)
 
 
 isScrollAllTheWay : ScrollDirection -> Posix -> Model -> Bool
