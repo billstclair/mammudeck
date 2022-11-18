@@ -77,7 +77,7 @@
           resetSelectOption.subscribe(function(id) {
               var select = document.getElementById(id);
               if (select) {
-                  selected = select[0];
+                  var selected = select[0];
                   if (selected) {
                       select.value = selected.value;
                   }
