@@ -25,7 +25,7 @@ See ../TODO.md for the full list.
 * Account dialog, showing images, bio, and at least a "Follow" button.
   Mostly works now. Need to load statuses from the account,
   including the pinned ones (with a checkbox to omit them).
-  "Add Column" button.
+  Add "Mention" button.
 
 * Clicking on #foo should go to that column, if it exists, or bring
   up a dialog, showing those posts, with an "Add Column" button.

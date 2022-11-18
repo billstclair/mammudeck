@@ -6,16 +6,20 @@ Bill St. Clair, 27 November 2021
 
 ## Persistence
 
-* Save state in S3.
-  Document well, since the CORS setup is hard for non-wizards.
+* Save state in DynamoDB.
+  Document how to create a compatible table.
+  Better yet, use the API to create the table, if asked.
 
 ## Instructional video
 
 Screen recording of how to use Mammudeck with Free Atlantis, and Truth Social.
 
-## Instance.max_toot_chars 
+## Search
 
-Comes from instance.max_toot_chars in JSON. That's where Pleroma puts it, In Mastodon, it's in Instance.configuration.statuses.max_characters.
+* Include at least some of the the parameters for
+ `(AccountsReq <| GetSearchAccounts {...})` & `(SearchRequest <| GetSearch {...}`.
+ Consider adding api/v2/search, and using it for servers that support it.
+ https://docs.joinmastodon.org/methods/search/
 
 ## For the Post dialog
 
@@ -66,6 +70,9 @@ Comes from instance.max_toot_chars in JSON. That's where Pleroma puts it, In Mas
 
 ## For column status rendering
 
+* Bookmark status. 
+  Needs `POST api/v1/statuses/:id/bookmark` and
+  `POST api/v1/statuses/:id/unbookmark` in `Mastodon.Request`.
 * Turn foo.com into https://foo.com in the client, since the Gab backend
   doesn't do that. It apparently does it in the client, too (but check that).
 * Show "in reply to" "user"
