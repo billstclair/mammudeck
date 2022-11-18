@@ -76,19 +76,10 @@
       if (resetSelectOption) {
           resetSelectOption.subscribe(function(id) {
               var select = document.getElementById(id);
-              var firstOption = null;
               if (select) {
-                  for (const option of select.options) {
-                      if (!firstOption) {
-                          firstOption = option;
-                      }
-                      if (option.selected) {
-                          select.value = option.value;
-                          break;
-                      }
-                  }
-                  if (firstOption) {
-                      select.value = firstOption.value;
+                  selected = select[0];
+                  if (selected) {
+                      select.value = selected.value;
                   }
               }
           });
