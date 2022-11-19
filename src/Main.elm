@@ -22,11 +22,23 @@
 
 See ../TODO.md for the full list.
 
-* Account dialog, showing images, bio, and at least a "Follow" button.
+* Account dialog.
   Mostly works now. Need to load statuses from the account,
-  including the pinned ones (with a checkbox to omit them).
+    including the pinned ones (with a checkbox to omit them).
+  The local `Account` contains counts known locally.
+    `followers_count` and `following_count` don't seem to track.
+    Need to fetch the `Account` from the home server.
+    This means `(AccountsRequest Request.GetSearchAccounts)` to find the
+    account ID (cached locally), and `(AccountsRequest Request.GetAccount)`
+    to fetch the `Account`.
+    Should cache the local account, too, as a second arg to `AccountDialog`.
+    Fetch other stuff from the remote server, unless that fails, then
+    back off to the local server.
+    Mark somehow whether the information is local or remote.
   On "show header", open the image in the image viewer, not as
-  a pop-up window, to avoid blocking.
+    a pop-up window, to avoid blocking.
+
+* Mini account dialog on hover?
 
 * Clicking on #foo should go to that column, if it exists, or bring
   up a dialog, showing those posts, with an "Add Column" button.
@@ -854,6 +866,8 @@ type ColumnsUIMsg
     | ShowAccountDialog Account
     | AccountDialogCommand (List ( String, ColumnsUIMsg )) String
     | ToggleShowAccountDialogStatuses
+    | ToggleShowFollowing Account
+    | ToggleShowFollowers Account
     | SetAccountDialogFlags UserFeedFlags
     | ShowAccountDialogHeader Account
     | FollowAccount Bool Account
@@ -3166,6 +3180,9 @@ globalMsg msg model =
 
         OnKeyPress isDown key ->
             let
+                k =
+                    Debug.log "OnKeyPress" key
+
                 mdl =
                     { model
                         | keysDown =
@@ -4427,6 +4444,14 @@ columnsUIMsg msg model =
 
                 _ ->
                     model |> withNoCmd
+
+        ToggleShowFollowing account ->
+            -- TODO
+            model |> withNoCmd
+
+        ToggleShowFollowers account ->
+            -- TODO
+            model |> withNoCmd
 
         SetAccountDialogFlags flags ->
             let
@@ -18394,8 +18419,6 @@ accountDialogContent account maybeStatuses model =
                     [ text "This is your account"
                     , br
                     , hideDialogRow
-                    , br
-                    , br
                     ]
 
               else
@@ -18432,9 +18455,39 @@ accountDialogContent account maybeStatuses model =
                         followLabel
                     , text " "
                     , commandSelect
-                    , br
-                    , br
                     ]
+            , span []
+                [ br
+                , a
+                    [ href "#"
+                    , onClick (ColumnsUIMsg <| ToggleShowAccountDialogStatuses)
+                    ]
+                    [ text <| String.fromInt account.statuses_count
+                    , text " statuses"
+                    ]
+                , text <| special.nbsp ++ special.nbsp
+                , a
+                    [ href "#"
+                    , onClick (ColumnsUIMsg <| ToggleShowFollowers account)
+                    ]
+                    [ text <| String.fromInt account.followers_count
+                    , if account.followers_count == 1 then
+                        text " follower"
+
+                      else
+                        text " followers"
+                    ]
+                , text <| special.nbsp ++ special.nbsp
+                , a
+                    [ href "#"
+                    , onClick (ColumnsUIMsg <| ToggleShowFollowing account)
+                    ]
+                    [ text "following "
+                    , text <| String.fromInt account.following_count
+                    ]
+                , br
+                , br
+                ]
             , p [] <| statusBody renderEnv Nothing account.note Nothing
             , p []
                 [ titledCheckBox "Toggle status display"
