@@ -874,6 +874,7 @@ type ColumnsUIMsg
     | ScrollPageAtTime ScrollDirection Posix
     | ReloadFromServer
     | ClearFeatures
+    | ShowUserDialog UserFeedParams
     | ShowMentionDialog Mention
     | ReceiveAccountDialogAccount Mention (Result Error Response)
     | ShowAccountDialog Account
@@ -4355,6 +4356,43 @@ columnsUIMsg msg model =
         ShowDocsDialog ->
             { model | dialog = DocsDialog }
                 |> withNoCmd
+
+        ShowUserDialog { username, server } ->
+            case renderEnv.loginServer of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just loginServer ->
+                    let
+                        realServer =
+                            if server /= "" then
+                                server
+
+                            else
+                                loginServer
+
+                        acct =
+                            usernameAtServer username server renderEnv
+                    in
+                    case Dict.get loginServer model.accountIdDict of
+                        Nothing ->
+                            model |> withNoCmd
+
+                        Just accountIds ->
+                            case LE.find (\accountId -> acct == accountId.username) accountIds of
+                                Nothing ->
+                                    model |> withNoCmd
+
+                                Just { id, url } ->
+                                    let
+                                        mention =
+                                            { url = url
+                                            , username = username
+                                            , acct = acct
+                                            , id = id
+                                            }
+                                    in
+                                    columnsUIMsg (ShowMentionDialog mention) model
 
         ShowMentionDialog mention ->
             model
@@ -13114,6 +13152,13 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
                         _ ->
                             feedTitle feedType
 
+                UserFeed params ->
+                    a
+                        [ href "#"
+                        , onClick (ColumnsUIMsg <| ShowUserDialog params)
+                        ]
+                        [ feedTitle feedType ]
+
                 _ ->
                     feedTitle feedType
     in
@@ -18542,7 +18587,11 @@ accountDialogContent account maybeContent model =
                     , br
                     , titledButton followTitle
                         known
-                        (ColumnsUIMsg <| FollowAccount following account)
+                        (ColumnsUIMsg <|
+                            -- You'd think we should unfollow if we've requested,
+                            -- but that gets an error on my Pleroma server.
+                            FollowAccount following account
+                        )
                         followLabel
                     , text " "
                     , commandSelect
