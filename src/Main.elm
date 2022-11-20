@@ -386,13 +386,19 @@ type Dialog
     | ReportDialog Status
     | AreYouSureDialog AreYouSureReason Status
     | DocsDialog
-    | AccountDialog Account (Maybe AccountDialogStatuses)
+    | AccountDialog Account (Maybe AccountDialogContent)
 
 
 type alias AccountDialogStatuses =
     { flags : UserFeedFlags
     , statuses : List Status
     }
+
+
+type AccountDialogContent
+    = StatusesContent AccountDialogStatuses
+    | FollowingContent (List Account)
+    | FollowersContent (List Account)
 
 
 type Popup
@@ -872,11 +878,11 @@ type ColumnsUIMsg
     | ReceiveAccountDialogAccount Mention (Result Error Response)
     | ShowAccountDialog Account
     | AccountDialogCommand (List ( String, ColumnsUIMsg )) String
-    | ToggleShowAccountDialogStatuses
-    | ToggleShowFollowing Account
-    | ToggleShowFollowers Account
-    | SetAccountDialogFlags UserFeedFlags
-    | ShowAccountDialogHeader Account
+    | AccountDialogSetShowStatuses Bool
+    | AccountDialogShowFollowing
+    | AccountDialogShowFollowers
+    | AccountDialogSetFlags UserFeedFlags
+    | AccountDialogShowHeader Account
     | FollowAccount Bool Account
     | MuteAccount Bool Account
     | BlockAccount Bool Account
@@ -4413,76 +4419,115 @@ columnsUIMsg msg model =
                     model |> withNoCmd
 
                 Just ( _, m ) ->
-                    let
-                        dialog =
-                            case model.dialog of
-                                AccountDialog account statuses ->
-                                    AccountDialog account statuses
-
-                                d ->
-                                    d
-                    in
-                    { model | dialog = dialog }
+                    model
                         |> withCmds
                             [ Task.perform ColumnsUIMsg <| Task.succeed m
                             , resetSelectOption nodeIds.accountDialogSelect
                             ]
 
-        ToggleShowAccountDialogStatuses ->
+        AccountDialogSetShowStatuses show ->
             case model.dialog of
-                AccountDialog account maybeStatuses ->
-                    if maybeStatuses == Nothing then
-                        sendRequest
-                            (accountRequestFromUserFeedFlags account.id
-                                model.accountDialogFlags
-                            )
-                            { model
-                                | dialog =
-                                    AccountDialog account <|
-                                        Just
-                                            { flags = model.accountDialogFlags
-                                            , statuses = []
-                                            }
-                            }
-
-                    else
+                AccountDialog account maybeContent ->
+                    if not show then
                         { model | dialog = AccountDialog account Nothing }
                             |> withNoCmd
+
+                    else
+                        case maybeContent of
+                            Just (StatusesContent _) ->
+                                model |> withNoCmd
+
+                            _ ->
+                                sendRequest
+                                    (getStatusesRequestFromUserFeedFlags account.id
+                                        Nothing
+                                        model.accountDialogFlags
+                                    )
+                                    { model
+                                        | dialog =
+                                            AccountDialog account <|
+                                                Just
+                                                    (StatusesContent
+                                                        { flags = model.accountDialogFlags
+                                                        , statuses = []
+                                                        }
+                                                    )
+                                    }
 
                 _ ->
                     model |> withNoCmd
 
-        ToggleShowFollowing account ->
-            -- TODO
-            model |> withNoCmd
+        AccountDialogShowFollowing ->
+            case model.dialog of
+                AccountDialog account maybeContent ->
+                    case maybeContent of
+                        Just (FollowingContent _) ->
+                            model |> withNoCmd
 
-        ToggleShowFollowers account ->
-            -- TODO
-            model |> withNoCmd
+                        _ ->
+                            sendGetFollowers account.id
+                                (Just 100)
+                                { model
+                                    | dialog =
+                                        AccountDialog account <|
+                                            Just (FollowingContent [])
+                                }
 
-        SetAccountDialogFlags flags ->
+                _ ->
+                    model |> withNoCmd
+
+        AccountDialogShowFollowers ->
+            case model.dialog of
+                AccountDialog account maybeContent ->
+                    case maybeContent of
+                        Just (FollowersContent _) ->
+                            model |> withNoCmd
+
+                        _ ->
+                            sendGetFollowers account.id
+                                (Just 100)
+                                { model
+                                    | dialog =
+                                        AccountDialog account <|
+                                            Just (FollowersContent [])
+                                }
+
+                _ ->
+                    model |> withNoCmd
+
+        AccountDialogSetFlags flags ->
             let
                 mdl =
                     { model | accountDialogFlags = flags }
             in
             case mdl.dialog of
-                AccountDialog account (Just statuses) ->
-                    sendRequest
-                        (accountRequestFromUserFeedFlags account.id flags)
-                        { model
-                            | dialog =
-                                AccountDialog account <|
-                                    Just
-                                        { statuses
-                                            | flags = flags
-                                            , statuses = []
-                                        }
-                        }
+                AccountDialog account (Just content) ->
+                    case content of
+                        StatusesContent statuses ->
+                            sendRequest
+                                (getStatusesRequestFromUserFeedFlags account.id
+                                    Nothing
+                                    flags
+                                )
+                                { mdl
+                                    | dialog =
+                                        AccountDialog account <|
+                                            Just
+                                                (StatusesContent
+                                                    { statuses
+                                                        | flags = flags
+                                                        , statuses = []
+                                                    }
+                                                )
+                                }
+
+                        _ ->
+                            mdl |> withNoCmd
 
                 _ ->
                     mdl |> withNoCmd
 
-        ShowAccountDialogHeader account ->
+        AccountDialogShowHeader account ->
             model |> withCmd (openWindow <| JE.string account.header)
 
         FollowAccount following account ->
@@ -5310,8 +5355,8 @@ stopVideosForAttachment index attachments =
                 Cmd.none
 
 
-accountRequestFromUserFeedFlags : String -> UserFeedFlags -> Request
-accountRequestFromUserFeedFlags id flags =
+getStatusesRequestFromUserFeedFlags : String -> Maybe Paging -> UserFeedFlags -> Request
+getStatusesRequestFromUserFeedFlags id paging flags =
     let
         { only_media, pinned, replies, reblogs } =
             flags
@@ -5322,9 +5367,33 @@ accountRequestFromUserFeedFlags id flags =
             , only_media = only_media
             , pinned = pinned
             , exclude_replies = not replies
-            , paging = Nothing
+            , paging = paging
             , exclude_reblogs = not reblogs
             }
+
+
+sendGetFollowers : String -> Maybe Int -> Model -> ( Model, Cmd Msg )
+sendGetFollowers id limit model =
+    sendRequest
+        (AccountsRequest <|
+            Request.GetFollowers
+                { id = id
+                , limit = limit
+                }
+        )
+        model
+
+
+sendGetFollowing : String -> Maybe Int -> Model -> ( Model, Cmd Msg )
+sendGetFollowing id limit model =
+    sendRequest
+        (AccountsRequest <|
+            Request.GetFollowing
+                { id = id
+                , limit = limit
+                }
+        )
+        model
 
 
 clearPostStateReplyTo : PostState -> PostState
@@ -7822,7 +7891,7 @@ startReloadUserFeed paging params model =
                                 accountsRequest ()
 
                         Just acctId ->
-                            getStatusesRequest paging acctId.id params
+                            getStatusesRequest acctId.id paging params
 
 
 {-| This processes the result of the `GetSearchAccounts` request above.
@@ -7852,7 +7921,7 @@ continueReloadUserFeed paging feedType accounts model =
                             account
 
                         req =
-                            getStatusesRequest paging id params
+                            getStatusesRequest id paging params
 
                         ( mdl, cmd ) =
                             case model.renderEnv.loginServer of
@@ -7878,28 +7947,22 @@ continueReloadUserFeed paging feedType accounts model =
             model |> withNoCmd
 
 
-getStatusesRequest : Maybe Paging -> String -> UserFeedParams -> Request
-getStatusesRequest paging id params =
+getStatusesRequest : String -> Maybe Paging -> UserFeedParams -> Request
+getStatusesRequest id paging params =
     let
-        ( ( only_media, pinned ), ( exclude_replies, exclude_reblogs ) ) =
+        userFeedFlags =
             case params.flags of
                 Nothing ->
-                    ( ( False, False ), ( False, False ) )
+                    { only_media = False
+                    , pinned = False
+                    , replies = False
+                    , reblogs = False
+                    }
 
-                Just flgs ->
-                    ( ( flgs.only_media, flgs.pinned )
-                    , ( not flgs.replies, not flgs.reblogs )
-                    )
+                Just flags ->
+                    flags
     in
-    AccountsRequest <|
-        Request.GetStatuses
-            { id = id
-            , only_media = only_media
-            , pinned = pinned
-            , exclude_replies = exclude_replies
-            , exclude_reblogs = exclude_reblogs
-            , paging = paging
-            }
+    getStatusesRequestFromUserFeedFlags id paging userFeedFlags
 
 
 reloadFeed : Feed -> Model -> ( Model, Cmd Msg )
@@ -9583,23 +9646,13 @@ explorerSendMsg msg model =
                 model
 
         SendGetFollowers ->
-            sendRequest
-                (AccountsRequest <|
-                    Request.GetFollowers
-                        { id = getAccountId model
-                        , limit = String.toInt model.pagingInput.limit
-                        }
-                )
+            sendGetFollowers (getAccountId model)
+                (String.toInt model.pagingInput.limit)
                 model
 
         SendGetFollowing ->
-            sendRequest
-                (AccountsRequest <|
-                    Request.GetFollowing
-                        { id = getAccountId model
-                        , limit = String.toInt model.pagingInput.limit
-                        }
-                )
+            sendGetFollowing (getAccountId model)
+                (String.toInt model.pagingInput.limit)
                 model
 
         SendGetStatuses ->
@@ -11087,7 +11140,38 @@ applyResponseSideEffects response model1 =
                     model
 
         AccountsRequest (Request.GetStatuses { paging }) ->
-            statusSmartPaging response.entity paging model
+            let
+                mdl =
+                    statusSmartPaging response.entity paging model
+            in
+            case response.entity of
+                StatusListEntity statuses ->
+                    case mdl.dialog of
+                        AccountDialog account maybeContent ->
+                            case maybeContent of
+                                Nothing ->
+                                    mdl
+
+                                Just (StatusesContent contentStatuses) ->
+                                    { mdl
+                                        | dialog =
+                                            AccountDialog account <|
+                                                Just
+                                                    (StatusesContent
+                                                        { contentStatuses
+                                                            | statuses = statuses
+                                                        }
+                                                    )
+                                    }
+
+                                _ ->
+                                    mdl
+
+                        _ ->
+                            mdl
+
+                _ ->
+                    mdl
 
         AccountsRequest (Request.GetSearchAccounts _) ->
             -- Similar to `SearchRequest (Request.GetSearch)` below.
@@ -17419,8 +17503,8 @@ renderDialog model =
         DocsDialog ->
             docsDialog model
 
-        AccountDialog account statuses ->
-            accountDialog account statuses model
+        AccountDialog account content ->
+            accountDialog account content model
 
         AreYouSureDialog reason status ->
             areYouSureDialog reason status model
@@ -18274,8 +18358,8 @@ initialPostState =
     }
 
 
-accountDialog : Account -> Maybe AccountDialogStatuses -> Model -> Html Msg
-accountDialog account maybeStatuses model =
+accountDialog : Account -> Maybe AccountDialogContent -> Model -> Html Msg
+accountDialog account maybeContent model =
     let
         renderEnv =
             model.renderEnv
@@ -18297,7 +18381,7 @@ accountDialog account maybeStatuses model =
                 ]
             , title = ""
             , content =
-                accountDialogContent account maybeStatuses model
+                accountDialogContent account maybeContent model
             , actionBar =
                 [ button (ColumnsUIMsg DismissDialog) "Ok"
                 ]
@@ -18322,8 +18406,8 @@ emptyRelationship =
     }
 
 
-accountDialogContent : Account -> Maybe AccountDialogStatuses -> Model -> List (Html Msg)
-accountDialogContent account maybeStatuses model =
+accountDialogContent : Account -> Maybe AccountDialogContent -> Model -> List (Html Msg)
+accountDialogContent account maybeContent model =
     let
         renderEnv =
             model.renderEnv
@@ -18385,7 +18469,7 @@ accountDialogContent account maybeStatuses model =
             , ( muteName, MuteAccount muting account )
             , ( blockName, BlockAccount blocking account )
             , ( "hide dialog", DismissDialog )
-            , ( "show header", ShowAccountDialogHeader account )
+            , ( "show header", AccountDialogShowHeader account )
             ]
 
         commandOption ( name, _ ) =
@@ -18407,7 +18491,7 @@ accountDialogContent account maybeStatuses model =
             span []
                 [ button (ColumnsUIMsg DismissDialog) "Hide Dialog"
                 , text " "
-                , button (ColumnsUIMsg <| ShowAccountDialogHeader account)
+                , button (ColumnsUIMsg <| AccountDialogShowHeader account)
                     "Show Header"
                 , text " "
                 ]
@@ -18465,9 +18549,18 @@ accountDialogContent account maybeStatuses model =
                     ]
             , span []
                 [ br
-                , a
+                , let
+                    msg =
+                        case maybeContent of
+                            Just (StatusesContent _) ->
+                                Noop
+
+                            _ ->
+                                ColumnsUIMsg <| AccountDialogSetShowStatuses True
+                  in
+                  a
                     [ href "#"
-                    , onClick (ColumnsUIMsg <| ToggleShowAccountDialogStatuses)
+                    , onClick msg
                     ]
                     [ text <| String.fromInt account.statuses_count
                     , text " statuses"
@@ -18475,7 +18568,7 @@ accountDialogContent account maybeStatuses model =
                 , text <| special.nbsp ++ special.nbsp
                 , a
                     [ href "#"
-                    , onClick (ColumnsUIMsg <| ToggleShowFollowers account)
+                    , onClick <| ColumnsUIMsg AccountDialogShowFollowers
                     ]
                     [ text <| String.fromInt account.followers_count
                     , if account.followers_count == 1 then
@@ -18487,7 +18580,7 @@ accountDialogContent account maybeStatuses model =
                 , text <| special.nbsp ++ special.nbsp
                 , a
                     [ href "#"
-                    , onClick (ColumnsUIMsg <| ToggleShowFollowing account)
+                    , onClick <| ColumnsUIMsg AccountDialogShowFollowing
                     ]
                     [ text "following "
                     , text <| String.fromInt account.following_count
@@ -18497,21 +18590,36 @@ accountDialogContent account maybeStatuses model =
                 ]
             , p [] <| statusBody renderEnv Nothing account.note Nothing
             , p []
-                [ titledCheckBox "Toggle status display"
-                    (ColumnsUIMsg ToggleShowAccountDialogStatuses)
-                    (maybeStatuses /= Nothing)
-                    "show statuses"
-                , case maybeStatuses of
-                    Nothing ->
-                        text ""
+                [ let
+                    ( showStatuses, label ) =
+                        case maybeContent of
+                            Nothing ->
+                                ( True, "show statuses" )
 
-                    Just { flags } ->
+                            Just (StatusesContent _) ->
+                                ( False, "show statuses" )
+
+                            Just (FollowingContent _) ->
+                                ( False, "show following" )
+
+                            Just (FollowersContent _) ->
+                                ( False, "show followers" )
+                  in
+                  titledCheckBox "Toggle status display"
+                    (ColumnsUIMsg <| AccountDialogSetShowStatuses showStatuses)
+                    (maybeContent /= Nothing)
+                    label
+                , case maybeContent of
+                    Just (StatusesContent { flags }) ->
                         span []
                             [ br
                             , renderUserFeedFlags
-                                (ColumnsUIMsg << SetAccountDialogFlags)
+                                (ColumnsUIMsg << AccountDialogSetFlags)
                                 flags
                             ]
+
+                    _ ->
+                        text ""
                 ]
             ]
         ]
