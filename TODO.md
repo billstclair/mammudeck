@@ -115,7 +115,9 @@ Screen recording of how to use Mammudeck with Free Atlantis, and Truth Social.
   get a better icon and name.
   * https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps
   * https://web.dev/progressive-web-apps/
-  * **ALL DONE**
+  * site/worker.js is a kluge to get Chromium-based browsers to save
+    as a desktop application.
+    Fix Chromium, starting with Brave.
 
 ## User dialog
 

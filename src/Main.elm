@@ -35,10 +35,17 @@ See ../TODO.md for the full list.
     Fetch other stuff from the remote server, unless that fails, then
     back off to the local server.
     Mark somehow whether the information is local or remote.
+    Should probably also have a local/remote option for fetching column feeds,
+    though that's a big task, since the user references there have remote IDs.
   On "show header", open the image in the image viewer, not as
     a pop-up window, to avoid blocking.
 
 * Mini account dialog on hover?
+
+* Brave.com and TruthSocial.com pop up a little window saying that "An
+  update is available". Much easier to click on that than to navigate
+  to the Settings dialog and click the "Reload from Server" button. Do
+  it by saving a small version file and probing that periodically.
 
 * Clicking on #foo should go to that column, if it exists, or bring
   up a dialog, showing those posts, with an "Add Column" button.
