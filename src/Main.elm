@@ -6291,7 +6291,7 @@ popupChoose choice model =
                 AccountChoice account ->
                     case model.popup of
                         PostTextPopup search ->
-                            ( insertPostSearch account.username
+                            ( insertPostSearch account.acct
                                 search
                                 model
                             , Types.defaultUserFeedType
