@@ -18485,16 +18485,16 @@ accountDialogContent account maybeContent model =
         feedType =
             makeUserFeed userAtServer
 
+        ( acName, acMsg ) =
+            case findFeed feedType model.feedSet of
+                Just _ ->
+                    ( "remove column", DeleteFeedType feedType )
+
+                Nothing ->
+                    ( "add column", AddFeedType feedType )
+
         optionList =
             let
-                ( acName, acMsg ) =
-                    case findFeed feedType model.feedSet of
-                        Just _ ->
-                            ( "remove column", DeleteFeedType feedType )
-
-                        Nothing ->
-                            ( "add column", AddFeedType feedType )
-
                 muteName =
                     if muting then
                         "unmute"
@@ -18534,11 +18534,13 @@ accountDialogContent account maybeContent model =
 
         hideDialogRow =
             span []
-                [ button (ColumnsUIMsg DismissDialog) "Hide Dialog"
+                [ button (ColumnsUIMsg DismissDialog) "hide dialog"
                 , text " "
                 , button (ColumnsUIMsg <| AccountDialogShowHeader account)
-                    "Show Header"
+                    "show header"
                 , text " "
+                , button (ColumnsUIMsg acMsg)
+                    acName
                 ]
     in
     [ div
@@ -18561,16 +18563,16 @@ accountDialogContent account maybeContent model =
                 let
                     ( followLabel, followTitle ) =
                         if not following && requested then
-                            ( "Requested", "Unfollow @" ++ userAtServer )
+                            ( "requested", "Unfollow @" ++ userAtServer )
 
                         else if following then
-                            ( "Unfollow", "Unfollow @" ++ userAtServer )
+                            ( "unfollow", "Unfollow @" ++ userAtServer )
 
                         else if followed_by then
-                            ( "Follow Back", "Follow @" ++ userAtServer )
+                            ( "follow back", "Follow @" ++ userAtServer )
 
                         else
-                            ( "Follow", "Follow @" ++ userAtServer )
+                            ( "follow", "Follow @" ++ userAtServer )
 
                     followedLabel =
                         if not known then
