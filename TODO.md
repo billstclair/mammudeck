@@ -52,8 +52,7 @@ Screen recording of how to use Mammudeck with Free Atlantis, and Truth Social.
 
 * Multiple servers, each column has its own.
   Cross-posting made easy.
-* "Update feed" button at top of feed (includes the merge code needed
-  for auto-update).
+* Translation
 * Auto-update, likely without WebSockets initially
   * Indicators of how many posts have been loaded but not displayed
     Click to add to top of column

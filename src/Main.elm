@@ -27,13 +27,7 @@ See ../TODO.md for the full list.
     including the pinned ones (with a checkbox to omit them).
   The local `Account` contains counts known locally.
     `followers_count` and `following_count` don't seem to track.
-    Need to fetch the `Account` from the home server.
-    This means `(AccountsRequest Request.GetSearchAccounts)` to find the
-    account ID (cached locally), and `(AccountsRequest Request.GetAccount)`
-    to fetch the `Account`.
-    Should cache the local account, too, as a second arg to `AccountDialog`.
-    Fetch other stuff from the remote server, unless that fails, then
-    back off to the local server.
+    Would be good to fetch the `Account` from the home server.
     Mark somehow whether the information is local or remote.
     Should probably also have a local/remote option for fetching column feeds,
     though that's a big task, since the user references there have remote IDs.
@@ -74,10 +68,6 @@ See ../TODO.md for the full list.
         We want to see the replies, since we already saw the
         reply-to in the previous screen.
         First status wants go at the bottom, as it does now.
-
-* @foo in Post dialog should use (AccountsRequest << GetSearchAccounts), not
-  (SearchRequest << GetSearch). The latter can be slow on servers that support
-  full text search in statuses.
 
 * Unalloyed @billstclair on impeccable.social gets the wrong ID when
   added as a column, even when clicking on popup, which should know
@@ -6761,45 +6751,56 @@ sendDelayedPostTextPopup search postText model =
         model |> withNoCmd
 
     else
-        case search.popupType of
-            PostPopupColon ->
-                searchPostPopupColon search model
-
-            _ ->
+        let
+            doSearch request =
                 let
-                    searchText =
-                        search.string
-
-                    request =
-                        SearchRequest <|
-                            Request.GetSearch
-                                { q = searchText
-                                , resolve = True
-                                , limit = Nothing
-                                , offset = Nothing
-                                , following = False
-                                }
-
-                    ( _, searchCmd ) =
+                    ( mdl, searchCmd ) =
                         sendRequest request model
 
-                    ( mdl, cmd ) =
+                    ( mdl2, cmd ) =
                         if model.searchActive then
                             { model | nextSearch = searchCmd } |> withNoCmd
 
                         else
-                            { model
+                            { mdl
                                 | searchActive = True
                                 , nextSearch = Cmd.none
                             }
                                 |> withCmd searchCmd
                 in
-                { mdl
+                { mdl2
                     | popup = PostTextPopup search
                     , postTriggerCoordinatesCount =
                         model.postTriggerCoordinatesCount + 1
                 }
                     |> withCmd cmd
+        in
+        case search.popupType of
+            PostPopupColon ->
+                searchPostPopupColon search model
+
+            PostPopupAtsign ->
+                (AccountsRequest <|
+                    Request.GetSearchAccounts
+                        { q = search.string
+                        , limit = Nothing
+                        , resolve = True
+                        , following = False
+                        }
+                )
+                    |> doSearch
+
+            _ ->
+                (SearchRequest <|
+                    Request.GetSearch
+                        { q = search.string
+                        , resolve = True
+                        , limit = Nothing
+                        , offset = Nothing
+                        , following = False
+                        }
+                )
+                    |> doSearch
 
 
 findEmojis : String -> RenderEnv -> List Emoji
@@ -7831,6 +7832,7 @@ addFeedType feedType model =
             , editColumnsMessage = Nothing
             , popup = NoPopup
             , popupChoices = []
+            , dialog = NoDialog
         }
             |> reloadFeed newFeed
             |> addCmd (maybePutFeedSetDefinition model newFeedSetDefinition)
@@ -11222,25 +11224,32 @@ applyResponseSideEffects response model1 =
                                 , nextSearch = Cmd.none
                                 , searchActive = model.nextSearch /= Cmd.none
                             }
-                    in
-                    case mdl.popup of
-                        UserNamePopup ->
-                            let
-                                choices =
+
+                        choices =
+                            case mdl.popup of
+                                UserNamePopup ->
                                     List.map AccountChoice results
-                            in
-                            { mdl
-                                | popupChoices = choices
-                                , popup =
-                                    if choices == [] then
-                                        NoPopup
 
-                                    else
-                                        mdl.popup
-                            }
+                                PostTextPopup search ->
+                                    case search.popupType of
+                                        PostPopupAtsign ->
+                                            List.map AccountChoice results
 
-                        _ ->
-                            mdl
+                                        _ ->
+                                            []
+
+                                _ ->
+                                    []
+                    in
+                    { mdl
+                        | popupChoices = choices
+                        , popup =
+                            if choices == [] then
+                                NoPopup
+
+                            else
+                                mdl.popup
+                    }
 
                 _ ->
                     model
