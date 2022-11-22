@@ -29,6 +29,12 @@ Screen recording of how to use Mammudeck with Free Atlantis, and Truth Social.
 * Visibility (non, public, unlisted, private, direct)
   Default to "private" if replied-to post was private (or it doesn't work,
   and maybe others won't either: investigate).
+* Provide a UI for specifying the `description` arg to 
+ `(MetaAttachmentsRequest PostMedia)`. Consider upgrading to
+ `POST v2/media` from `POST v1/media`.
+  Also, display the `Attachment.description`, either on mouse hover or
+  always.
+  Look at what Mastodon 4.x does.
 * Post size tracking (let them post and get an error if too big).
   **DONE**
 * Editing of posts
