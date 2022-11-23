@@ -4493,7 +4493,7 @@ columnsUIMsg msg model =
                             model |> withNoCmd
 
                         _ ->
-                            sendGetFollowers account.id
+                            sendGetFollowing account.id
                                 (Just 100)
                                 { model
                                     | dialog =
@@ -11175,6 +11175,40 @@ applyResponseSideEffects response model1 =
                                 )
                                 model.popupChoices
                     }
+
+                _ ->
+                    model
+
+        AccountsRequest (Request.GetFollowing _) ->
+            case response.entity of
+                AccountListEntity accounts ->
+                    case model.dialog of
+                        AccountDialog account (Just (FollowingContent _)) ->
+                            { model
+                                | dialog =
+                                    AccountDialog account <|
+                                        Just (FollowingContent accounts)
+                            }
+
+                        _ ->
+                            model
+
+                _ ->
+                    model
+
+        AccountsRequest (Request.GetFollowers _) ->
+            case response.entity of
+                AccountListEntity accounts ->
+                    case model.dialog of
+                        AccountDialog account (Just (FollowersContent _)) ->
+                            { model
+                                | dialog =
+                                    AccountDialog account <|
+                                        Just (FollowersContent accounts)
+                            }
+
+                        _ ->
+                            model
 
                 _ ->
                     model
@@ -18671,6 +18705,9 @@ accountDialogContent account maybeContent model =
                 (maybeContent /= Nothing)
                 label
             , case maybeContent of
+                Nothing ->
+                    text ""
+
                 Just (StatusesContent { flags, statuses }) ->
                     div []
                         [ renderUserFeedFlags
@@ -18688,11 +18725,83 @@ accountDialogContent account maybeContent model =
                             ]
                         ]
 
-                _ ->
-                    text ""
+                Just (FollowingContent accounts) ->
+                    renderAccountDialogAccounts model
+                        accounts
+                    <|
+                        if myAccount then
+                            Just True
+
+                        else
+                            Nothing
+
+                Just (FollowersContent accounts) ->
+                    renderAccountDialogAccounts model accounts Nothing
             ]
         ]
     ]
+
+
+renderAccountDialogAccounts : Model -> List Account -> Maybe Bool -> Html Msg
+renderAccountDialogAccounts model accounts maybeFollowing =
+    let
+        renderEnv =
+            model.renderEnv
+
+        { borderColor } =
+            getStyle renderEnv
+
+        render account =
+            let
+                displayNameHtml =
+                    renderDisplayName account.display_name renderEnv
+            in
+            div [ style "border" <| "1px solid " ++ borderColor ]
+                [ renderAccount renderEnv
+                    account
+                    displayNameHtml
+                    False
+                    Nothing
+                    Nothing
+                , span [ style "text-align" "right" ]
+                    [ let
+                        ( label, enabled, isFollowing ) =
+                            if maybeFollowing == Just True then
+                                ( "unfollow", True, True )
+
+                            else
+                                case Dict.get account.id model.relationships of
+                                    Just { following } ->
+                                        if following then
+                                            ( "unfollow", True, True )
+
+                                        else
+                                            ( "follow", True, False )
+
+                                    _ ->
+                                        ( "fetching...", False, False )
+                      in
+                      div
+                        [ style "margin-left" "auto"
+                        , style "margin-right" "0"
+                        ]
+                        [ enabledButton enabled
+                            (ColumnsUIMsg <| FollowAccount isFollowing account)
+                            -- FollowAccount needs to refetch
+                            -- when we unfollow and are showing following.
+                            -- Receiving followers needs to fetch their relationships.
+                            label
+                        ]
+                    ]
+                ]
+    in
+    div
+        [ style "padding" "0px"
+        , style "border" <| "1px solid" ++ borderColor
+        , style "text-align" "left"
+        ]
+    <|
+        List.map render accounts
 
 
 accountDialogStatusId : Int -> String
