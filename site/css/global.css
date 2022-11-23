@@ -18,6 +18,10 @@ body {
 .tall-dialog-title-height .mdl-dialog__title {
     height: 100px;
 }
+.tall-dialog-title-height .mdl-dialog__content {
+    padding: 0px;
+    background: transparent;
+}
 
 .invisible {
     display: none;

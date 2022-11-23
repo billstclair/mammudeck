@@ -106,7 +106,7 @@ See ../TODO.md for the full list.
 --}
 
 
-port module Main exposing (emptyRenderEnv, main, parseEmojiString, replaceEmojiReferences, replaceMentionLinks, statusBodyNodes)
+port module Main exposing (main)
 
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Dom as Dom exposing (Viewport)
@@ -487,7 +487,7 @@ emptyRenderEnv =
 
 type alias FeedBodyEnv =
     { group : Maybe Group
-    , references : Dict String Reference
+    , references : ReferenceDict
     , missingReplyToAccountIds : Set String
     }
 
@@ -8208,7 +8208,7 @@ fillinMissingReplyToAccountIds model =
         references =
             model.references
 
-        fillin1 : String -> ( Dict String Reference, Set String ) -> ( Dict String Reference, Set String )
+        fillin1 : String -> ( ReferenceDict, Set String ) -> ( ReferenceDict, Set String )
         fillin1 id ( feedRefs, missing ) =
             case Dict.get id references of
                 Nothing ->
@@ -13920,17 +13920,6 @@ statusBody renderEnv maybeStatus html maybeMarkdown =
             ]
 
 
-statusBodyNodes : RenderEnv -> Maybe Status -> String -> Maybe String -> List Node
-statusBodyNodes renderEnv maybeStatus html maybeMarkdown =
-    case Html.Parser.run html of
-        Ok nodes ->
-            replaceEmojiReferences renderEnv nodes
-                |> replaceMentionLinks renderEnv maybeStatus
-
-        Err _ ->
-            []
-
-
 smallTextFontSize : String
 smallTextFontSize =
     "80%"
@@ -16995,6 +16984,7 @@ nodeIds =
     , threadExplorerHeader = "threadExplorerHeader"
     , threadExplorerStatus = "threadExplorerStatus"
     , accountDialogSelect = "accountDialogSelect"
+    , accountDialogStatus = "accountDialogStatus"
     }
 
 
@@ -18430,7 +18420,8 @@ accountDialog account maybeContent model =
         [ dialogRender
             renderEnv
             { styles =
-                [ ( "width", "30em" )
+                [ ( "padding", "0px" )
+                , ( "width", "30em" )
                 , ( "max-width", "95%" )
                 , ( "max-height", "95%" )
                 , ( "overflow-y", "auto" )
@@ -18561,14 +18552,17 @@ accountDialogContent account maybeContent model =
                 ]
     in
     [ div
-        [ style "background-color" backgroundColor ]
+        [ style "padding" "2px 0px 0px"
+        , style "background-color" backgroundColor
+        , style "opacity" "0.8"
+        ]
         [ renderAccount renderEnv
             account
             displayNameHtml
             True
             Nothing
             Nothing
-        , p []
+        , div [ style "padding" "0px 20px" ]
             [ if myAccount then
                 span []
                     [ text "This is your account"
@@ -18615,9 +18609,8 @@ accountDialogContent account maybeContent model =
                     , text " "
                     , commandSelect
                     ]
-            , span []
-                [ br
-                , let
+            , p []
+                [ let
                     msg =
                         case maybeContent of
                             Just (StatusesContent _) ->
@@ -18654,44 +18647,78 @@ accountDialogContent account maybeContent model =
                     , text <| String.fromInt account.following_count
                     ]
                 , br
-                , br
                 ]
             , p [] <| statusBody renderEnv Nothing account.note Nothing
-            , p []
-                [ let
-                    ( showStatuses, label ) =
-                        case maybeContent of
-                            Nothing ->
-                                ( True, "show statuses" )
+            ]
+        , div []
+            [ let
+                ( showStatuses, label ) =
+                    case maybeContent of
+                        Nothing ->
+                            ( True, "show statuses" )
 
-                            Just (StatusesContent _) ->
-                                ( False, "show statuses" )
+                        Just (StatusesContent _) ->
+                            ( False, "show statuses" )
 
-                            Just (FollowingContent _) ->
-                                ( False, "show following" )
+                        Just (FollowingContent _) ->
+                            ( False, "show following" )
 
-                            Just (FollowersContent _) ->
-                                ( False, "show followers" )
-                  in
-                  titledCheckBox "Toggle status display"
-                    (ColumnsUIMsg <| AccountDialogSetShowStatuses showStatuses)
-                    (maybeContent /= Nothing)
-                    label
-                , case maybeContent of
-                    Just (StatusesContent { flags }) ->
-                        span []
-                            [ br
-                            , renderUserFeedFlags
-                                (ColumnsUIMsg << AccountDialogSetFlags)
-                                flags
+                        Just (FollowersContent _) ->
+                            ( False, "show followers" )
+              in
+              titledCheckBox "Toggle status display"
+                (ColumnsUIMsg <| AccountDialogSetShowStatuses showStatuses)
+                (maybeContent /= Nothing)
+                label
+            , case maybeContent of
+                Just (StatusesContent { flags, statuses }) ->
+                    div []
+                        [ renderUserFeedFlags
+                            (ColumnsUIMsg << AccountDialogSetFlags)
+                            flags
+                        , div
+                            [ style "padding" "4px 0px 0px 0px"
+                            , style "text-align" "left"
                             ]
+                            [ renderAccountDialogStatuses renderEnv
+                                { emptyFeedBodyEnv
+                                    | references = model.references
+                                }
+                                statuses
+                            ]
+                        ]
 
-                    _ ->
-                        text ""
-                ]
+                _ ->
+                    text ""
             ]
         ]
     ]
+
+
+accountDialogStatusId : Int -> String
+accountDialogStatusId idx =
+    nodeIds.accountDialogStatus ++ "-" ++ String.fromInt idx
+
+
+renderAccountDialogStatuses : RenderEnv -> FeedBodyEnv -> List Status -> Html Msg
+renderAccountDialogStatuses renderEnv feedBodyEnv statuses =
+    let
+        renderAStatus idx s =
+            let
+                nodeid =
+                    accountDialogStatusId idx
+
+                renderEnv2 =
+                    renderEnv
+            in
+            renderStatusWithId (Just nodeid)
+                renderEnv2
+                feedBodyEnv
+                nodeid
+                s
+    in
+    List.indexedMap renderAStatus statuses
+        |> div []
 
 
 renderUserFeedFlags : (UserFeedFlags -> Msg) -> UserFeedFlags -> Html Msg
