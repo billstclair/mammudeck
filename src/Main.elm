@@ -874,7 +874,8 @@ type ColumnsUIMsg
     | AccountDialogShowFollowers
     | AccountDialogSetFlags UserFeedFlags
     | AccountDialogShowHeader Account
-    | FollowAccount Bool Account
+    | ToggleFollowAccount Bool Account
+    | FetchRelationships (List Account)
     | MuteAccount Bool Account
     | BlockAccount Bool Account
     | ShowDocsDialog
@@ -4558,7 +4559,7 @@ columnsUIMsg msg model =
         AccountDialogShowHeader account ->
             model |> withCmd (openWindow <| JE.string account.header)
 
-        FollowAccount following account ->
+        ToggleFollowAccount following account ->
             sendRequest
                 (AccountsRequest <|
                     if following then
@@ -4568,6 +4569,9 @@ columnsUIMsg msg model =
                         Request.PostFollow { id = account.id, reblogs = True }
                 )
                 model
+
+        FetchRelationships accounts ->
+            fetchRelationships accounts model
 
         MuteAccount muting account ->
             sendRequest
@@ -5364,6 +5368,42 @@ columnsUIMsg msg model =
                         (Task.perform (ColumnsUIMsg << AppStateUpdateDone) <|
                             Task.succeed True
                         )
+
+
+fetchRelationships : List Account -> Model -> ( Model, Cmd Msg )
+fetchRelationships accounts model =
+    let
+        relationships =
+            model.relationships
+
+        accountId =
+            case model.account of
+                Nothing ->
+                    ""
+
+                Just acct ->
+                    acct.id
+
+        folder { id } res =
+            if id == accountId then
+                res
+
+            else
+                case Dict.get id relationships of
+                    Nothing ->
+                        id :: res
+
+                    Just _ ->
+                        res
+
+        toFetch =
+            List.foldr folder [] accounts
+    in
+    sendRequest
+        (AccountsRequest <|
+            Request.GetRelationships { ids = toFetch }
+        )
+        model
 
 
 stopVideosForAttachment : Int -> List Attachment -> Cmd Msg
@@ -11092,7 +11132,35 @@ applyResponseSideEffects response model1 =
                     insertRelationship relationship model1
 
                 RelationshipEntity relationship ->
-                    insertRelationship relationship model1
+                    (case model1.dialog of
+                        AccountDialog account content ->
+                            if relationship.id /= account.id then
+                                model1
+
+                            else
+                                case Dict.get account.id model1.relationships of
+                                    Nothing ->
+                                        model1
+
+                                    Just rel ->
+                                        if rel.followed_by == relationship.followed_by then
+                                            model1
+
+                                        else
+                                            { model1
+                                                | dialog =
+                                                    AccountDialog
+                                                        { account
+                                                            | following_count =
+                                                                account.following_count + 1
+                                                        }
+                                                        content
+                                            }
+
+                        _ ->
+                            model1
+                    )
+                        |> insertRelationship relationship
 
                 _ ->
                     model1
@@ -11132,7 +11200,23 @@ applyResponseSideEffects response model1 =
             { model | isAccountFollowed = True }
 
         AccountsRequest (Request.PostUnfollow { id }) ->
-            { model | isAccountFollowed = False }
+            let
+                dialog =
+                    case model.dialog of
+                        AccountDialog acct (Just (FollowingContent accounts)) ->
+                            AccountDialog acct <|
+                                Just
+                                    (FollowingContent <|
+                                        LE.filterNot ((==) id << .id) accounts
+                                    )
+
+                        d ->
+                            d
+            in
+            { model
+                | isAccountFollowed = False
+                , dialog = dialog
+            }
 
         AccountsRequest (Request.PatchUpdateCredentials _) ->
             case response.entity of
@@ -11149,37 +11233,46 @@ applyResponseSideEffects response model1 =
 
         AccountsRequest (Request.GetRelationships _) ->
             case response.entity of
-                RelationshipListEntity [ relationship ] ->
+                RelationshipListEntity relationships ->
                     { model
-                        | popupChoices =
-                            List.map
-                                (\choice ->
-                                    case choice of
-                                        CommandChoice command status ->
-                                            case command of
-                                                MuteCommand _ ->
-                                                    CommandChoice
-                                                        (MuteCommand <| Just relationship)
-                                                        status
+                        | relationships =
+                            List.foldr (\r res -> Dict.insert r.id r res)
+                                model.relationships
+                                relationships
+                        , popupChoices =
+                            case relationships of
+                                [ relationship ] ->
+                                    List.map
+                                        (\choice ->
+                                            case choice of
+                                                CommandChoice command status ->
+                                                    case command of
+                                                        MuteCommand _ ->
+                                                            CommandChoice
+                                                                (MuteCommand <| Just relationship)
+                                                                status
 
-                                                BlockCommand _ ->
-                                                    CommandChoice
-                                                        (BlockCommand <| Just relationship)
-                                                        status
+                                                        BlockCommand _ ->
+                                                            CommandChoice
+                                                                (BlockCommand <| Just relationship)
+                                                                status
+
+                                                        _ ->
+                                                            choice
 
                                                 _ ->
                                                     choice
+                                        )
+                                        model.popupChoices
 
-                                        _ ->
-                                            choice
-                                )
-                                model.popupChoices
+                                _ ->
+                                    model.popupChoices
                     }
 
                 _ ->
                     model
 
-        AccountsRequest (Request.GetFollowing _) ->
+        AccountsRequest (Request.GetFollowing { id }) ->
             case response.entity of
                 AccountListEntity accounts ->
                     case model.dialog of
@@ -11188,6 +11281,19 @@ applyResponseSideEffects response model1 =
                                 | dialog =
                                     AccountDialog account <|
                                         Just (FollowingContent accounts)
+                                , sideEffectCmd =
+                                    case model.account of
+                                        Nothing ->
+                                            Cmd.none
+
+                                        Just acct ->
+                                            if acct.id == id then
+                                                Cmd.none
+
+                                            else
+                                                Task.perform ColumnsUIMsg <|
+                                                    Task.succeed
+                                                        (FetchRelationships accounts)
                             }
 
                         _ ->
@@ -11205,6 +11311,9 @@ applyResponseSideEffects response model1 =
                                 | dialog =
                                     AccountDialog account <|
                                         Just (FollowersContent accounts)
+                                , sideEffectCmd =
+                                    Task.perform ColumnsUIMsg <|
+                                        Task.succeed (FetchRelationships accounts)
                             }
 
                         _ ->
@@ -18588,7 +18697,7 @@ accountDialogContent account maybeContent model =
     [ div
         [ style "padding" "2px 0px 0px"
         , style "background-color" backgroundColor
-        , style "opacity" "0.8"
+        , style "opacity" "0.9"
         ]
         [ renderAccount renderEnv
             account
@@ -18637,7 +18746,7 @@ accountDialogContent account maybeContent model =
                         (ColumnsUIMsg <|
                             -- You'd think we should unfollow if we've requested,
                             -- but that gets an error on my Pleroma server.
-                            FollowAccount following account
+                            ToggleFollowAccount following account
                         )
                         followLabel
                     , text " "
@@ -18751,6 +18860,14 @@ renderAccountDialogAccounts model accounts maybeFollowing =
         { borderColor } =
             getStyle renderEnv
 
+        accountId =
+            case model.account of
+                Nothing ->
+                    ""
+
+                Just acct ->
+                    acct.id
+
         render account =
             let
                 displayNameHtml =
@@ -18763,36 +18880,39 @@ renderAccountDialogAccounts model accounts maybeFollowing =
                     False
                     Nothing
                     Nothing
-                , span [ style "text-align" "right" ]
-                    [ let
-                        ( label, enabled, isFollowing ) =
-                            if maybeFollowing == Just True then
-                                ( "unfollow", True, True )
+                , if account.id == accountId then
+                    text ""
 
-                            else
-                                case Dict.get account.id model.relationships of
-                                    Just { following } ->
-                                        if following then
-                                            ( "unfollow", True, True )
+                  else
+                    span [ style "text-align" "right" ]
+                        [ let
+                            ( label, enabled, isFollowing ) =
+                                if maybeFollowing == Just True then
+                                    ( "unfollow", True, True )
 
-                                        else
-                                            ( "follow", True, False )
+                                else
+                                    case Dict.get account.id model.relationships of
+                                        Just { following } ->
+                                            if following then
+                                                ( "unfollow", True, True )
 
-                                    _ ->
-                                        ( "fetching...", False, False )
-                      in
-                      div
-                        [ style "margin-left" "auto"
-                        , style "margin-right" "0"
+                                            else
+                                                ( "follow", True, False )
+
+                                        _ ->
+                                            ( "fetching...", False, False )
+                          in
+                          div
+                            [ style "margin-left" "auto"
+                            , style "margin-right" "0"
+                            ]
+                            [ enabledButton enabled
+                                (ColumnsUIMsg <|
+                                    ToggleFollowAccount isFollowing account
+                                )
+                                label
+                            ]
                         ]
-                        [ enabledButton enabled
-                            (ColumnsUIMsg <| FollowAccount isFollowing account)
-                            -- FollowAccount needs to refetch
-                            -- when we unfollow and are showing following.
-                            -- Receiving followers needs to fetch their relationships.
-                            label
-                        ]
-                    ]
                 ]
     in
     div
