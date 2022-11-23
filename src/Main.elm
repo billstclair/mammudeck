@@ -106,7 +106,7 @@ See ../TODO.md for the full list.
 --}
 
 
-port module Main exposing (main)
+port module Main exposing (emptyRenderEnv, main, parseEmojiString, replaceEmojiReferences, replaceMentionLinks, statusBodyNodes)
 
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Dom as Dom exposing (Viewport)
@@ -13736,9 +13736,6 @@ parseEmojiString string =
         substrs =
             String.split ":" string
 
-        len =
-            List.length substrs
-
         loop : List String -> List EmojiOrTextString -> List EmojiOrTextString
         loop tail res =
             case tail of
@@ -13749,7 +13746,7 @@ parseEmojiString string =
                     List.reverse <|
                         case res of
                             (TextString x) :: more ->
-                                TextString (x ++ last) :: more
+                                TextString (x ++ ":" ++ last) :: more
 
                             _ ->
                                 TextString last :: res
@@ -13758,7 +13755,7 @@ parseEmojiString string =
                     if validEmojiName first then
                         case rest of
                             car :: cdr ->
-                                loop rest <|
+                                loop cdr <|
                                     TextString car
                                         :: EmojiString first
                                         :: res
@@ -13921,6 +13918,17 @@ statusBody renderEnv maybeStatus html maybeMarkdown =
                 Nothing ->
                     text html
             ]
+
+
+statusBodyNodes : RenderEnv -> Maybe Status -> String -> Maybe String -> List Node
+statusBodyNodes renderEnv maybeStatus html maybeMarkdown =
+    case Html.Parser.run html of
+        Ok nodes ->
+            replaceEmojiReferences renderEnv nodes
+                |> replaceMentionLinks renderEnv maybeStatus
+
+        Err _ ->
+            []
 
 
 smallTextFontSize : String
