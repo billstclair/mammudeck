@@ -7904,13 +7904,23 @@ getGroup group_id model =
     Dict.get group_id model.groupDict
 
 
-usernameAtServer : String -> String -> RenderEnv -> String
-usernameAtServer username server renderEnv =
-    if server == "" || Just server == renderEnv.loginServer then
+fullUsernameAtServer : Bool -> String -> String -> RenderEnv -> String
+fullUsernameAtServer alwaysIncludeServer username server renderEnv =
+    if
+        (server == "")
+            || (not alwaysIncludeServer
+                    && (Just server == renderEnv.loginServer)
+               )
+    then
         username
 
     else
         username ++ "@" ++ server
+
+
+usernameAtServer : String -> String -> RenderEnv -> String
+usernameAtServer =
+    fullUsernameAtServer False
 
 
 {-| TODO:
@@ -19010,6 +19020,7 @@ postDialog model =
         , content =
             postDialogContent ( hasQuoteFeature, hasGroupsFeature )
                 renderEnv
+                model.account
                 model.dropZone
                 model.max_toot_chars
                 model.msg
@@ -19086,8 +19097,8 @@ maximumPostAttachments =
     4
 
 
-postDialogContent : ( Bool, Bool ) -> RenderEnv -> DropZone.Model -> Int -> Maybe String -> PostState -> List (Html Msg)
-postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone max_toot_chars maybeMsg postState =
+postDialogContent : ( Bool, Bool ) -> RenderEnv -> Maybe Account -> DropZone.Model -> Int -> Maybe String -> PostState -> List (Html Msg)
+postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount dropZone max_toot_chars maybeMsg postState =
     let
         { inputBackground, color } =
             getStyle renderEnv
@@ -19206,6 +19217,17 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv dropZone max_t
             text lenstr
         , text " / "
         , text (String.fromInt max_toot_chars)
+        , br
+        , case ( renderEnv.loginServer, maybeAccount ) of
+            ( Just server, Just { username } ) ->
+                span []
+                    [ text "Posting as: "
+                    , text <| fullUsernameAtServer True username server renderEnv
+                    ]
+
+            _ ->
+                span [ style "color" "red" ]
+                    [ text "Not logged in. Post will fail." ]
         ]
     , case maybeMsg of
         Nothing ->
