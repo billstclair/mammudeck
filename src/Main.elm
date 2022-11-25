@@ -356,7 +356,6 @@ type Dialog
     | EditColumnsDialog
     | ServerDialog
     | PostDialog
-    | AttachmentDialog AttachmentView
     | SettingsDialog
     | DynamoDBDialog
     | KeyboardShortcutsDialog
@@ -680,7 +679,7 @@ type alias Model =
     , popupExplorer : PopupExplorer
     , code : Maybe String
     , dialog : Dialog
-    , lastDialog : Dialog
+    , attachmentView : Maybe AttachmentView
     , popup : Popup
     , popupElement : Maybe Dom.Element
     , popupChoices : List PopupChoice
@@ -887,6 +886,7 @@ type ColumnsUIMsg
     | ShowSaveRestoreDialog
     | YesImSure AreYouSureReason Status
     | DismissDialog
+    | DismissAttachmentView
     | AddFeedType FeedType
     | DeleteFeedType FeedType
     | AddFeedColumn FeedType
@@ -1484,7 +1484,7 @@ init value url key =
     , popupExplorer = NoPopupExplorer
     , code = code
     , dialog = NoDialog
-    , lastDialog = NoDialog
+    , attachmentView = Nothing
     , popup = NoPopup
     , popupElement = Nothing
     , popupChoices = []
@@ -3203,9 +3203,6 @@ globalMsg msg model =
                         NoDialog ->
                             False
 
-                        AttachmentDialog _ ->
-                            False
-
                         _ ->
                             True
             in
@@ -3437,7 +3434,6 @@ globalMsg msg model =
                 mdl =
                     { model
                         | dialog = NoDialog
-                        , lastDialog = NoDialog
                         , popup = NoPopup
                         , editColumnsMessage = Nothing
                         , tokens = Dict.empty
@@ -4594,15 +4590,13 @@ columnsUIMsg msg model =
                             , v = JE.null
                             }
 
-                        dialog =
-                            AttachmentDialog
-                                { attachments = [ attachment ]
-                                , index = 0
-                                }
+                        attachmentView =
+                            { attachments = [ attachment ]
+                            , index = 0
+                            }
                     in
                     { model
-                        | dialog = dialog
-                        , lastDialog = model.dialog
+                        | attachmentView = Just attachmentView
                     }
                         |> withNoCmd
 
@@ -4728,8 +4722,8 @@ columnsUIMsg msg model =
 
         ShowAttachmentDialog index status ->
             { model
-                | dialog =
-                    AttachmentDialog
+                | attachmentView =
+                    Just
                         { attachments = status.media_attachments
                         , index = index
                         }
@@ -4757,6 +4751,10 @@ columnsUIMsg msg model =
 
         DismissDialog ->
             dismissDialog model
+
+        DismissAttachmentView ->
+            { model | attachmentView = Nothing }
+                |> withNoCmd
 
         AddFeedType feedType ->
             addFeedType feedType model
@@ -5204,24 +5202,23 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
         IncrementAttachmentIndex delta ->
-            case model.dialog of
-                AttachmentDialog attachmentView ->
+            case model.attachmentView of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just attachmentView ->
                     let
                         index =
                             attachmentView.index + delta
                     in
                     { model
-                        | dialog =
-                            AttachmentDialog
-                                { attachmentView | index = index }
+                        | attachmentView =
+                            Just { attachmentView | index = index }
                     }
                         |> withCmd
                             (stopVideosForAttachment index
                                 attachmentView.attachments
                             )
-
-                _ ->
-                    model |> withNoCmd
 
         ShowNewFeedStatuses feedType ->
             -- TODO
@@ -7074,8 +7071,8 @@ dismissDialog model =
     in
     { model
         | msg = Nothing
-        , dialog = model.lastDialog
-        , lastDialog = NoDialog
+        , dialog = NoDialog
+        , attachmentView = Nothing
         , editColumnsMessage = Nothing
         , movingColumn = Nothing
         , showFullScrollPill = False
@@ -7156,8 +7153,8 @@ scrollPage direction now model =
     in
     case model.popupExplorer of
         NoPopupExplorer ->
-            case model.dialog of
-                AttachmentDialog attachmentView ->
+            case model.attachmentView of
+                Just attachmentView ->
                     scrollAttachmentDialog allTheWay direction attachmentView mdl
 
                 _ ->
@@ -7271,9 +7268,8 @@ scrollAttachmentDialog allTheWay direction attachmentView model =
                         min (attachmentIndex + 1) (attachmentCnt - 1)
     in
     { model
-        | dialog =
-            AttachmentDialog
-                { attachmentView | index = newIndex }
+        | attachmentView =
+            Just { attachmentView | index = newIndex }
     }
         |> withCmd (stopVideosForAttachment newIndex attachments)
 
@@ -12774,6 +12770,12 @@ view model =
             [ WatchColorScheme.onChange (GlobalMsg << SetColorScheme) ]
             []
         , renderPopupExplorer model
+        , case model.attachmentView of
+            Nothing ->
+                text ""
+
+            Just attachmentView ->
+                attachmentDialog attachmentView model
         , renderDialog model
         , renderPopup model
         , let
@@ -17807,9 +17809,6 @@ renderDialog model =
         PostDialog ->
             postDialog model
 
-        AttachmentDialog attachmentView ->
-            attachmentDialog attachmentView model
-
         SettingsDialog ->
             settingsDialog model
 
@@ -19538,7 +19537,7 @@ attachmentDialog attachmentView model =
                 , style "top" "0"
                 , style "bottom" "0"
                 , style "inset" "0px"
-                , style "z-index" "10"
+                , style "z-index" "20"
                 , style "justify-content" "center"
                 , style "align-items" "center"
                 , style "display" "flex"
@@ -19621,7 +19620,7 @@ attachmentButtons attachmentView =
                 , style "height" "60%"
                 , style "width" "40%"
                 , style "background-color" "rgba(0,0,0,0)"
-                , onClick (ColumnsUIMsg DismissDialog)
+                , onClick (ColumnsUIMsg DismissAttachmentView)
                 ]
                 []
           ]
