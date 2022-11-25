@@ -22,10 +22,6 @@
 
 See ../TODO.md for the full list.
 
-* Account dialog.
-  On "show header", open the image in the image viewer, not as
-    a pop-up window, to avoid blocking.
-
 * Mini account dialog on hover?
 
 * Brave.com and TruthSocial.com pop up a little window saying that "An
@@ -683,6 +679,7 @@ type alias Model =
     , popupExplorer : PopupExplorer
     , code : Maybe String
     , dialog : Dialog
+    , lastDialog : Dialog
     , popup : Popup
     , popupElement : Maybe Dom.Element
     , popupChoices : List PopupChoice
@@ -1484,6 +1481,7 @@ init value url key =
     , popupExplorer = NoPopupExplorer
     , code = code
     , dialog = NoDialog
+    , lastDialog = NoDialog
     , popup = NoPopup
     , popupElement = Nothing
     , popupChoices = []
@@ -3436,6 +3434,7 @@ globalMsg msg model =
                 mdl =
                     { model
                         | dialog = NoDialog
+                        , lastDialog = NoDialog
                         , popup = NoPopup
                         , editColumnsMessage = Nothing
                         , tokens = Dict.empty
@@ -4559,7 +4558,43 @@ columnsUIMsg msg model =
                     mdl |> withNoCmd
 
         AccountDialogShowHeader account ->
-            model |> withCmd (openWindow <| JE.string account.header)
+            --model |> withCmd (openWindow <| JE.string account.header)
+            case Url.fromString account.header of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just { path } ->
+                    let
+                        attachmentType =
+                            if String.endsWith (String.toLower path) ".gif" then
+                                GifvAttachment
+
+                            else
+                                ImageAttachment
+
+                        attachment =
+                            { id = "dialogHeader"
+                            , type_ = attachmentType
+                            , url = account.header
+                            , remote_url = Nothing
+                            , preview_url = Nothing
+                            , text_url = Nothing
+                            , description = Nothing
+                            , meta = Nothing
+                            , v = JE.null
+                            }
+
+                        dialog =
+                            AttachmentDialog
+                                { attachments = [ attachment ]
+                                , index = 0
+                                }
+                    in
+                    { model
+                        | dialog = dialog
+                        , lastDialog = model.dialog
+                    }
+                        |> withNoCmd
 
         ToggleFollowAccount following account ->
             sendRequest
@@ -7029,7 +7064,8 @@ dismissDialog model =
     in
     { model
         | msg = Nothing
-        , dialog = NoDialog
+        , dialog = model.lastDialog
+        , lastDialog = NoDialog
         , editColumnsMessage = Nothing
         , movingColumn = Nothing
         , showFullScrollPill = False
