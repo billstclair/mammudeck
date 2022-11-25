@@ -455,6 +455,7 @@ type alias RenderEnv =
     , fontSizePct : Int
     , fontSize : String --percent
     , columnWidth : Int --pixels
+    , showIds : Bool
 
     -- not persistent
     , emojis : Dict String Emoji
@@ -472,6 +473,7 @@ emptyRenderEnv =
     , fontSizePct = 100
     , fontSize = "100"
     , columnWidth = 300
+    , showIds = False
     , emojis = Dict.empty
     , emojisList = []
     , windowSize = ( 1024, 768 )
@@ -665,7 +667,6 @@ type alias Model =
     , groupInput : Maybe Group
     , hashtagInput : String
     , accountDialogFlags : UserFeedFlags
-    , showAccountDialogId : Bool
 
     -- Non-persistent below here
     , appState : AppState
@@ -792,6 +793,7 @@ type Msg
     | ColumnsSendMsg ColumnsSendMsg
     | ExplorerUIMsg ExplorerUIMsg
     | ExplorerSendMsg ExplorerSendMsg
+    | ProcessLinkInfo LinkInfo
     | ScrollNotify Value
     | FocusNotify Bool
     | IdleNotify Int
@@ -1470,7 +1472,6 @@ init value url key =
     , groupInput = Nothing
     , hashtagInput = ""
     , accountDialogFlags = Types.defaultUserFeedFlags
-    , showAccountDialogId = False
 
     -- Non-persistent below here
     , appState = AppState.makeAppState emptyAppStateAccount
@@ -2916,6 +2917,15 @@ updateInternal msg model =
 
         ExplorerSendMsg m ->
             explorerSendMsg m model
+
+        ProcessLinkInfo { selectedRequest, setId, message } ->
+            { model
+                | page = ExplorerPage
+                , dialog = NoDialog
+                , selectedRequest = selectedRequest
+            }
+                |> setId
+                |> withCmd (Task.perform ExplorerSendMsg <| Task.succeed message)
 
         ScrollNotify value ->
             processScroll value model
@@ -4444,8 +4454,8 @@ columnsUIMsg msg model =
 
         ToggleShowAccountDialogId ->
             { model
-                | showAccountDialogId =
-                    not model.showAccountDialogId
+                | renderEnv =
+                    { renderEnv | showIds = not renderEnv.showIds }
             }
                 |> withNoCmd
 
@@ -13273,8 +13283,8 @@ settingsDialogContent model =
         [ button (ColumnsUIMsg ReloadFromServer) "Reload from Server"
         , br
         , checkBox (ColumnsUIMsg ToggleShowAccountDialogId)
-            model.showAccountDialogId
-            "Show account dialog id"
+            renderEnv.showIds
+            "Show ids"
         , br
         , br
         , text "Reload the page after doing this:"
@@ -13820,7 +13830,7 @@ renderMultiNotification renderEnv account others ellipsisPrefix notification =
                 |> List.intersperse (text " ")
                 |> span []
             ]
-        , renderNotificationBody renderEnv ellipsisPrefix notification
+        , renderNotificationBody renderEnv notification.id ellipsisPrefix notification
         ]
 
 
@@ -13976,7 +13986,7 @@ renderNotification renderEnv ellipsisPrefix notification =
                     (Just notification.created_at)
                     Nothing
                 ]
-            , renderNotificationBody renderEnv ellipsisPrefix notification
+            , renderNotificationBody renderEnv notification.id ellipsisPrefix notification
             ]
         ]
 
@@ -14200,8 +14210,8 @@ smallTextFontSize =
     "80%"
 
 
-renderNotificationBody : RenderEnv -> String -> Notification -> Html Msg
-renderNotificationBody renderEnv ellipsisPrefix notification =
+renderNotificationBody : RenderEnv -> String -> String -> Notification -> Html Msg
+renderNotificationBody renderEnv notificationId ellipsisPrefix notification =
     let
         { color, borderColor } =
             getStyle renderEnv
@@ -14236,7 +14246,11 @@ renderNotificationBody renderEnv ellipsisPrefix notification =
                         , body
                         ]
                 , renderMediaAttachments renderEnv status
-                , renderStatusActions renderEnv ellipsisPrefix status
+                , renderStatusActions renderEnv
+                    notificationId
+                    NotificationsSelected
+                    ellipsisPrefix
+                    status
                 ]
 
 
@@ -14749,7 +14763,11 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
             , renderMediaAttachments renderEnv status
             , renderStatusQuote renderEnv bodyEnv ellipsisPrefix status
             , renderStatusCard renderEnv status
-            , renderStatusActions renderEnv ellipsisPrefix status
+            , renderStatusActions renderEnv
+                statusIn.id
+                StatusesSelected
+                ellipsisPrefix
+                status
             ]
         ]
 
@@ -14902,8 +14920,54 @@ statusButton attributes theText msg =
         ]
 
 
-renderStatusActions : RenderEnv -> String -> Status -> Html Msg
-renderStatusActions renderEnv ellipsisPrefix status =
+type alias LinkInfo =
+    { id : String
+    , selectedRequest : SelectedRequest
+    , label : String
+    , setId : Model -> Model
+    , message : ExplorerSendMsg
+    }
+
+
+selectedRequestToLinkInfo : SelectedRequest -> String -> LinkInfo
+selectedRequestToLinkInfo selectedRequest id =
+    let
+        ( label, setId, msg ) =
+            case selectedRequest of
+                AccountsSelected ->
+                    ( "account"
+                    , \model -> { model | accountId = id }
+                    , SendGetAccount
+                    )
+
+                StatusesSelected ->
+                    ( "status"
+                    , \model -> { model | statusId = id }
+                    , SendGetStatus
+                    )
+
+                NotificationsSelected ->
+                    ( "notification"
+                    , \model -> { model | notificationId = id }
+                    , SendGetNotification
+                    )
+
+                _ ->
+                    ( "<error>"
+                    , identity
+                    , SendNothing
+                    )
+    in
+    { id = id
+    , selectedRequest = selectedRequest
+    , label = label
+    , setId = setId
+    , message = msg
+    }
+
+
+renderStatusActions : RenderEnv -> String -> SelectedRequest -> String -> Status -> Html Msg
+renderStatusActions renderEnv statusId selectedRequest ellipsisPrefix status =
     let
         { color } =
             getStyle renderEnv
@@ -14971,59 +15035,78 @@ renderStatusActions renderEnv ellipsisPrefix status =
 
             else
                 ""
-    in
-    div
-        [ class "status-el status-actions media-body"
-        , style "color" color
-        ]
-        [ statusButton
-            [ title "Reply"
 
-            -- It would be lovely to add button-icon-active
-            -- here, if YOU have replied, but the status
-            -- doesn't tell us that. Pleroma adds it
-            -- while you're in the process of typing a reply.
-            -- Mammudeck will do that with a pop-up, so it won't apply.
-            , class "button-icon icon-reply"
-            ]
-            repliesString
-            (ColumnsUIMsg <| ShowPostDialog (Just status))
-        , statusButton
-            [ title rebloggedTitle
-            , class <|
-                "button-icon retweet-button icon-retweet rt-active"
-                    ++ retweetedClass
-            ]
-            reblogsString
-            (ColumnsUIMsg <| ToggleStatusRepeat status)
-        , statusButton
-            [ title favoriteTitle
-            , class <|
-                "button-icon favorite-button fav-active"
-                    ++ favoriteClass
-            ]
-            favoritesString
-            (ColumnsUIMsg <| ToggleStatusFavorite status)
-        , if needsStatusExplorerButton status then
-            statusButton
-                [ title "Open Thread Explorer"
-                , class openThreadExplorerIconClass
-                ]
-                ""
-                (ColumnsUIMsg <| OpenThreadExplorer status)
+        linkInfo =
+            selectedRequestToLinkInfo selectedRequest statusId
+    in
+    div []
+        [ if not renderEnv.showIds then
+            text ""
 
           else
-            text ""
-        , let
-            ellipsisId =
-                ellipsisPrefix ++ "." ++ status.id
-          in
-          statusButton
-            [ class "icon-ellipsis"
-            , id ellipsisId
+            div []
+                [ b linkInfo.label
+                , b " id: "
+                , a
+                    [ href "#"
+                    , onClick <| ProcessLinkInfo linkInfo
+                    ]
+                    [ text statusId ]
+                , br
+                ]
+        , div
+            [ class "status-el status-actions media-body"
+            , style "color" color
             ]
-            ""
-            (ColumnsUIMsg <| StatusEllipsisPopup ellipsisId status)
+            [ statusButton
+                [ title "Reply"
+
+                -- It would be lovely to add button-icon-active
+                -- here, if YOU have replied, but the status
+                -- doesn't tell us that. Pleroma adds it
+                -- while you're in the process of typing a reply.
+                -- Mammudeck will do that with a pop-up, so it won't apply.
+                , class "button-icon icon-reply"
+                ]
+                repliesString
+                (ColumnsUIMsg <| ShowPostDialog (Just status))
+            , statusButton
+                [ title rebloggedTitle
+                , class <|
+                    "button-icon retweet-button icon-retweet rt-active"
+                        ++ retweetedClass
+                ]
+                reblogsString
+                (ColumnsUIMsg <| ToggleStatusRepeat status)
+            , statusButton
+                [ title favoriteTitle
+                , class <|
+                    "button-icon favorite-button fav-active"
+                        ++ favoriteClass
+                ]
+                favoritesString
+                (ColumnsUIMsg <| ToggleStatusFavorite status)
+            , if needsStatusExplorerButton status then
+                statusButton
+                    [ title "Open Thread Explorer"
+                    , class openThreadExplorerIconClass
+                    ]
+                    ""
+                    (ColumnsUIMsg <| OpenThreadExplorer status)
+
+              else
+                text ""
+            , let
+                ellipsisId =
+                    ellipsisPrefix ++ "." ++ status.id
+              in
+              statusButton
+                [ class "icon-ellipsis"
+                , id ellipsisId
+                ]
+                ""
+                (ColumnsUIMsg <| StatusEllipsisPopup ellipsisId status)
+            ]
         ]
 
 
@@ -18921,13 +19004,21 @@ accountDialogContent account maybeContent model =
                 , br
                 ]
             , p [] <| statusBody renderEnv Nothing account.note Nothing
-            , if not model.showAccountDialogId then
+            , if not renderEnv.showIds then
                 text ""
 
               else
+                let
+                    linkInfo =
+                        selectedRequestToLinkInfo AccountsSelected account.id
+                in
                 p []
-                    [ b "id: "
-                    , text account.id
+                    [ b "account id: "
+                    , a
+                        [ href ""
+                        , onClick <| ProcessLinkInfo linkInfo
+                        ]
+                        [ text account.id ]
                     ]
             ]
         , div []
@@ -20209,7 +20300,6 @@ type alias SavedModel =
     , groupInput : Maybe Group
     , hashtagInput : String
     , accountDialogFlags : UserFeedFlags
-    , showAccountDialogId : Bool
     }
 
 
@@ -20271,7 +20361,6 @@ modelToSavedModel model =
     , groupInput = model.groupInput
     , hashtagInput = model.hashtagInput
     , accountDialogFlags = model.accountDialogFlags
-    , showAccountDialogId = model.showAccountDialogId
     }
 
 
@@ -20291,6 +20380,7 @@ savedModelToModel savedModel model =
                 , style = savedRenderEnv.style
                 , fontSize = savedRenderEnv.fontSize
                 , columnWidth = savedRenderEnv.columnWidth
+                , showIds = savedRenderEnv.showIds
             }
         , page = savedModel.page
         , token = savedModel.token
@@ -20347,7 +20437,6 @@ savedModelToModel savedModel model =
         , groupInput = savedModel.groupInput
         , hashtagInput = savedModel.hashtagInput
         , accountDialogFlags = savedModel.accountDialogFlags
-        , showAccountDialogId = savedModel.showAccountDialogId
     }
 
 
@@ -20488,13 +20577,14 @@ encodeRenderEnv env =
         , ( "fontSizePct", JE.int env.fontSizePct )
         , ( "fontSize", JE.string env.fontSize )
         , ( "columnWidth", JE.int env.columnWidth )
+        , ( "showIds", JE.bool env.showIds )
         ]
 
 
 renderEnvDecoder : Decoder RenderEnv
 renderEnvDecoder =
     JD.succeed
-        (\loginServer style colorScheme fontSizePct_ fontSize_ columnWidth ->
+        (\loginServer style colorScheme fontSizePct_ fontSize_ columnWidth showIds ->
             let
                 ( fontSizePct, fontSize ) =
                     if fontSizePct_ == 0 then
@@ -20515,6 +20605,7 @@ renderEnvDecoder =
                 , fontSizePct = fontSizePct
                 , fontSize = fontSize
                 , columnWidth = columnWidth
+                , showIds = showIds
             }
         )
         |> required "loginServer" (JD.nullable JD.string)
@@ -20525,6 +20616,7 @@ renderEnvDecoder =
         |> optional "fontSizePct" JD.int 0
         |> optional "fontSize" JD.string "100"
         |> optional "columnWidth" JD.int 300
+        |> optional "showIds" JD.bool False
 
 
 encodeFeatures : Features -> Value
@@ -20845,10 +20937,6 @@ encodeSavedModel savedModel =
                 savedModel.accountDialogFlags
                 MED.encodeUserFeedFlags
                 Types.defaultUserFeedFlags
-            , encodePropertyAsList "showAccountDialogId"
-                savedModel.showAccountDialogId
-                JE.bool
-                False
             ]
 
 
@@ -20913,7 +21001,6 @@ savedModelDecoder =
         |> optional "groupInput" (JD.nullable ED.groupDecoder) Nothing
         |> optional "hashtagInput" JD.string ""
         |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags
-        |> optional "showAccountDialogId" JD.bool False
 
 
 put : String -> Maybe Value -> Cmd Msg
