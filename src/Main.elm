@@ -666,6 +666,7 @@ type alias Model =
     , groupInput : Maybe Group
     , hashtagInput : String
     , accountDialogFlags : UserFeedFlags
+    , showAccountDialogId : Bool
 
     -- Non-persistent below here
     , appState : AppState
@@ -864,6 +865,7 @@ type ColumnsUIMsg
     | ShowMentionDialog Mention
     | ReceiveAccountDialogAccount Mention (Result Error Response)
     | ShowAccountDialog Account
+    | ToggleShowAccountDialogId
     | AccountDialogCommand (List ( String, ColumnsUIMsg )) String
     | AccountDialogSetShowStatuses Bool
     | AccountDialogShowFollowing
@@ -1468,6 +1470,7 @@ init value url key =
     , groupInput = Nothing
     , hashtagInput = ""
     , accountDialogFlags = Types.defaultUserFeedFlags
+    , showAccountDialogId = False
 
     -- Non-persistent below here
     , appState = AppState.makeAppState emptyAppStateAccount
@@ -4442,6 +4445,13 @@ columnsUIMsg msg model =
                         Request.GetRelationships { ids = [ account.id ] }
                     )
                     mdl
+
+        ToggleShowAccountDialogId ->
+            { model
+                | showAccountDialogId =
+                    not model.showAccountDialogId
+            }
+                |> withNoCmd
 
         AccountDialogCommand options name ->
             case LE.find (\( n, _ ) -> name == n) options of
@@ -13260,6 +13270,10 @@ settingsDialogContent model =
     , p []
         [ button (ColumnsUIMsg ReloadFromServer) "Reload from Server"
         , br
+        , checkBox (ColumnsUIMsg ToggleShowAccountDialogId)
+            model.showAccountDialogId
+            "Show account dialog id"
+        , br
         , br
         , text "Reload the page after doing this:"
         , br
@@ -18908,6 +18922,14 @@ accountDialogContent account maybeContent model =
                 , br
                 ]
             , p [] <| statusBody renderEnv Nothing account.note Nothing
+            , if not model.showAccountDialogId then
+                text ""
+
+              else
+                p []
+                    [ b "id: "
+                    , text account.id
+                    ]
             ]
         , div []
             [ let
@@ -20188,6 +20210,7 @@ type alias SavedModel =
     , groupInput : Maybe Group
     , hashtagInput : String
     , accountDialogFlags : UserFeedFlags
+    , showAccountDialogId : Bool
     }
 
 
@@ -20249,6 +20272,7 @@ modelToSavedModel model =
     , groupInput = model.groupInput
     , hashtagInput = model.hashtagInput
     , accountDialogFlags = model.accountDialogFlags
+    , showAccountDialogId = model.showAccountDialogId
     }
 
 
@@ -20324,6 +20348,7 @@ savedModelToModel savedModel model =
         , groupInput = savedModel.groupInput
         , hashtagInput = savedModel.hashtagInput
         , accountDialogFlags = savedModel.accountDialogFlags
+        , showAccountDialogId = savedModel.showAccountDialogId
     }
 
 
@@ -20821,6 +20846,10 @@ encodeSavedModel savedModel =
                 savedModel.accountDialogFlags
                 MED.encodeUserFeedFlags
                 Types.defaultUserFeedFlags
+            , encodePropertyAsList "showAccountDialogId"
+                savedModel.showAccountDialogId
+                JE.bool
+                False
             ]
 
 
@@ -20885,6 +20914,7 @@ savedModelDecoder =
         |> optional "groupInput" (JD.nullable ED.groupDecoder) Nothing
         |> optional "hashtagInput" JD.string ""
         |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags
+        |> optional "showAccountDialogId" JD.bool False
 
 
 put : String -> Maybe Value -> Cmd Msg
