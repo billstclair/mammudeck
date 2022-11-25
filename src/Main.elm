@@ -23,14 +23,6 @@
 See ../TODO.md for the full list.
 
 * Account dialog.
-  Mostly works now. Need to load statuses from the account,
-    including the pinned ones (with a checkbox to omit them).
-  The local `Account` contains counts known locally.
-    `followers_count` and `following_count` don't seem to track.
-    Would be good to fetch the `Account` from the home server.
-    Mark somehow whether the information is local or remote.
-    Should probably also have a local/remote option for fetching column feeds,
-    though that's a big task, since the user references there have remote IDs.
   On "show header", open the image in the image viewer, not as
     a pop-up window, to avoid blocking.
 
@@ -383,6 +375,13 @@ type alias AccountDialogStatuses =
     { flags : UserFeedFlags
     , statuses : List Status
     }
+
+
+{-| How many followers or following to fetch.
+-}
+accountDialogRelationsCount : Int
+accountDialogRelationsCount =
+    100
 
 
 type AccountDialogContent
@@ -4388,7 +4387,10 @@ columnsUIMsg msg model =
         ShowMentionDialog mention ->
             model
                 |> withCmd
-                    (Request.serverRequest (\id res -> ColumnsUIMsg <| ReceiveAccountDialogAccount id res)
+                    (Request.serverRequest
+                        (\id res ->
+                            ColumnsUIMsg <| ReceiveAccountDialogAccount id res
+                        )
                         []
                         { server = Maybe.withDefault "" <| renderEnv.loginServer
                         , token = model.token
@@ -4495,7 +4497,7 @@ columnsUIMsg msg model =
 
                         _ ->
                             sendGetFollowing account.id
-                                (Just 100)
+                                (Just accountDialogRelationsCount)
                                 { model
                                     | dialog =
                                         AccountDialog account <|
@@ -4514,7 +4516,7 @@ columnsUIMsg msg model =
 
                         _ ->
                             sendGetFollowers account.id
-                                (Just 100)
+                                (Just accountDialogRelationsCount)
                                 { model
                                     | dialog =
                                         AccountDialog account <|
@@ -10681,12 +10683,17 @@ getAccountId model =
         id
 
     else
-        case model.account of
-            Just account ->
-                account.id
+        getModelAccountId model
 
-            Nothing ->
-                ""
+
+getModelAccountId : Model -> String
+getModelAccountId model =
+    case model.account of
+        Nothing ->
+            ""
+
+        Just { id } ->
+            id
 
 
 handleFeatureProbeError : Request -> Error -> Model -> ( Model, Bool )
@@ -11124,53 +11131,47 @@ applyProTimelineSideEffects response model =
                             mdl
 
 
+getAccountDialogAccount : String -> Model -> ( Model, Cmd Msg )
+getAccountDialogAccount id model =
+    case model.dialog of
+        AccountDialog account _ ->
+            if
+                (account.id == getModelAccountId model)
+                    || (account.id == id)
+            then
+                sendRequest
+                    (AccountsRequest <|
+                        Request.GetAccount { id = account.id }
+                    )
+                    model
+
+            else
+                ( model, Cmd.none )
+
+        _ ->
+            ( model, Cmd.none )
+
+
 applyResponseSideEffects : Response -> Model -> Model
 applyResponseSideEffects response model1 =
     let
         model =
-            let
-                insertRelationship relationship m =
-                    { m
+            case response.entity of
+                RelationshipListEntity relationships ->
+                    { model1
+                        | relationships =
+                            List.foldr (\r res -> Dict.insert r.id r res)
+                                model1.relationships
+                                relationships
+                    }
+
+                RelationshipEntity relationship ->
+                    { model1
                         | relationships =
                             Dict.insert relationship.id
                                 relationship
                                 model1.relationships
                     }
-            in
-            case response.entity of
-                RelationshipListEntity [ relationship ] ->
-                    insertRelationship relationship model1
-
-                RelationshipEntity relationship ->
-                    (case model1.dialog of
-                        AccountDialog account content ->
-                            if relationship.id /= account.id then
-                                model1
-
-                            else
-                                case Dict.get account.id model1.relationships of
-                                    Nothing ->
-                                        model1
-
-                                    Just rel ->
-                                        if rel.followed_by == relationship.followed_by then
-                                            model1
-
-                                        else
-                                            { model1
-                                                | dialog =
-                                                    AccountDialog
-                                                        { account
-                                                            | following_count =
-                                                                account.following_count + 1
-                                                        }
-                                                        content
-                                            }
-
-                        _ ->
-                            model1
-                    )
-                        |> insertRelationship relationship
 
                 _ ->
                     model1
@@ -11206,26 +11207,97 @@ applyResponseSideEffects response model1 =
                 _ ->
                     mdl
 
+        AccountsRequest (Request.GetAccount _) ->
+            case response.entity of
+                AccountEntity account ->
+                    let
+                        modelAccountId =
+                            getModelAccountId model
+
+                        isMyAccount =
+                            modelAccountId == account.id
+
+                        newModelAccount =
+                            if isMyAccount then
+                                Just account
+
+                            else
+                                model.account
+
+                        ( mdl, cmd ) =
+                            case model.dialog of
+                                AccountDialog acct content ->
+                                    let
+                                        newDialog =
+                                            if account.id /= acct.id then
+                                                model.dialog
+
+                                            else
+                                                AccountDialog account content
+
+                                        ( mdl2, cmd2 ) =
+                                            if account.id /= acct.id then
+                                                ( model, Cmd.none )
+
+                                            else
+                                                case content of
+                                                    Just (FollowingContent _) ->
+                                                        if isMyAccount then
+                                                            sendGetFollowing account.id
+                                                                (Just accountDialogRelationsCount)
+                                                                model
+
+                                                        else
+                                                            ( model, Cmd.none )
+
+                                                    _ ->
+                                                        ( model, Cmd.none )
+                                    in
+                                    ( { mdl2 | dialog = newDialog }
+                                    , cmd2
+                                    )
+
+                                d ->
+                                    ( model, Cmd.none )
+                    in
+                    { mdl
+                        | account = newModelAccount
+                        , sideEffectCmd = cmd
+                    }
+
+                _ ->
+                    model
+
         AccountsRequest (Request.PostFollow { id }) ->
-            { model | isAccountFollowed = True }
+            let
+                ( mdl, cmd ) =
+                    getAccountDialogAccount id model
+            in
+            { mdl
+                | isAccountFollowed =
+                    if id == model.accountId then
+                        True
+
+                    else
+                        model.isAccountFollowed
+                , sideEffectCmd =
+                    cmd
+            }
 
         AccountsRequest (Request.PostUnfollow { id }) ->
             let
-                dialog =
-                    case model.dialog of
-                        AccountDialog acct (Just (FollowingContent accounts)) ->
-                            AccountDialog acct <|
-                                Just
-                                    (FollowingContent <|
-                                        LE.filterNot ((==) id << .id) accounts
-                                    )
-
-                        d ->
-                            d
+                ( mdl, cmd ) =
+                    getAccountDialogAccount id model
             in
-            { model
-                | isAccountFollowed = False
-                , dialog = dialog
+            { mdl
+                | isAccountFollowed =
+                    if id == model.accountId then
+                        False
+
+                    else
+                        model.isAccountFollowed
+                , sideEffectCmd =
+                    cmd
             }
 
         AccountsRequest (Request.PatchUpdateCredentials _) ->
@@ -11245,11 +11317,7 @@ applyResponseSideEffects response model1 =
             case response.entity of
                 RelationshipListEntity relationships ->
                     { model
-                        | relationships =
-                            List.foldr (\r res -> Dict.insert r.id r res)
-                                model.relationships
-                                relationships
-                        , popupChoices =
+                        | popupChoices =
                             case relationships of
                                 [ relationship ] ->
                                     List.map
@@ -12627,6 +12695,8 @@ titledButton theTitle enabled msg label =
         [ onClick msg
         , disabled <| not enabled
         , title theTitle
+        , style "border-radius" "9999px"
+        , style "border-width" "1px"
         ]
         [ b label ]
 
@@ -18930,8 +19000,7 @@ renderAccountDialogAccounts model accounts maybeFollowing =
         , style "border" <| "1px solid" ++ borderColor
         , style "text-align" "left"
         ]
-    <|
-        List.map render accounts
+        (List.map render accounts)
 
 
 accountDialogStatusId : Int -> String
