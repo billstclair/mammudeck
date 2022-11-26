@@ -18975,7 +18975,7 @@ accountDialogContent account maybeContent model =
               else
                 let
                     ( followLabel, followTitle ) =
-                        if not requested then
+                        if requested then
                             ( "requested", "Unfollow @" ++ userAtServer )
 
                         else if following then
