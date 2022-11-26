@@ -1730,7 +1730,8 @@ getVerifyCredentials model =
         Just server ->
             let
                 ( mdl, cmd ) =
-                    mergeAccountId Types.emptyAccountId server model
+                    --mergeAccountId Types.emptyAccountId server model
+                    ( model, Cmd.none )
 
                 cmd2 =
                     case model.token of
@@ -1870,10 +1871,12 @@ processLoginServer model =
     in
     case mdl.renderEnv.loginServer of
         Nothing ->
-            ( mdl
-            , Task.perform (GlobalMsg << SetServer) <|
-                Task.succeed mdl.server
-            )
+            mdl
+                |> withCmds
+                    [ Task.perform (GlobalMsg << SetServer) <|
+                        Task.succeed mdl.server
+                    , getAccountIds mdl.server
+                    ]
 
         Just server ->
             let
@@ -1892,7 +1895,14 @@ processLoginServer model =
                 ( mdl5, cmd5 ) =
                     sendRequest (ListsRequest Request.GetLists) mdl4
             in
-            mdl5 |> withCmds [ cmd3, cmd4, cmd5, fetchFeatures server mdl3 ]
+            mdl5
+                |> withCmds
+                    [ cmd3
+                    , cmd4
+                    , cmd5
+                    , fetchFeatures server mdl3
+                    , getAccountIds mdl.server
+                    ]
 
 
 sendCustomEmojisRequest : Model -> ( Model, Cmd Msg )
@@ -2273,29 +2283,37 @@ handleGetAccountIds key maybeValue model =
         server =
             String.dropLeft (pkAccountIdsLength + 1) key
 
-        maybeMerge : Dict String (List AccountId) -> Model -> ( Model, Cmd Msg )
-        maybeMerge dict mdl =
-            case Dict.get server dict of
-                Just [ acctId ] ->
-                    mergeAccountId acctId server mdl
-
-                _ ->
-                    mdl |> withNoCmd
+        mergeEmpty mdl =
+            mergeAccountId Types.emptyAccountId server mdl
     in
     case maybeValue of
         Nothing ->
-            maybeMerge model.accountIdDict model
+            mergeEmpty model
 
         Just value ->
             case JD.decodeValue MED.accountIdsDecoder value of
                 Err _ ->
-                    maybeMerge model.accountIdDict model
+                    mergeEmpty model
 
                 Ok accountIds ->
-                    maybeMerge model.accountIdDict
+                    let
+                        newIds =
+                            case Dict.get server model.accountIdDict of
+                                Nothing ->
+                                    accountIds
+
+                                Just ids ->
+                                    let
+                                        remover aid list =
+                                            LE.filterNot ((==) aid.id << .id) list
+                                    in
+                                    List.append ids <|
+                                        List.foldr remover accountIds ids
+                    in
+                    mergeEmpty
                         { model
                             | accountIdDict =
-                                Dict.insert server accountIds model.accountIdDict
+                                Dict.insert server newIds model.accountIdDict
                         }
 
 
@@ -3845,42 +3863,38 @@ mergeAccountId accountId server model =
         id =
             accountId.id
     in
-    case Dict.get server model.accountIdDict of
-        Nothing ->
+    let
+        accountIds =
+            Maybe.withDefault [] <| Dict.get server model.accountIdDict
+
+        putNew acctIds =
+            let
+                aids =
+                    Debug.log "mergeAccountId" ( accountId, acctIds )
+            in
             { model
                 | accountIdDict =
-                    Dict.insert server [ accountId ] model.accountIdDict
+                    Dict.insert server acctIds model.accountIdDict
             }
-                |> withCmd (getAccountIds server)
+                |> withCmd
+                    (if List.member Types.emptyAccountId acctIds then
+                        putAccountIds server acctIds
 
-        Just accountIds ->
-            let
-                putNew acctIds =
-                    { model
-                        | accountIdDict =
-                            Dict.insert server acctIds model.accountIdDict
-                    }
-                        |> withCmd (putAccountIds server acctIds)
-            in
-            case LE.find (.id >> (==) id) accountIds of
-                Nothing ->
-                    putNew <| accountId :: accountIds
+                     else
+                        -- Wait for reading of accountIds
+                        Cmd.none
+                    )
+    in
+    case LE.find (.id >> (==) id) accountIds of
+        Nothing ->
+            putNew <| accountId :: accountIds
 
-                Just acctId ->
-                    if acctId == accountId then
-                        let
-                            putIdsCmd =
-                                case accountIds of
-                                    [ _ ] ->
-                                        putAccountIds server accountIds
+        Just acctId ->
+            if acctId /= accountId then
+                putNew <| accountId :: LE.remove acctId accountIds
 
-                                    _ ->
-                                        Cmd.none
-                        in
-                        model |> withCmd putIdsCmd
-
-                    else
-                        putNew <| accountId :: LE.remove acctId accountIds
+            else
+                model |> withNoCmd
 
 
 findFeed : FeedType -> FeedSet -> Maybe Feed
@@ -4408,26 +4422,26 @@ columnsUIMsg msg model =
                     )
 
         ReceiveAccountDialogAccount mention result ->
+            let
+                openExternal () =
+                    model
+                        |> withCmd (openExternalUrl mention.url)
+            in
             case result of
                 Err _ ->
-                    model |> withCmd (openExternalUrl mention.url)
+                    openExternal ()
 
                 Ok { entity } ->
                     case entity of
                         AccountEntity account ->
                             let
-                                mdl =
-                                    { model
-                                        | references =
-                                            Dict.insert account.id
-                                                (ReferencedAccount account)
-                                                model.references
-                                    }
+                                ( mdl, cmd ) =
+                                    processReceivedAccount account model
                             in
                             update (ColumnsUIMsg <| ShowAccountDialog account) mdl
 
                         _ ->
-                            model |> withCmd (openExternalUrl mention.url)
+                            openExternal ()
 
         ShowAccountDialog account ->
             let
@@ -4446,11 +4460,22 @@ columnsUIMsg msg model =
                 mdl |> withNoCmd
 
             else
-                sendRequest
-                    (AccountsRequest <|
-                        Request.GetRelationships { ids = [ account.id ] }
-                    )
-                    mdl
+                let
+                    ( mdl2, cmd2 ) =
+                        sendRequest
+                            (AccountsRequest <|
+                                Request.GetAccount { id = account.id }
+                            )
+                            mdl
+
+                    ( mdl3, cmd3 ) =
+                        sendRequest
+                            (AccountsRequest <|
+                                Request.GetRelationships { ids = [ account.id ] }
+                            )
+                            mdl2
+                in
+                mdl3 |> withCmds [ cmd2, cmd3 ]
 
         ToggleShowAccountDialogId ->
             { model
@@ -11204,6 +11229,77 @@ getAccountDialogAccount id model =
             ( model, Cmd.none )
 
 
+processReceivedAccount : Account -> Model -> ( Model, Cmd Msg )
+processReceivedAccount account model =
+    let
+        accountId =
+            Types.accountToAccountId account
+
+        modelAccountId =
+            getModelAccountId model
+
+        isMyAccount =
+            modelAccountId == account.id
+
+        newModelAccount =
+            if isMyAccount then
+                Just account
+
+            else
+                model.account
+
+        ( mdl, cmd ) =
+            case model.dialog of
+                AccountDialog acct content ->
+                    let
+                        newDialog =
+                            if account.id /= acct.id then
+                                model.dialog
+
+                            else
+                                AccountDialog account content
+
+                        ( mdl2, cmd2 ) =
+                            if account.id /= acct.id then
+                                ( model, Cmd.none )
+
+                            else
+                                case content of
+                                    Just (FollowingContent _) ->
+                                        if isMyAccount then
+                                            sendGetFollowing account.id
+                                                (Just accountDialogRelationsCount)
+                                                model
+
+                                        else
+                                            ( model, Cmd.none )
+
+                                    _ ->
+                                        ( model, Cmd.none )
+                    in
+                    ( { mdl2 | dialog = newDialog }
+                    , cmd2
+                    )
+
+                d ->
+                    ( model, Cmd.none )
+
+        ( mdl3, cmd3 ) =
+            case model.renderEnv.loginServer of
+                Nothing ->
+                    ( mdl, cmd )
+
+                Just server ->
+                    mergeAccountId accountId server mdl
+    in
+    { mdl3
+        | account = newModelAccount
+        , references =
+            addAccountReference account mdl.references
+    }
+        |> withCmds [ cmd, cmd3 ]
+
+
 applyResponseSideEffects : Response -> Model -> Model
 applyResponseSideEffects response model1 =
     let
@@ -11263,59 +11359,10 @@ applyResponseSideEffects response model1 =
             case response.entity of
                 AccountEntity account ->
                     let
-                        modelAccountId =
-                            getModelAccountId model
-
-                        isMyAccount =
-                            modelAccountId == account.id
-
-                        newModelAccount =
-                            if isMyAccount then
-                                Just account
-
-                            else
-                                model.account
-
                         ( mdl, cmd ) =
-                            case model.dialog of
-                                AccountDialog acct content ->
-                                    let
-                                        newDialog =
-                                            if account.id /= acct.id then
-                                                model.dialog
-
-                                            else
-                                                AccountDialog account content
-
-                                        ( mdl2, cmd2 ) =
-                                            if account.id /= acct.id then
-                                                ( model, Cmd.none )
-
-                                            else
-                                                case content of
-                                                    Just (FollowingContent _) ->
-                                                        if isMyAccount then
-                                                            sendGetFollowing account.id
-                                                                (Just accountDialogRelationsCount)
-                                                                model
-
-                                                        else
-                                                            ( model, Cmd.none )
-
-                                                    _ ->
-                                                        ( model, Cmd.none )
-                                    in
-                                    ( { mdl2 | dialog = newDialog }
-                                    , cmd2
-                                    )
-
-                                d ->
-                                    ( model, Cmd.none )
+                            processReceivedAccount account model
                     in
-                    { mdl
-                        | account = newModelAccount
-                        , sideEffectCmd = cmd
-                    }
+                    { mdl | sideEffectCmd = cmd }
 
                 _ ->
                     model
@@ -18776,7 +18823,7 @@ accountDialog account maybeContent model =
             renderEnv
             { styles =
                 [ ( "padding", "0px" )
-                , ( "width", "30em" )
+                , ( "width", "35em" )
                 , ( "max-width", "95%" )
                 , ( "max-height", "95%" )
                 , ( "overflow-y", "auto" )
@@ -18928,7 +18975,7 @@ accountDialogContent account maybeContent model =
               else
                 let
                     ( followLabel, followTitle ) =
-                        if not following && requested then
+                        if not requested then
                             ( "requested", "Unfollow @" ++ userAtServer )
 
                         else if following then
@@ -18956,9 +19003,7 @@ accountDialogContent account maybeContent model =
                     , titledButton followTitle
                         known
                         (ColumnsUIMsg <|
-                            -- You'd think we should unfollow if we've requested,
-                            -- but that gets an error on my Pleroma server.
-                            ToggleFollowAccount following account
+                            ToggleFollowAccount (following || requested) account
                         )
                         followLabel
                     , text " "
@@ -19004,6 +19049,63 @@ accountDialogContent account maybeContent model =
                 , br
                 ]
             , p [] <| statusBody renderEnv Nothing account.note Nothing
+            , case account.fields of
+                [] ->
+                    text ""
+
+                fields ->
+                    let
+                        renderField { name, value, verified_at } =
+                            let
+                                ( verifiedClass, verifiedColor ) =
+                                    case verified_at of
+                                        Nothing ->
+                                            ( "icon-star-empty"
+                                            , "red"
+                                            )
+
+                                        Just _ ->
+                                            ( "icon-star"
+                                              -- Neon Green
+                                            , "#0FFF50"
+                                            )
+
+                                valueHtmls =
+                                    [ div
+                                        [ style "max-width" "20em"
+                                        , style "overflow-x" "hidden"
+                                        ]
+                                      <|
+                                        case Html.Parser.run value of
+                                            Ok nodes ->
+                                                Util.toVirtualDom nodes
+
+                                            Err _ ->
+                                                [ text value ]
+                                    ]
+                            in
+                            tr []
+                                [ td [] [ text name ]
+                                , td [] valueHtmls
+                                , td []
+                                    [ Html.i
+                                        [ class verifiedClass
+                                        , style "color" verifiedColor
+                                        ]
+                                        []
+                                    ]
+                                ]
+                    in
+                    div []
+                        [ table
+                            [ class "prettytable"
+                            , style "overflow-x" "scroll"
+                            , style "margin" "0 auto"
+                            ]
+                          <|
+                            List.map renderField fields
+                        , br
+                        ]
             , if not renderEnv.showIds then
                 text ""
 

@@ -115,3 +115,23 @@ p, div, textarea, button, table {
 body {
     font-size: medium;
 }
+
+table.prettytable {
+  margin: 0em 0.5em 0.5em 0.5em;
+  background: whitesmoke;
+  border-collapse: collapse;
+}
+table.prettytable th, table.prettytable td {
+  border: 1px silver solid;
+  padding: 0.2em;
+}
+table.prettytable th {
+  background: gainsboro;
+  text-align: center;
+}
+table.prettytable tr:nth-child(even) td {
+  background: white;
+}
+table.prettytable caption {
+  margin-left: inherit;
+  margin-right: inherit;
