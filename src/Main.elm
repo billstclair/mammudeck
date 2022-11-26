@@ -225,6 +225,8 @@ import Mastodon.Entity as Entity
         , Meta(..)
         , Notification
         , NotificationType(..)
+        , Poll
+        , PollOption
         , Privacy(..)
         , Relationship
         , Status
@@ -14807,6 +14809,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                 , style "color" color
                 ]
                 body
+            , renderPoll renderEnv status
             , renderMediaAttachments renderEnv status
             , renderStatusQuote renderEnv bodyEnv ellipsisPrefix status
             , renderStatusCard renderEnv status
@@ -14817,6 +14820,57 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                 status
             ]
         ]
+
+
+renderPoll : RenderEnv -> Status -> Html Msg
+renderPoll renderEnv status =
+    case status.poll of
+        Nothing ->
+            text ""
+
+        Just { expires_at, expired, multiple, votes_count, options } ->
+            let
+                vote title =
+                    Noop
+
+                renderOption option =
+                    tr []
+                        [ td []
+                            [ if expired then
+                                text option.title
+
+                              else
+                                button (vote option.title) option.title
+                            ]
+                        , td [ style "text-align" "right" ]
+                            [ text <| String.fromInt option.votes_count ]
+                        ]
+            in
+            div []
+                [ table [ class "prettytable" ] <|
+                    List.map renderOption options
+                , p []
+                    [ text <| String.fromInt votes_count
+                    , br
+                    , if expired then
+                        case expires_at of
+                            Nothing ->
+                                text "Expired."
+
+                            Just _ ->
+                                text "Expired at "
+
+                      else
+                        case expires_at of
+                            Nothing ->
+                                text "No expiration date."
+
+                            Just time ->
+                                text <|
+                                    "Expires at "
+                                        ++ formatIso8601 renderEnv.here time
+                    ]
+                ]
 
 
 renderStatusQuote : RenderEnv -> FeedBodyEnv -> String -> Status -> Html Msg
