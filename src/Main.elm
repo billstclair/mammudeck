@@ -116,6 +116,8 @@ import DynamoDB.AppState as AppState exposing (AppState, Updates)
 import DynamoDB.Types
 import File exposing (File)
 import File.Select
+import FormatNumber
+import FormatNumber.Locales
 import Html
     exposing
         ( Attribute
@@ -18940,6 +18942,20 @@ emptyRelationship =
     }
 
 
+integerFormat : FormatNumber.Locales.Locale
+integerFormat =
+    let
+        format =
+            FormatNumber.Locales.base
+    in
+    { format | thousandSeparator = "," }
+
+
+formatInteger : Int -> String
+formatInteger int =
+    FormatNumber.format integerFormat <| toFloat int
+
+
 accountDialogContent : Account -> Maybe AccountDialogContent -> Model -> List (Html Msg)
 accountDialogContent account maybeContent model =
     let
@@ -19102,7 +19118,7 @@ accountDialogContent account maybeContent model =
                     [ href "#"
                     , onClick msg
                     ]
-                    [ text <| String.fromInt account.statuses_count
+                    [ text <| formatInteger account.statuses_count
                     , text " statuses"
                     ]
                 , text <| special.nbsp ++ special.nbsp
@@ -19110,7 +19126,7 @@ accountDialogContent account maybeContent model =
                     [ href "#"
                     , onClick <| ColumnsUIMsg AccountDialogShowFollowers
                     ]
-                    [ text <| String.fromInt account.followers_count
+                    [ text <| formatInteger account.followers_count
                     , if account.followers_count == 1 then
                         text " follower"
 
@@ -19123,7 +19139,7 @@ accountDialogContent account maybeContent model =
                     , onClick <| ColumnsUIMsg AccountDialogShowFollowing
                     ]
                     [ text "following "
-                    , text <| String.fromInt account.following_count
+                    , text <| formatInteger account.following_count
                     ]
                 , br
                 ]
