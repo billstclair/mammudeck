@@ -14828,37 +14828,62 @@ renderPoll renderEnv status =
         Nothing ->
             text ""
 
-        Just { expires_at, expired, multiple, votes_count, options } ->
+        Just { id, expires_at, expired, multiple, votes_count, options } ->
             let
                 vote title =
                     Noop
 
-                renderOption option =
-                    tr []
-                        [ td []
+                renderOption idx option =
+                    tr [] <|
+                        List.concat
                             [ if expired then
-                                text option.title
+                                [ td [] [ text option.title ] ]
 
                               else
-                                button (vote option.title) option.title
+                                [ td []
+                                    [ radioButton
+                                        { buttonValue = idx
+                                        , radioValue = -1
+                                        , radioName = id
+                                        , setter = Noop
+                                        , label = ""
+                                        }
+                                    ]
+                                , td [] [ text option.title ]
+                                ]
+                            , [ td [ style "text-align" "right" ]
+                                    [ text <|
+                                        String.fromInt <|
+                                            if option.votes_count == 0 then
+                                                0
+
+                                            else
+                                                round
+                                                    (100
+                                                        * toFloat option.votes_count
+                                                        / toFloat votes_count
+                                                    )
+                                    , text "%"
+                                    ]
+                              ]
                             ]
-                        , td [ style "text-align" "right" ]
-                            [ text <| String.fromInt option.votes_count ]
-                        ]
             in
             div []
                 [ table [ class "prettytable" ] <|
-                    List.map renderOption options
+                    List.indexedMap renderOption options
                 , p []
                     [ text <| String.fromInt votes_count
+                    , text " total votes."
                     , br
                     , if expired then
                         case expires_at of
                             Nothing ->
                                 text "Expired."
 
-                            Just _ ->
-                                text "Expired at "
+                            Just time ->
+                                text <|
+                                    "Expired at "
+                                        ++ formatIso8601 renderEnv.here time
 
                       else
                         case expires_at of
