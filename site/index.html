@@ -71,6 +71,35 @@
         });
       }
 
+      var boundingBoxRequest = app.ports.boundingBoxRequest;
+      if (boundingBoxRequest) {
+          var boundingBoxNotify = app.ports.boundingBoxNotify;
+          if (boundingBoxNotify) {
+              boundingBoxRequest.subscribe(function(id) {
+                  function getBB() {
+                      var element = document.getElementById(id);
+                      if (element) {
+                          var bb = element.getBoundingClientRect();
+                          var bbres =
+                              { bottom: Math.round(bb.bottom),
+                                height: Math.round(bb.height),
+                                left: Math.round(bb.left),
+                                right: Math.round(bb.right),
+                                top: Math.round(bb.top),
+                                width: Math.round(bb.width),
+                                x: Math.round(bb.x),
+                                y: Math.round(bb.y)
+                              };
+                          boundingBoxNotify.send(bbres)
+                      }
+                  };
+                  // Give it time to render.
+                  window.setTimeout(getBB, 100);
+              });
+          }
+      }
+
+          
       // Stop all videos with a given id from playing.
       var stopVideos = app.ports.stopVideos;
       if (stopVideos) {

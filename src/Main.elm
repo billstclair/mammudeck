@@ -25,13 +25,14 @@ See ../TODO.md for the full list.
 * Floating close box for dialogs whose "OK" button is likely to be
   invisible (e.g. Account Dialog and Thread Explorer).
 
-* Eliminate duplicates in @foo... at top of new posts.
-
 * Adjust z-index of thread explorer, account dialog, and attachment
   viewer, so that if you get to account dialog from thread explorer,
   or vice-versa, everything works as expected.
 
 * Mini account dialog on hover?
+
+* `"pleroma:emoji-reaction"` as `Notification` type, with an `emoji`
+  string.
 
 * Brave.com and TruthSocial.com pop up a little window saying that "An
   update is available". Much easier to click on that than to navigate
@@ -295,6 +296,28 @@ It forces them to open in a new tab/window.
 port openWindow : Value -> Cmd msg
 
 
+{-| Bounding box requests.
+-}
+port boundingBoxRequest : String -> Cmd msg
+
+
+type alias BoundingBox =
+    { bottom : Int
+    , height : Int
+    , left : Int
+    , right : Int
+    , top : Int
+    , width : Int
+    , x : Int
+    , y : Int
+    }
+
+
+{-| Bounding box result.
+-}
+port boundingBoxNotify : (BoundingBox -> msg) -> Sub msg
+
+
 {-| Scroll monitor requests.
 
 JSON: {id: <string>, enable: <bool>}
@@ -497,6 +520,8 @@ emptyRenderEnv =
     , fontSize = "100"
     , columnWidth = 300
     , showIds = False
+
+    -- Not persistent
     , emojis = Dict.empty
     , emojisList = []
     , windowSize = ( 1024, 768 )
@@ -692,6 +717,7 @@ type alias Model =
     , accountDialogFlags : UserFeedFlags
 
     -- Non-persistent below here
+    , boundingBox : Maybe BoundingBox
     , appState : AppState
     , appStateAccount : DynamoDB.Types.Account
     , appStateUpdating : Bool
@@ -821,6 +847,8 @@ type Msg
     | FocusNotify Bool
     | IdleNotify Int
     | ApplyToModel (Model -> ( Model, Cmd Msg ))
+    | BoundingBoxRequest String
+    | BoundingBoxNotify BoundingBox
 
 
 type GlobalMsg
@@ -1263,6 +1291,7 @@ subscriptions model =
     Sub.batch
         [ PortFunnels.subscriptions (GlobalMsg << Process) model
         , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
+        , boundingBoxNotify BoundingBoxNotify
         , scrollNotify ScrollNotify
         , focusNotify FocusNotify
         , idleNotify IdleNotify
@@ -1498,6 +1527,7 @@ init value url key =
     , accountDialogFlags = Types.defaultUserFeedFlags
 
     -- Non-persistent below here
+    , boundingBox = Nothing
     , appState = AppState.makeAppState emptyAppStateAccount
     , appStateAccount = emptyAppStateAccount
     , appStateUpdating = False
@@ -2869,6 +2899,10 @@ openExternalUrl url =
 
 updateInternal : Msg -> Model -> ( Model, Cmd Msg )
 updateInternal msg model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
     case msg of
         Noop ->
             model |> withNoCmd
@@ -2987,6 +3021,18 @@ updateInternal msg model =
 
         ApplyToModel f ->
             f model
+
+        BoundingBoxRequest elementId ->
+            { model | boundingBox = Nothing }
+                |> withCmd (boundingBoxRequest elementId)
+
+        BoundingBoxNotify boundingBox ->
+            { model
+                | boundingBox =
+                    Debug.log "BoundingBoxNotify" <|
+                        Just boundingBox
+            }
+                |> withNoCmd
 
 
 scrollNotificationDecoder : Decoder ScrollNotification
@@ -4126,6 +4172,17 @@ processAppStateUpdate model maybeStuff =
             )
 
 
+setDialog : Model -> String -> Dialog -> ( Model, Cmd Msg )
+setDialog model nodeId dialog =
+    { model | dialog = dialog }
+        |> withCmd (boundingBoxRequest nodeId)
+
+
+setAccountDialog : Model -> Dialog -> ( Model, Cmd Msg )
+setAccountDialog model dialog =
+    setDialog model nodeIds.accountDialog dialog
+
+
 {-| Process UI messages from the columns page.
 
 These change the Model, but don't send anything over the wire to any instances.
@@ -4498,8 +4555,9 @@ columnsUIMsg msg model =
 
         ShowAccountDialog account ->
             let
-                mdl =
-                    { model | dialog = AccountDialog account Nothing }
+                ( mdl, cmd ) =
+                    setAccountDialog model <|
+                        AccountDialog account Nothing
 
                 myAccount =
                     case mdl.account of
@@ -4510,7 +4568,7 @@ columnsUIMsg msg model =
                             False
             in
             if myAccount then
-                mdl |> withNoCmd
+                mdl |> withCmd cmd
 
             else
                 let
@@ -4528,7 +4586,7 @@ columnsUIMsg msg model =
                             )
                             mdl2
                 in
-                mdl3 |> withCmds [ cmd2, cmd3 ]
+                mdl3 |> withCmds [ cmd, cmd2, cmd3 ]
 
         ToggleShowAccountDialogId ->
             { model
@@ -4553,8 +4611,8 @@ columnsUIMsg msg model =
             case model.dialog of
                 AccountDialog account maybeContent ->
                     if not show then
-                        { model | dialog = AccountDialog account Nothing }
-                            |> withNoCmd
+                        setAccountDialog model <|
+                            AccountDialog account Nothing
 
                     else
                         case maybeContent of
@@ -4562,21 +4620,27 @@ columnsUIMsg msg model =
                                 model |> withNoCmd
 
                             _ ->
-                                sendRequest
-                                    (getStatusesRequestFromUserFeedFlags account.id
-                                        Nothing
-                                        model.accountDialogFlags
-                                    )
-                                    { model
-                                        | dialog =
-                                            AccountDialog account <|
+                                let
+                                    ( mdl, cmd ) =
+                                        setAccountDialog model
+                                            (AccountDialog account <|
                                                 Just
                                                     (StatusesContent
                                                         { flags = model.accountDialogFlags
                                                         , statuses = []
                                                         }
                                                     )
-                                    }
+                                            )
+
+                                    ( mdl2, cmd2 ) =
+                                        sendRequest
+                                            (getStatusesRequestFromUserFeedFlags account.id
+                                                Nothing
+                                                model.accountDialogFlags
+                                            )
+                                            mdl
+                                in
+                                mdl2 |> withCmds [ cmd, cmd2 ]
 
                 _ ->
                     model |> withNoCmd
@@ -4589,13 +4653,19 @@ columnsUIMsg msg model =
                             model |> withNoCmd
 
                         _ ->
-                            sendGetFollowing account.id
-                                (Just accountDialogRelationsCount)
-                                { model
-                                    | dialog =
-                                        AccountDialog account <|
+                            let
+                                ( mdl, cmd ) =
+                                    setAccountDialog model
+                                        (AccountDialog account <|
                                             Just (FollowingContent [])
-                                }
+                                        )
+
+                                ( mdl2, cmd2 ) =
+                                    sendGetFollowing account.id
+                                        (Just accountDialogRelationsCount)
+                                        mdl
+                            in
+                            mdl2 |> withCmds [ cmd, cmd2 ]
 
                 _ ->
                     model |> withNoCmd
@@ -4608,13 +4678,19 @@ columnsUIMsg msg model =
                             model |> withNoCmd
 
                         _ ->
-                            sendGetFollowers account.id
-                                (Just accountDialogRelationsCount)
-                                { model
-                                    | dialog =
-                                        AccountDialog account <|
+                            let
+                                ( mdl, cmd ) =
+                                    setAccountDialog model
+                                        (AccountDialog account <|
                                             Just (FollowersContent [])
-                                }
+                                        )
+
+                                ( mdl2, cmd2 ) =
+                                    sendGetFollowers account.id
+                                        (Just accountDialogRelationsCount)
+                                        mdl
+                            in
+                            mdl2 |> withCmds [ cmd, cmd2 ]
 
                 _ ->
                     model |> withNoCmd
@@ -11512,23 +11588,30 @@ applyResponseSideEffects response model1 =
                 AccountListEntity accounts ->
                     case model.dialog of
                         AccountDialog account (Just (FollowingContent _)) ->
-                            { model
-                                | dialog =
-                                    AccountDialog account <|
-                                        Just (FollowingContent accounts)
-                                , sideEffectCmd =
+                            let
+                                ( mdl, cmd ) =
+                                    setAccountDialog model
+                                        (AccountDialog account <|
+                                            Just (FollowingContent accounts)
+                                        )
+                            in
+                            { mdl
+                                | sideEffectCmd =
                                     case model.account of
                                         Nothing ->
-                                            Cmd.none
+                                            cmd
 
                                         Just acct ->
                                             if acct.id == id then
-                                                Cmd.none
+                                                cmd
 
                                             else
-                                                Task.perform ColumnsUIMsg <|
-                                                    Task.succeed
-                                                        (FetchRelationships accounts)
+                                                Cmd.batch
+                                                    [ cmd
+                                                    , Task.perform ColumnsUIMsg <|
+                                                        Task.succeed
+                                                            (FetchRelationships accounts)
+                                                    ]
                             }
 
                         _ ->
@@ -11542,13 +11625,21 @@ applyResponseSideEffects response model1 =
                 AccountListEntity accounts ->
                     case model.dialog of
                         AccountDialog account (Just (FollowersContent _)) ->
-                            { model
-                                | dialog =
-                                    AccountDialog account <|
-                                        Just (FollowersContent accounts)
-                                , sideEffectCmd =
-                                    Task.perform ColumnsUIMsg <|
-                                        Task.succeed (FetchRelationships accounts)
+                            let
+                                ( mdl, cmd ) =
+                                    setAccountDialog model
+                                        (AccountDialog account <|
+                                            Just (FollowersContent accounts)
+                                        )
+                            in
+                            { mdl
+                                | sideEffectCmd =
+                                    Cmd.batch
+                                        [ cmd
+                                        , Task.perform ColumnsUIMsg <|
+                                            Task.succeed
+                                                (FetchRelationships accounts)
+                                        ]
                             }
 
                         _ ->
@@ -11571,16 +11662,19 @@ applyResponseSideEffects response model1 =
                                     mdl
 
                                 Just (StatusesContent contentStatuses) ->
-                                    { mdl
-                                        | dialog =
-                                            AccountDialog account <|
-                                                Just
-                                                    (StatusesContent
-                                                        { contentStatuses
-                                                            | statuses = statuses
-                                                        }
-                                                    )
-                                    }
+                                    let
+                                        ( mdl2, cmd2 ) =
+                                            setAccountDialog model
+                                                (AccountDialog account <|
+                                                    Just
+                                                        (StatusesContent
+                                                            { contentStatuses
+                                                                | statuses = statuses
+                                                            }
+                                                        )
+                                                )
+                                    in
+                                    { mdl2 | sideEffectCmd = cmd2 }
 
                                 _ ->
                                     mdl
@@ -17529,6 +17623,7 @@ nodeIds =
     , threadExplorerStatus = "threadExplorerStatus"
     , accountDialogSelect = "accountDialogSelect"
     , accountDialogStatus = "accountDialogStatus"
+    , accountDialog = "accountDialog"
     }
 
 
@@ -18958,7 +19053,8 @@ accountDialog account maybeContent model =
         renderEnv =
             model.renderEnv
     in
-    div [ class "tall-dialog-title-height" ]
+    div
+        [ class "tall-dialog-title-height" ]
         [ dialogRender
             renderEnv
             { styles =
@@ -18966,13 +19062,13 @@ accountDialog account maybeContent model =
                 , ( "width", "35em" )
                 , ( "max-width", "95%" )
                 , ( "max-height", "95%" )
-                , ( "overflow-y", "auto" )
-                , ( "overflow-x", "hidden" )
                 , ( "font-size", fspct renderEnv )
                 , ( "text-align", "center" )
                 , ( "background-image", "url(\"" ++ account.header ++ "\")" )
                 , ( "background-size", "100%" )
                 , ( "background-repeat", "no-repeat" )
+                , ( "overflow-y", "auto" )
+                , ( "overflow-x", "hidden" )
                 ]
             , title = ""
             , content =
@@ -19111,8 +19207,27 @@ accountDialogContent account maybeContent model =
         [ style "padding" "2px 0px 0px"
         , style "background-color" backgroundColor
         , style "opacity" "0.9"
+        , id nodeIds.accountDialog
         ]
-        [ renderAccount renderEnv
+        [ case model.boundingBox of
+            Nothing ->
+                text ""
+
+            Just { top, left, width } ->
+                div
+                    [ style "position" "absolute"
+                    , style "top" <| String.fromInt (top + 10) ++ "px"
+                    , style "left" <| String.fromInt (left + width - 10 - 30) ++ "px"
+                    , onClick <| ColumnsUIMsg DismissDialog
+                    , title "hide dialog"
+                    ]
+                    [ Html.i
+                        [ class "icon-cancel"
+                        , style "font-size" "30px"
+                        ]
+                        []
+                    ]
+        , renderAccount renderEnv
             account
             displayNameHtml
             True
