@@ -22,6 +22,13 @@
 
 See ../TODO.md for the full list.
 
+* Floating close box for dialogs whose "OK" button is likely to be
+  invisible (e.g. Account Dialog and Thread Explorer).
+
+* Adjust z-index of thread explorer, account dialog, and attachment
+  viewer, so that if you get to account dialog from thread explorer,
+  or vice-versa, everything works as expected.
+
 * Mini account dialog on hover?
 
 * Brave.com and TruthSocial.com pop up a little window saying that "An
@@ -454,6 +461,7 @@ filterInputDecoder =
 
 type alias RenderEnv =
     { loginServer : Maybe String
+    , accountId : String
     , style : Style
     , colorScheme : Maybe ColorScheme
     , fontSizePct : Int
@@ -472,6 +480,7 @@ type alias RenderEnv =
 emptyRenderEnv : RenderEnv
 emptyRenderEnv =
     { loginServer = Nothing
+    , accountId = ""
     , style = SystemStyle
     , colorScheme = Nothing
     , fontSizePct = 100
@@ -1184,6 +1193,7 @@ keyMsgDict =
         , ( ",", ShowSettingsDialog )
         , ( "s", ShowDynamoDBDialog )
         , ( "v", ShowServerDialog )
+        , ( "c", ShowEditColumnsDialog )
         , ( "?", ShowKeyboardShortcutsDialog )
         , ( "o", ShowSaveRestoreDialog )
         , ( "j", ScrollPage ScrollLeft )
@@ -3301,7 +3311,10 @@ globalMsg msg model =
                 { model
                     | msg = Nothing
                     , renderEnv =
-                        { renderEnv | loginServer = Nothing }
+                        { renderEnv
+                            | loginServer = Nothing
+                            , accountId = ""
+                        }
                     , request = Nothing
                     , response = Nothing
                     , entity = Nothing
@@ -3319,7 +3332,12 @@ globalMsg msg model =
                     mdl =
                         { model
                             | renderEnv =
-                                { renderEnv | loginServer = Just server }
+                                { renderEnv
+                                    | loginServer = Just server
+
+                                    -- This is set in ReceiveGetVerifyCredentials
+                                    , accountId = ""
+                                }
                             , token = Nothing
                             , streaming_api = Nothing
                             , account = Nothing
@@ -3364,7 +3382,12 @@ globalMsg msg model =
                         | tokens = Dict.insert server tokenApi model.tokens
                         , tokenText = ""
                         , renderEnv =
-                            { renderEnv | loginServer = Just model.server }
+                            { renderEnv
+                                | loginServer = Just model.server
+
+                                -- This is set in ReceiveGetVerifyCredentials
+                                , accountId = ""
+                            }
                     }
 
                 cmd =
@@ -3471,7 +3494,10 @@ globalMsg msg model =
                         , tokens = Dict.empty
                         , server = ""
                         , renderEnv =
-                            { renderEnv | loginServer = Nothing }
+                            { renderEnv
+                                | loginServer = Nothing
+                                , accountId = ""
+                            }
                         , account = Nothing
                         , token = Nothing
                         , streaming_api = Nothing
@@ -3529,7 +3555,10 @@ globalMsg msg model =
                                 , token = Just authorization.token
                                 , streaming_api = streaming_api
                                 , renderEnv =
-                                    { renderEnv | loginServer = Just server }
+                                    { renderEnv
+                                        | loginServer = Just server
+                                        , accountId = account.id
+                                    }
                                 , account = Just account
                                 , request =
                                     -- Fake the request
@@ -3592,7 +3621,10 @@ globalMsg msg model =
                                 , page = switchHomeToColumns model.page
                                 , server = loginServer
                                 , renderEnv =
-                                    { renderEnv | loginServer = Just loginServer }
+                                    { renderEnv
+                                        | loginServer = Just loginServer
+                                        , accountId = account.id
+                                    }
                                 , token = Just token
                                 , account = Just account
                                 , request = Just request
@@ -3656,12 +3688,19 @@ globalMsg msg model =
                                     Types.accountToAccountId account
 
                                 ( mdl2, mergeIdCmd ) =
-                                    case model.renderEnv.loginServer of
+                                    case renderEnv.loginServer of
                                         Nothing ->
                                             ( mdl, Cmd.none )
 
                                         Just server ->
-                                            mergeAccountId accountId server mdl
+                                            mergeAccountId accountId
+                                                server
+                                                { mdl
+                                                    | renderEnv =
+                                                        { renderEnv
+                                                            | accountId = account.id
+                                                        }
+                                                }
                             in
                             mdl2
                                 |> withCmds
@@ -7141,7 +7180,12 @@ probeGroupsFeature server model =
                 mdl =
                     { model
                         | renderEnv =
-                            { renderEnv | loginServer = Just server }
+                            { renderEnv
+                                | loginServer = Just server
+
+                                -- Temporary Model, so doesn't matter
+                                , accountId = ""
+                            }
                         , token = tokenApi.token
                     }
 
@@ -14832,13 +14876,16 @@ renderPoll renderEnv status =
 
         Just { id, expires_at, expired, multiple, votes_count, options } ->
             let
+                myPoll =
+                    status.account.id == renderEnv.accountId
+
                 vote title =
                     Noop
 
                 renderOption idx option =
                     tr [] <|
                         List.concat
-                            [ if expired then
+                            [ if expired || myPoll then
                                 [ td [] [ text option.title ] ]
 
                               else
@@ -14871,16 +14918,17 @@ renderPoll renderEnv status =
                             ]
             in
             div []
-                [ table [ class "prettytable" ] <|
+                [ br
+                , table [ class "prettytable" ] <|
                     List.indexedMap renderOption options
                 , p []
                     [ text <| String.fromInt votes_count
-                    , text " total votes."
+                    , text " total votes"
                     , br
                     , if expired then
                         case expires_at of
                             Nothing ->
-                                text "Expired."
+                                text "Expired"
 
                             Just time ->
                                 text <|
@@ -14890,7 +14938,7 @@ renderPoll renderEnv status =
                       else
                         case expires_at of
                             Nothing ->
-                                text "No expiration date."
+                                text "No expiration date"
 
                             Just time ->
                                 text <|
@@ -18703,6 +18751,7 @@ keyboardShortcutsDialogRows model =
         , row "s" "Show DynamoDB dialog" Nothing
         , row "t" "Toggle Dark Mode" Nothing
         , row "v" "Show Server Dialog" Nothing
+        , row "c" "Show Edit Columns Dialog" Nothing
         , row "o" "Save/Restore Dialog" Nothing
         , row "?" "Show Keyboard Shortcuts dialog" Nothing
         , row "j / l" "Scroll one page left/right" <|
@@ -20767,6 +20816,7 @@ encodeRenderEnv : RenderEnv -> Value
 encodeRenderEnv env =
     JE.object
         [ ( "loginServer", ED.encodeMaybe JE.string env.loginServer )
+        , ( "accountId", JE.string env.accountId )
         , ( "style", encodeStyle env.style )
         , ( "colorScheme"
           , ED.encodeMaybe WatchColorScheme.encodeColorScheme env.colorScheme
@@ -20781,7 +20831,7 @@ encodeRenderEnv env =
 renderEnvDecoder : Decoder RenderEnv
 renderEnvDecoder =
     JD.succeed
-        (\loginServer style colorScheme fontSizePct_ fontSize_ columnWidth showIds ->
+        (\loginServer accountId style colorScheme fontSizePct_ fontSize_ columnWidth showIds ->
             let
                 ( fontSizePct, fontSize ) =
                     if fontSizePct_ == 0 then
@@ -20797,6 +20847,7 @@ renderEnvDecoder =
             in
             { emptyRenderEnv
                 | loginServer = loginServer
+                , accountId = accountId
                 , style = style
                 , colorScheme = colorScheme
                 , fontSizePct = fontSizePct
@@ -20806,6 +20857,7 @@ renderEnvDecoder =
             }
         )
         |> required "loginServer" (JD.nullable JD.string)
+        |> optional "accountId" JD.string ""
         |> required "style" styleDecoder
         |> optional "colorScheme"
             (JD.map Just <| WatchColorScheme.colorSchemeDecoder)

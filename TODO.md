@@ -59,6 +59,9 @@ Screen recording of how to use Mammudeck with Free Atlantis, and Truth Social.
 * Multiple servers, each column has its own.
   Cross-posting made easy.
 * Translation
+  Link on every post that needs it. Add transation inline. Remember to do that
+  every time.
+  Search other instances of the status.
 * Auto-update, likely without WebSockets initially
   * Indicators of how many posts have been loaded but not displayed
     Click to add to top of column
