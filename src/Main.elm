@@ -25,6 +25,8 @@ See ../TODO.md for the full list.
 * Floating close box for dialogs whose "OK" button is likely to be
   invisible (e.g. Account Dialog and Thread Explorer).
 
+* Eliminate duplicates in @foo... at top of new posts.
+
 * Adjust z-index of thread explorer, account dialog, and attachment
   viewer, so that if you get to account dialog from thread explorer,
   or vice-versa, everything works as expected.
@@ -39,8 +41,16 @@ See ../TODO.md for the full list.
 * Clicking on #foo should go to that column, if it exists, or bring
   up a dialog, showing those posts, with an "Add Column" button.
 
+* A link to a post on another server should come up in a thread explorer.
+  Except I don't know how to turn that post's ID on the other server
+  into an ID on the local server. Maybe just pull the post directly from
+  the other server, if it allows that. If not, open in a new browser tab.
+  Brings up all sorts of issues, though, when clicking on accounts.
+  ID conversion problems there, too.
+
 * Better link parsing. Shouldn't need "https://" prefix, and links at
   beginning of post, or just before punctuation, should work.
+  Soapbox/Rebased does this for us, but Mastodon doesn't.
 
 * Look up custom emojis on the poster's server, but only if he uses one.
 
