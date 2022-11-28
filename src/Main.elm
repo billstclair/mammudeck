@@ -22,8 +22,24 @@
 
 See ../TODO.md for the full list.
 
-* Floating close box for dialogs whose "OK" button is likely to be
-  invisible (e.g. Account Dialog and Thread Explorer).
+* Finish polls. Voting and creating.
+
+* Post editing and quoting.
+  See https://gleasonator.com/@billstclair/posts/AQ4iSUavHlJyNeA9bM
+  If a status has been edited, it has an `edited_at` field, containing
+    date string, same format as `created_at`, e.g. `"2022-11-28T21:34:25.000Z"`.
+  To get history for edits:
+    https://gleasonator.com/api/v1/statuses/AQ4iSUavHlJyNeA9bM/history
+  This returns an array of truncated Status records:
+    Fields: `account`, `content` `created_at`, `emojis`, `media_attachments`, `poll`, `sensitive`, `spoiler_text`.
+  If a status quotes another, its `pleroma.quote` field will contain the quoted status.
+    It also has a weird `<span class="quote-inline">...</span>` just before
+    the `</p>` of the final user paragraph. The `span` contains a link
+    to the quoted post.
+    e.g. id: 
+
+* Switch attachments on right/left keys. Move buttons closer.
+  Wrap arround, with some visual clue that you're doing that.
 
 * Adjust z-index of thread explorer, account dialog, and attachment
   viewer, so that if you get to account dialog from thread explorer,
@@ -14614,7 +14630,7 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
                 , if useLink then
                     a
                         [ href url
-                        , title "Open account page on server."
+                        , title <| "Open in new tab: " ++ url
                         , blankTarget
                         ]
                         [ text ("@" ++ account.acct)
@@ -14623,11 +14639,11 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
 
                   else
                     Html.a
-                        [ href url
+                        [ href "#"
                         , title <| "Show account dialog for @" ++ account.acct
                         , onClick <| showAccountDialogMsg account
                         ]
-                        [ text ("@" ++ account.username) ]
+                        [ text ("@" ++ account.acct) ]
                 , if account.is_verified && fontSizePct > 0 then
                     blueCheck fontSizePct
 
