@@ -1014,6 +1014,9 @@ type ColumnsUIMsg
     | AppStateSaved (Result AppState.Error Int)
     | AppStateUpdated (Result AppState.Error (Maybe Updates))
     | AppStateUpdateDone Bool
+    | RefreshStatus Status
+    | ReceiveRefreshStatus Status (Result Error Response)
+    | RecordPollChoice Status
 
 
 type ReceiveFeedType
@@ -5592,6 +5595,32 @@ columnsUIMsg msg model =
                         (Task.perform (ColumnsUIMsg << AppStateUpdateDone) <|
                             Task.succeed True
                         )
+
+        RefreshStatus status ->
+            model
+                |> withCmd
+                    (Request.serverRequest
+                        (\i r -> ColumnsUIMsg <| ReceiveRefreshStatus i r)
+                        []
+                        { server = model.server
+                        , token = model.token
+                        }
+                        status
+                        (StatusesRequest <| Request.GetStatus { id = status.id })
+                    )
+
+        ReceiveRefreshStatus _ result ->
+            case result of
+                Err error ->
+                    { model | msg = Just <| Debug.toString error }
+                        |> withNoCmd
+
+                Ok response ->
+                    updateColumnsStatus response.entity model
+                        |> withNoCmd
+
+        RecordPollChoice status ->
+            model |> withNoCmd
 
 
 fetchRelationships : List Account -> Model -> ( Model, Cmd Msg )
@@ -12081,6 +12110,7 @@ applyResponseSideEffects response model1 =
 
 That happens when a reply is posted (on refetch of the replied-to
 post), or the user clicks on a posts's reblog or favorite button.
+Or when a Poll is refreshed.
 
 Change the status in all the places it appears in a feed.
 
@@ -14990,11 +15020,21 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
 
 renderPoll : RenderEnv -> Status -> Html Msg
 renderPoll renderEnv status =
+    let
+        renderStyle =
+            getStyle renderEnv
+
+        color =
+            renderStyle.color
+
+        expiredColor =
+            "red"
+    in
     case status.poll of
         Nothing ->
             text ""
 
-        Just { id, expires_at, expired, multiple, votes_count, options } ->
+        Just { id, expires_at, expired, multiple, votes_count, voters_count, options, voted, own_votes } ->
             let
                 myPoll =
                     status.account.id == renderEnv.accountId
@@ -15005,19 +15045,38 @@ renderPoll renderEnv status =
                 renderOption idx option =
                     tr [] <|
                         List.concat
-                            [ if expired || myPoll then
+                            [ if myPoll then
                                 [ td [] [ text option.title ] ]
 
                               else
-                                [ td []
-                                    [ radioButton
-                                        { buttonValue = idx
-                                        , radioValue = -1
-                                        , radioName = id
-                                        , setter = Noop
-                                        , label = ""
-                                        }
-                                    ]
+                                [ if not expired && not voted then
+                                    if multiple then
+                                        td []
+                                            [ checkBox Noop False "" ]
+
+                                    else
+                                        td []
+                                            [ radioButton
+                                                { buttonValue = idx
+                                                , radioValue = -1
+                                                , radioName = id
+                                                , setter = Noop
+                                                , label = ""
+                                                }
+                                            ]
+
+                                  else
+                                    td []
+                                        [ if List.member idx own_votes then
+                                            if multiple then
+                                                text "x"
+
+                                            else
+                                                text special.checkmark
+
+                                          else
+                                            text <| String.repeat 3 special.nbsp
+                                        ]
                                 , td [] [ text option.title ]
                                 ]
                             , [ td [ style "text-align" "right" ]
@@ -15036,14 +15095,39 @@ renderPoll renderEnv status =
                                     ]
                               ]
                             ]
+
+                ( voteLabel, voteCount ) =
+                    case voters_count of
+                        Nothing ->
+                            ( " total votes", votes_count )
+
+                        Just vcount ->
+                            if vcount == 0 && votes_count /= 0 then
+                                ( " total votes", votes_count )
+
+                            else
+                                ( " voters", vcount )
             in
             div []
                 [ br
                 , table [ class "prettytable" ] <|
                     List.indexedMap renderOption options
-                , p []
-                    [ text <| String.fromInt votes_count
-                    , text " total votes"
+                , p
+                    [ style "color" <|
+                        if expired then
+                            expiredColor
+
+                        else
+                            color
+                    ]
+                    [ a
+                        [ href "#"
+                        , onClick <| ColumnsUIMsg (RefreshStatus status)
+                        ]
+                        [ text "refresh" ]
+                    , text <| " " ++ special.middleDot ++ " "
+                    , text <| String.fromInt voteCount
+                    , text voteLabel
                     , br
                     , if expired then
                         case expires_at of
@@ -21778,6 +21862,8 @@ special =
     , black_star = stringFromCode 10036 -- \u2734
     , hourglass = stringFromCode 8987 -- \u231B
     , hourglass_flowing = stringFromCode 9203 -- \u23F3
+    , checkmark = stringFromCode 10003 -- \u2713
+    , middleDot = stringFromCode 183 -- \u00B7
     }
 
 
