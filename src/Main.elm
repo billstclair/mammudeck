@@ -1960,6 +1960,11 @@ processLoginServer model =
     in
     case mdl.renderEnv.loginServer of
         Nothing ->
+            let
+                foo =
+                    Debug.log "No mdl.renderEnv.loginServer, mdl.server"
+                        mdl.server
+            in
             mdl
                 |> withCmds
                     [ Task.perform (GlobalMsg << SetServer) <|
@@ -1969,6 +1974,9 @@ processLoginServer model =
 
         Just server ->
             let
+                foo =
+                    Debug.log "Processing login for loginServer" server
+
                 mdl2 =
                     { mdl
                         | maxTootCharsString =
@@ -1990,7 +1998,7 @@ processLoginServer model =
                     , cmd4
                     , cmd5
                     , fetchFeatures server mdl3
-                    , getAccountIds mdl.server
+                    , getAccountIds server
                     ]
 
 
@@ -8228,6 +8236,11 @@ startReloadUserFeed paging params model =
         Just loginServer ->
             case Dict.get loginServer model.accountIdDict of
                 Nothing ->
+                    let
+                        foo =
+                            Debug.log "Can't find (loginServer, accountIdDict)"
+                                ( loginServer, model.accountIdDict )
+                    in
                     accountsRequest ()
 
                 Just acctIds ->
