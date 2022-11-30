@@ -25,7 +25,12 @@ See ../TODO.md for the full list.
 * Before sending a user search to the server, look in model.accountIdDict
   Test case for this is @alex column on Gleasonator.com
 
+* The result of maybeUpdateRenderEnvNow needs to go back in the model.
+
 * Finish polls. Voting and creating.
+
+* Privacy in Post dialog (Public/Unlisted/Followers-Only/Direct). Copy
+  the replied-to post's privacy as the default.
 
 * Post editing and quoting.
   See https://gleasonator.com/@billstclair/posts/AQ4iSUavHlJyNeA9bM
@@ -43,6 +48,8 @@ See ../TODO.md for the full list.
   The `<status>.pleroma.quotes_count` field says how many posts quote this one.
   You can fetch them with:
     https://gleasonator.com/api/v1/pleroma/statuses/AQ6zpQ36BCMlwNTswK/quotes?limit=20&max_id=AQ6zqgqPDk9aJt9Mci&offset=0
+
+* Speed up display of hell threads in the thread explorer.
 
 * Switch attachments on right/left keys. Move buttons closer.
   Wrap arround, with some visual clue that you're doing that.
@@ -4449,8 +4456,11 @@ columnsUIMsg msg model =
 
                             res ->
                                 processAppStateSave model res
+
+                mdl2 =
+                    maybeUpdateRenderEnvNow now mdl
             in
-            { mdl | now = now }
+            { mdl2 | now = now }
                 |> withCmd cmd
 
         ShowEditColumnsDialog ->
@@ -15989,9 +15999,6 @@ renderColumns model =
 
                                 feedEnv =
                                     getFeedEnv feed.feedType model
-
-                                renderEnv2 =
-                                    maybeUpdateRenderEnvNow model.now feed renderEnv
                             in
                             td
                                 [ style "vertical-align" "top"
@@ -15999,7 +16006,7 @@ renderColumns model =
                                 ]
                                 [ Lazy.lazy4 renderFeed
                                     isFeedLoading
-                                    renderEnv2
+                                    renderEnv
                                     feedEnv
                                     feed
                                 ]
@@ -16012,9 +16019,12 @@ renderColumns model =
 
 {-| Update feedEnv.now, if there's a poll in Feed whose time display would change.
 -}
-maybeUpdateRenderEnvNow : Posix -> Feed -> RenderEnv -> RenderEnv
-maybeUpdateRenderEnvNow now feed renderEnv =
+maybeUpdateRenderEnvNow : Posix -> Model -> Model
+maybeUpdateRenderEnvNow now model =
     let
+        renderEnv =
+            model.renderEnv
+
         checkIncluded s =
             wrappedContains s.reblog || wrappedContains s.quote
 
@@ -16078,14 +16088,25 @@ maybeUpdateRenderEnvNow now feed renderEnv =
                 expires_at =
                     poll.expires_at
             in
-            pollTimeUntil here renderEnv.now expires_at
-                /= pollTimeUntil here now expires_at
+            --            pollTimeUntil here renderEnv.now expires_at
+            --                /= pollTimeUntil here now expires_at
+            -- TODO: put true result back in the modl
+            False
+
+        feedLoop : List Feed -> Bool
+        feedLoop feeds =
+            case feeds of
+                [] ->
+                    False
+
+                feed :: rest ->
+                    elementsLoop feed.elements || feedLoop rest
     in
-    if elementsLoop feed.elements then
-        { renderEnv | now = now }
+    if feedLoop model.feedSet.feeds then
+        { model | renderEnv = { renderEnv | now = now } }
 
     else
-        renderEnv
+        model
 
 
 pollTimeUntil : Zone -> Posix -> Maybe Datetime -> Maybe String
