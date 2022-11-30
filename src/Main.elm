@@ -14528,6 +14528,7 @@ renderNotificationBody renderEnv notificationId ellipsisPrefix notification =
                         [ [ p [ style "font-size" smallTextFontSize ] [ postLink ] ]
                         , body
                         ]
+                , renderPoll renderEnv status
                 , renderMediaAttachments renderEnv status
                 , renderStatusActions renderEnv
                     notificationId
