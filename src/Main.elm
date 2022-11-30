@@ -233,7 +233,7 @@ import JsonTree exposing (TaggedValue(..))
 import List.Extra as LE
 import Mammudeck.EmojiChar as EmojiChar exposing (EmojiChar)
 import Mammudeck.EncodeDecode as MED exposing (encodePropertyAsList)
-import Mammudeck.TimeUntil exposing (timeUntil)
+import Mammudeck.TimeUntil as TimeUntil exposing (timeUntil)
 import Mammudeck.Types as Types
     exposing
         ( AccountId
@@ -310,6 +310,7 @@ import Svg.Attributes as Svga
 import Svg.Button as Button exposing (Button, TriangularButtonDirection(..))
 import Task exposing (Task)
 import Time exposing (Month, Posix, Zone)
+import Time.Extra as TE exposing (Interval(..))
 import Time.Format as Format
 import Time.Format.Config.Configs as Configs
 import Url exposing (Url)
@@ -5624,17 +5625,22 @@ columnsUIMsg msg model =
                         )
 
         RefreshStatus status ->
-            model
-                |> withCmd
-                    (Request.serverRequest
-                        (\i r -> ColumnsUIMsg <| ReceiveRefreshStatus i r)
-                        []
-                        { server = model.server
-                        , token = model.token
-                        }
-                        status
-                        (StatusesRequest <| Request.GetStatus { id = status.id })
-                    )
+            case model.renderEnv.loginServer of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just server ->
+                    model
+                        |> withCmd
+                            (Request.serverRequest
+                                (\i r -> ColumnsUIMsg <| ReceiveRefreshStatus i r)
+                                []
+                                { server = server
+                                , token = model.token
+                                }
+                                status
+                                (StatusesRequest <| Request.GetStatus { id = status.id })
+                            )
 
         ReceiveRefreshStatus _ result ->
             case result of
@@ -15167,22 +15173,26 @@ renderPoll renderEnv status =
                     , if expired then
                         case maybeUntil of
                             Nothing ->
-                                text "Expired"
+                                text "Poll ended"
 
-                            Just until ->
-                                text <|
-                                    "Expired  "
-                                        ++ until
+                            Just ( until, _ ) ->
+                                text <| "Poll ended  " ++ until
 
                       else
                         case maybeUntil of
                             Nothing ->
-                                text "No expiration date"
+                                text "Unknown expiration time"
 
-                            Just until ->
-                                text <|
-                                    "Expires "
-                                        ++ until
+                            Just ( until, timeExpired ) ->
+                                if timeExpired then
+                                    span []
+                                        [ text <| "Poll ended " ++ until
+                                        , br
+                                        , text "Refresh to see results"
+                                        ]
+
+                                else
+                                    text <| "Poll ends " ++ until
                     ]
                 ]
 
@@ -16093,19 +16103,6 @@ maybeUpdateRenderEnvNow now model =
                 _ ->
                     False
 
-        pollTimeChanges poll =
-            let
-                here =
-                    renderEnv.here
-
-                expires_at =
-                    poll.expires_at
-            in
-            --            pollTimeUntil here renderEnv.now expires_at
-            --                /= pollTimeUntil here now expires_at
-            -- TODO: put true result back in the modl
-            False
-
         feedLoop : List Feed -> Bool
         feedLoop feeds =
             case feeds of
@@ -16114,6 +16111,17 @@ maybeUpdateRenderEnvNow now model =
 
                 feed :: rest ->
                     elementsLoop feed.elements || feedLoop rest
+
+        pollTimeChanges poll =
+            let
+                here =
+                    renderEnv.here
+
+                expires_at =
+                    poll.expires_at
+            in
+            pollTimeUntil here renderEnv.now expires_at
+                /= pollTimeUntil here now expires_at
     in
     if feedLoop model.feedSet.feeds then
         { model | renderEnv = { renderEnv | now = now } }
@@ -16122,7 +16130,7 @@ maybeUpdateRenderEnvNow now model =
         model
 
 
-pollTimeUntil : Zone -> Posix -> Maybe Datetime -> Maybe String
+pollTimeUntil : Zone -> Posix -> Maybe Datetime -> Maybe ( String, Bool )
 pollTimeUntil here now expires_at =
     case expires_at of
         Nothing ->
@@ -16131,11 +16139,31 @@ pollTimeUntil here now expires_at =
         Just dateTime ->
             case Iso8601.toTime dateTime of
                 Err _ ->
-                    Just <| "at " ++ dateTime
+                    Nothing
 
                 Ok time ->
-                    timeUntil here 2 now time
-                        |> Just
+                    let
+                        secondDiff =
+                            TE.diff Second here now time
+                    in
+                    Just
+                        ( if TE.diff Hour here now time /= 0 then
+                            timeUntil here 2 now time
+
+                          else if TE.diff Minute here now time /= 0 then
+                            timeUntil here 1 now time
+
+                          else if secondDiff == 0 then
+                            ""
+
+                          else if secondDiff > 0 && secondDiff <= 30 then
+                            timeUntil here 1 now time
+
+                          else
+                            TimeUntil.addInOrAgo now time <|
+                                "less than a minute"
+                        , secondDiff == 0 || TimeUntil.diffTimes now time < 0
+                        )
 
 
 feedDescription : Feed -> ( String, Int )

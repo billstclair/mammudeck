@@ -10,30 +10,35 @@
 ----------------------------------------------------------------------
 
 
-module Mammudeck.TimeUntil exposing (timeUntil)
+module Mammudeck.TimeUntil exposing (addInOrAgo, diffTimes, timeUntil)
 
 import List
 import Time exposing (Posix, Zone)
 import Time.Extra as TE exposing (Interval(..))
 
 
-timeUntil : Zone -> Int -> Posix -> Posix -> String
-timeUntil zone count from to =
-    let
-        mfrom =
-            Time.posixToMillis from
+diffTimes : Posix -> Posix -> Int
+diffTimes from to =
+    Time.posixToMillis to - Time.posixToMillis from
 
-        mto =
-            Time.posixToMillis to
-    in
-    if mfrom == mto then
-        "now"
 
-    else if mfrom < mto then
-        "in " ++ timeUntilInternal zone count from to
+addInOrAgo : Posix -> Posix -> String -> String
+addInOrAgo from to string =
+    if diffTimes from to > 0 then
+        "in " ++ string
 
     else
-        timeUntilInternal zone count to from ++ " ago"
+        string ++ " ago"
+
+
+timeUntil : Zone -> Int -> Posix -> Posix -> String
+timeUntil zone count from to =
+    addInOrAgo from to <|
+        if diffTimes from to >= 0 then
+            timeUntilInternal zone count from to
+
+        else
+            timeUntilInternal zone count to from
 
 
 intervals : List ( Interval, String )
