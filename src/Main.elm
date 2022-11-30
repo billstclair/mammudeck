@@ -22,11 +22,6 @@
 
 See ../TODO.md for the full list.
 
-* Before sending a user search to the server, look in model.accountIdDict
-  Test case for this is @alex column on Gleasonator.com
-
-* The result of maybeUpdateRenderEnvNow needs to go back in the model.
-
 * Finish polls. Voting and creating.
 
 * Privacy in Post dialog (Public/Unlisted/Followers-Only/Direct). Copy
@@ -539,6 +534,7 @@ type alias RenderEnv =
     , windowSize : ( Int, Int )
     , here : Zone
     , now : Posix
+    , pollSelections : Dict String (List Int)
     }
 
 
@@ -559,6 +555,7 @@ emptyRenderEnv =
     , windowSize = ( 1024, 768 )
     , here = Time.utc
     , now = Time.millisToPosix 0
+    , pollSelections = Dict.empty
     }
 
 
@@ -750,6 +747,7 @@ type alias Model =
     , accountDialogFlags : UserFeedFlags
 
     -- Non-persistent below here
+    , pollSelections : Dict String (List Int)
     , boundingBox : Maybe BoundingBox
     , appState : AppState
     , appStateAccount : DynamoDB.Types.Account
@@ -1563,6 +1561,7 @@ init value url key =
     , accountDialogFlags = Types.defaultUserFeedFlags
 
     -- Non-persistent below here
+    , pollSelections = Dict.empty
     , boundingBox = Nothing
     , appState = AppState.makeAppState emptyAppStateAccount
     , appStateAccount = emptyAppStateAccount
@@ -15078,9 +15077,6 @@ renderPoll renderEnv status =
                 myPoll =
                     status.account.id == renderEnv.accountId
 
-                vote title =
-                    Noop
-
                 renderOption idx option =
                     tr [] <|
                         List.concat
@@ -16041,91 +16037,146 @@ renderColumns model =
         ]
 
 
+foldStatuses : (a -> Status -> ( a, Bool )) -> a -> List Feed -> a
+foldStatuses folder initialA initialFeeds =
+    let
+        foldWrapped : a -> Maybe WrappedStatus -> ( a, Bool )
+        foldWrapped a maybeWrapped =
+            case maybeWrapped of
+                Nothing ->
+                    ( a, False )
+
+                Just (WrappedStatus wrapped) ->
+                    folder a wrapped
+
+        statusesLoop : a -> List Status -> ( a, Bool )
+        statusesLoop a statuses =
+            case statuses of
+                [] ->
+                    ( a, False )
+
+                status :: rest ->
+                    let
+                        ( a2, done2 ) =
+                            folder a status
+                    in
+                    if done2 then
+                        ( a2, True )
+
+                    else
+                        let
+                            ( a3, done3 ) =
+                                foldWrapped a2 status.reblog
+                        in
+                        if done3 then
+                            ( a3, True )
+
+                        else
+                            let
+                                ( a4, done4 ) =
+                                    foldWrapped a3 status.quote
+                            in
+                            if done4 then
+                                ( a4, True )
+
+                            else
+                                statusesLoop a2 rest
+
+        notificationsLoop : a -> List Notification -> ( a, Bool )
+        notificationsLoop a notifications =
+            case notifications of
+                [] ->
+                    ( a, False )
+
+                notification :: rest ->
+                    case notification.status of
+                        Nothing ->
+                            notificationsLoop a rest
+
+                        Just status ->
+                            let
+                                ( a2, done ) =
+                                    folder a status
+                            in
+                            if done then
+                                ( a2, True )
+
+                            else
+                                notificationsLoop a2 rest
+
+        elementsLoop : a -> FeedElements -> ( a, Bool )
+        elementsLoop a elements =
+            case elements of
+                StatusElements statuses ->
+                    statusesLoop a statuses
+
+                NotificationElements notifications ->
+                    notificationsLoop a notifications
+
+                _ ->
+                    ( a, False )
+
+        feedLoop : a -> List Feed -> ( a, Bool )
+        feedLoop a feeds =
+            case feeds of
+                [] ->
+                    ( a, False )
+
+                feed :: rest ->
+                    let
+                        ( a2, done ) =
+                            elementsLoop a feed.elements
+                    in
+                    if done then
+                        ( a2, True )
+
+                    else
+                        feedLoop a2 rest
+    in
+    feedLoop initialA initialFeeds
+        |> Tuple.first
+
+
 {-| Update feedEnv.now, if there's a poll in Feed whose time display would change.
 -}
 maybeUpdateRenderEnvNow : Posix -> Model -> Model
 maybeUpdateRenderEnvNow now model =
     let
+        folder : Bool -> Status -> ( Bool, Bool )
+        folder a status =
+            case status.poll of
+                Nothing ->
+                    ( a, False )
+
+                Just poll ->
+                    let
+                        a2 =
+                            pollTimeChanges poll
+                    in
+                    ( a2, a2 )
+
         renderEnv =
             model.renderEnv
 
-        checkIncluded s =
-            wrappedContains s.reblog || wrappedContains s.quote
+        here =
+            renderEnv.here
 
-        wrappedContains maybeWrapped =
-            case maybeWrapped of
-                Nothing ->
-                    False
-
-                Just (WrappedStatus wrapped) ->
-                    containsEffectedPoll wrapped
-
-        containsEffectedPoll : Status -> Bool
-        containsEffectedPoll status =
-            case status.poll of
-                Nothing ->
-                    checkIncluded status
-
-                Just poll ->
-                    pollTimeChanges poll || checkIncluded status
-
-        statusesLoop : List Status -> Bool
-        statusesLoop statuses =
-            case statuses of
-                [] ->
-                    False
-
-                status :: rest ->
-                    containsEffectedPoll status || statusesLoop rest
-
-        notificationsLoop : List Notification -> Bool
-        notificationsLoop notifications =
-            case notifications of
-                [] ->
-                    False
-
-                notification :: rest ->
-                    case notification.status of
-                        Nothing ->
-                            notificationsLoop rest
-
-                        Just status ->
-                            containsEffectedPoll status || notificationsLoop rest
-
-        elementsLoop : FeedElements -> Bool
-        elementsLoop elements =
-            case elements of
-                StatusElements statuses ->
-                    statusesLoop statuses
-
-                NotificationElements notifications ->
-                    notificationsLoop notifications
-
-                _ ->
-                    False
-
-        feedLoop : List Feed -> Bool
-        feedLoop feeds =
-            case feeds of
-                [] ->
-                    False
-
-                feed :: rest ->
-                    elementsLoop feed.elements || feedLoop rest
+        renderEnvNow =
+            renderEnv.now
 
         pollTimeChanges poll =
             let
-                here =
-                    renderEnv.here
-
                 expires_at =
                     poll.expires_at
             in
-            pollTimeUntil here renderEnv.now expires_at
+            pollTimeUntil here renderEnvNow expires_at
                 /= pollTimeUntil here now expires_at
     in
-    if feedLoop model.feedSet.feeds then
-        { model | renderEnv = { renderEnv | now = now } }
+    if foldStatuses folder False model.feedSet.feeds then
+        { model
+            | renderEnv =
+                { renderEnv | now = now }
+        }
 
     else
         model
