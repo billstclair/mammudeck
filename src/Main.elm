@@ -22,6 +22,9 @@
 
 See ../TODO.md for the full list.
 
+* Before sending a user search to the server, look in model.accountIdDict
+  Test case for this is @alex column on Gleasonator.com
+
 * Finish polls. Voting and creating.
 
 * Post editing and quoting.
@@ -37,6 +40,9 @@ See ../TODO.md for the full list.
     the `</p>` of the final user paragraph. The `span` contains a link
     to the quoted post.
     e.g. id: 
+  The `<status>.pleroma.quotes_count` field says how many posts quote this one.
+  You can fetch them with:
+    https://gleasonator.com/api/v1/pleroma/statuses/AQ6zpQ36BCMlwNTswK/quotes?limit=20&max_id=AQ6zqgqPDk9aJt9Mci&offset=0
 
 * Switch attachments on right/left keys. Move buttons closer.
   Wrap arround, with some visual clue that you're doing that.
@@ -220,6 +226,7 @@ import JsonTree exposing (TaggedValue(..))
 import List.Extra as LE
 import Mammudeck.EmojiChar as EmojiChar exposing (EmojiChar)
 import Mammudeck.EncodeDecode as MED exposing (encodePropertyAsList)
+import Mammudeck.TimeUntil exposing (timeUntil)
 import Mammudeck.Types as Types
     exposing
         ( AccountId
@@ -523,6 +530,7 @@ type alias RenderEnv =
     , emojisList : List Emoji
     , windowSize : ( Int, Int )
     , here : Zone
+    , now : Posix
     }
 
 
@@ -542,6 +550,7 @@ emptyRenderEnv =
     , emojisList = []
     , windowSize = ( 1024, 768 )
     , here = Time.utc
+    , now = Time.millisToPosix 0
     }
 
 
@@ -15107,6 +15116,9 @@ renderPoll renderEnv status =
 
                             else
                                 ( " voters", vcount )
+
+                maybeUntil =
+                    pollTimeUntil renderEnv.here renderEnv.now expires_at
             in
             div []
                 [ br
@@ -15130,24 +15142,24 @@ renderPoll renderEnv status =
                     , text voteLabel
                     , br
                     , if expired then
-                        case expires_at of
+                        case maybeUntil of
                             Nothing ->
                                 text "Expired"
 
-                            Just time ->
+                            Just until ->
                                 text <|
-                                    "Expired at "
-                                        ++ formatIso8601 renderEnv.here time
+                                    "Expired  "
+                                        ++ until
 
                       else
-                        case expires_at of
+                        case maybeUntil of
                             Nothing ->
                                 text "No expiration date"
 
-                            Just time ->
+                            Just until ->
                                 text <|
-                                    "Expires at "
-                                        ++ formatIso8601 renderEnv.here time
+                                    "Expires "
+                                        ++ until
                     ]
                 ]
 
@@ -15977,6 +15989,9 @@ renderColumns model =
 
                                 feedEnv =
                                     getFeedEnv feed.feedType model
+
+                                renderEnv2 =
+                                    maybeUpdateRenderEnvNow model.now feed renderEnv
                             in
                             td
                                 [ style "vertical-align" "top"
@@ -15984,7 +15999,7 @@ renderColumns model =
                                 ]
                                 [ Lazy.lazy4 renderFeed
                                     isFeedLoading
-                                    renderEnv
+                                    renderEnv2
                                     feedEnv
                                     feed
                                 ]
@@ -15993,6 +16008,100 @@ renderColumns model =
                     ]
             ]
         ]
+
+
+{-| Update feedEnv.now, if there's a poll in Feed whose time display would change.
+-}
+maybeUpdateRenderEnvNow : Posix -> Feed -> RenderEnv -> RenderEnv
+maybeUpdateRenderEnvNow now feed renderEnv =
+    let
+        checkIncluded s =
+            wrappedContains s.reblog || wrappedContains s.quote
+
+        wrappedContains maybeWrapped =
+            case maybeWrapped of
+                Nothing ->
+                    False
+
+                Just (WrappedStatus wrapped) ->
+                    containsEffectedPoll wrapped
+
+        containsEffectedPoll : Status -> Bool
+        containsEffectedPoll status =
+            case status.poll of
+                Nothing ->
+                    checkIncluded status
+
+                Just poll ->
+                    pollTimeChanges poll || checkIncluded status
+
+        statusesLoop : List Status -> Bool
+        statusesLoop statuses =
+            case statuses of
+                [] ->
+                    False
+
+                status :: rest ->
+                    containsEffectedPoll status || statusesLoop rest
+
+        notificationsLoop : List Notification -> Bool
+        notificationsLoop notifications =
+            case notifications of
+                [] ->
+                    False
+
+                notification :: rest ->
+                    case notification.status of
+                        Nothing ->
+                            notificationsLoop rest
+
+                        Just status ->
+                            containsEffectedPoll status || notificationsLoop rest
+
+        elementsLoop : FeedElements -> Bool
+        elementsLoop elements =
+            case elements of
+                StatusElements statuses ->
+                    statusesLoop statuses
+
+                NotificationElements notifications ->
+                    notificationsLoop notifications
+
+                _ ->
+                    False
+
+        pollTimeChanges poll =
+            let
+                here =
+                    renderEnv.here
+
+                expires_at =
+                    poll.expires_at
+            in
+            pollTimeUntil here renderEnv.now expires_at
+                /= pollTimeUntil here now expires_at
+    in
+    if elementsLoop feed.elements then
+        { renderEnv | now = now }
+
+    else
+        renderEnv
+
+
+pollTimeUntil : Zone -> Posix -> Maybe Datetime -> Maybe String
+pollTimeUntil here now expires_at =
+    case expires_at of
+        Nothing ->
+            Nothing
+
+        Just dateTime ->
+            case Iso8601.toTime dateTime of
+                Err _ ->
+                    Just <| "at " ++ dateTime
+
+                Ok time ->
+                    timeUntil here 2 now time
+                        |> Just
 
 
 feedDescription : Feed -> ( String, Int )

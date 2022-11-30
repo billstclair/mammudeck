@@ -35,6 +35,7 @@
             "elm-community/string-extra": "4.0.1",
             "elm-explorations/markdown": "1.0.0",
             "hecrj/html-parser": "2.4.0",
+            "justinmimbs/time-extra": "1.1.1",
             "klazuka/elm-json-tree-view": "2.1.0",
             "proda-ai/elm-dropzone": "1.0.1",
             "rtfeldman/elm-iso8601-date-strings": "1.1.4"
@@ -46,6 +47,7 @@
             "elm/virtual-dom": "1.0.3",
             "elm-community/dict-extra": "2.4.0",
             "elm-community/json-extra": "4.3.0",
+            "justinmimbs/date": "4.0.1",
             "ktonon/elm-crypto": "1.1.2",
             "ktonon/elm-word": "2.1.2",
             "miniBill/elm-codec": "1.2.0",
