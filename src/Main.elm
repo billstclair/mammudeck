@@ -534,7 +534,6 @@ type alias RenderEnv =
     , windowSize : ( Int, Int )
     , here : Zone
     , now : Posix
-    , pollSelections : Dict String (List Int)
     }
 
 
@@ -555,7 +554,6 @@ emptyRenderEnv =
     , windowSize = ( 1024, 768 )
     , here = Time.utc
     , now = Time.millisToPosix 0
-    , pollSelections = Dict.empty
     }
 
 
@@ -563,6 +561,7 @@ type alias FeedBodyEnv =
     { group : Maybe Group
     , references : ReferenceDict
     , missingReplyToAccountIds : Set String
+    , pollSelections : Dict String (List Int)
     }
 
 
@@ -582,6 +581,7 @@ emptyFeedBodyEnv =
     { group = Nothing
     , references = Dict.empty
     , missingReplyToAccountIds = Set.empty
+    , pollSelections = Dict.empty
     }
 
 
@@ -14145,6 +14145,12 @@ gangNotifications newElements notifications =
                             (\gn ->
                                 (id == gn.id)
                                     && (car.type_ == gn.notification.type_)
+                                    && (if car.type_ == Pleroma_EmojiReactionNotification then
+                                            car.emoji == gn.notification.emoji
+
+                                        else
+                                            True
+                                       )
                             )
                             res
                     of
@@ -14234,6 +14240,31 @@ notificationDescriptionWithDisplayName display_name notification renderEnv =
 
         FollowRequestNotification ->
             span [] [ displayHtml, text " requested to follow you" ]
+
+        UpdateNotification ->
+            span [] [ displayHtml, text " edited a status" ]
+
+        Admin_SignupNotification ->
+            span [] [ displayHtml, text " signed up" ]
+
+        Admin_ReportNotification ->
+            span [] [ displayHtml, text " made a report" ]
+
+        Pleroma_EmojiReactionNotification ->
+            span []
+                [ displayHtml
+                , text " reqcted to "
+                , postName
+                , case notification.emoji of
+                    Nothing ->
+                        text ""
+
+                    Just emoji ->
+                        span []
+                            [ text ": "
+                            , text emoji
+                            ]
+                ]
 
         UnknownNotification name ->
             span [] [ displayHtml, text <| " unknown notification type: " ++ name ]
