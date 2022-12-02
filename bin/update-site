@@ -1,6 +1,6 @@
 #!/bin/bash
 
 elm make src/Main.elm --output site/elm.js
-elm make src/WatchColorSchemeExample.elm --output site/watch-color-scheme.js
+#elm make src/WatchColorSchemeExample.elm --output site/watch-color-scheme.js
 cd site
 rsyncit

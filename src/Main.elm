@@ -14253,7 +14253,7 @@ notificationDescriptionWithDisplayName display_name notification renderEnv =
         Pleroma_EmojiReactionNotification ->
             span []
                 [ displayHtml
-                , text " reqcted to "
+                , text " reacted to "
                 , postName
                 , case notification.emoji of
                     Nothing ->
@@ -15198,29 +15198,40 @@ renderPoll renderEnv status =
                     , text <| String.fromInt voteCount
                     , text voteLabel
                     , br
-                    , if expired then
-                        case maybeUntil of
-                            Nothing ->
-                                text "Poll ended"
-
-                            Just ( until, _ ) ->
-                                text <| "Poll ended  " ++ until
-
-                      else
-                        case maybeUntil of
-                            Nothing ->
-                                text "Unknown expiration time"
-
-                            Just ( until, timeExpired ) ->
-                                if timeExpired then
+                    , let
+                        expireSpan =
+                            case expires_at of
+                                Nothing ->
                                     span []
-                                        [ text <| "Poll ended " ++ until
-                                        , br
-                                        , text "Refresh to see results"
-                                        ]
 
-                                else
-                                    text <| "Poll ends " ++ until
+                                Just expireString ->
+                                    span [ title expireString ]
+                      in
+                      expireSpan
+                        [ if expired then
+                            case maybeUntil of
+                                Nothing ->
+                                    text "Poll ended"
+
+                                Just ( until, _ ) ->
+                                    text <| "Poll ended  " ++ until
+
+                          else
+                            case maybeUntil of
+                                Nothing ->
+                                    text "Unknown expiration time"
+
+                                Just ( until, timeExpired ) ->
+                                    if timeExpired then
+                                        span []
+                                            [ text <| "Poll ended " ++ until
+                                            , br
+                                            , text "Refresh to see results"
+                                            ]
+
+                                    else
+                                        text <| "Poll ends " ++ until
+                        ]
                     ]
                 ]
 
@@ -19668,6 +19679,11 @@ accountDialogContent account maybeContent model =
                     ]
                     [ text "following "
                     , text <| formatInteger account.following_count
+                    ]
+                , br
+                , span [ title <| formatIso8601 renderEnv.here account.created_at ]
+                    [ text "Joined "
+                    , text <| iso8601ToMonthYear renderEnv.here account.created_at
                     ]
                 , br
                 ]
