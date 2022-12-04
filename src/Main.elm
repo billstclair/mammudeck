@@ -24,6 +24,12 @@ See ../TODO.md for the full list.
 
 * Finish polls. Voting and creating.
 
+* account.is_verified came from Gab. Pleroma represents this as
+  account.pleroma.is_admin, .is_confirmed, .is_moderator, and .is_suggested
+  Mastodon doesn't appear to have any such property, but I need to look more.
+  Look for Soapbox's icons for the four fields.
+  I already have one for account.is_verified. Different colors?
+
 * Privacy in Post dialog (Public/Unlisted/Followers-Only/Direct). Copy
   the replied-to post's privacy as the default.
 
@@ -1031,7 +1037,7 @@ type ColumnsUIMsg
     | AppStateUpdateDone Bool
     | RefreshStatus Status
     | ReceiveRefreshStatus Status (Result Error Response)
-    | RecordPollChoice Status
+    | SelectPollOption String Int Bool
 
 
 type ReceiveFeedType
@@ -5651,8 +5657,79 @@ columnsUIMsg msg model =
                     updateColumnsStatus response.entity model
                         |> withNoCmd
 
-        RecordPollChoice status ->
-            model |> withNoCmd
+        SelectPollOption statusId idx isMultiple ->
+            selectPollOption statusId idx isMultiple model
+
+
+selectPollOption : String -> Int -> Bool -> Model -> ( Model, Cmd Msg )
+selectPollOption statusId idx isMultiple model =
+    let
+        selections =
+            Maybe.withDefault [] <| Dict.get statusId model.pollSelections
+
+        newSelections =
+            if isMultiple then
+                if List.member idx selections then
+                    selections
+
+                else
+                    idx :: selections
+
+            else
+                [ idx ]
+
+        mdl2 =
+            { model
+                | pollSelections =
+                    Dict.insert statusId newSelections model.pollSelections
+            }
+
+        folder : Model -> Feed -> Status -> ( Model, Bool )
+        folder mdl3 feed status =
+            if statusId /= status.id then
+                ( mdl3, False )
+
+            else
+                let
+                    feedType =
+                        feed.feedType
+
+                    feedEnv =
+                        getFeedEnv feedType mdl3
+
+                    bodyEnv =
+                        feedEnv.bodyEnv
+
+                    pollSelections =
+                        bodyEnv.pollSelections
+                in
+                if Dict.get statusId pollSelections == Just newSelections then
+                    ( mdl3, False )
+
+                else
+                    let
+                        newFeedEnv =
+                            { feedEnv
+                                | bodyEnv =
+                                    { bodyEnv
+                                        | pollSelections =
+                                            Dict.insert statusId
+                                                newSelections
+                                                pollSelections
+                                    }
+                            }
+                    in
+                    ( { mdl3
+                        | feedEnvs =
+                            Dict.insert (Types.feedID feedType)
+                                newFeedEnv
+                                mdl3.feedEnvs
+                      }
+                    , False
+                    )
+    in
+    foldStatuses folder mdl2 model.feedSet.feeds
+        |> withNoCmd
 
 
 fetchRelationships : List Account -> Model -> ( Model, Cmd Msg )
@@ -7662,16 +7739,6 @@ scrollPageInternal allTheWay direction model =
                 Cmd.none
     in
     model |> withCmd cmd
-
-
-getFeedEnvs : Model -> List (Maybe FeedEnv)
-getFeedEnvs model =
-    let
-        feedEnvs =
-            model.feedEnvs
-    in
-    List.map (\feed -> Dict.get (Types.feedID feed.feedType) feedEnvs)
-        model.feedSet.feeds
 
 
 scrollToNew : ScrollDirection -> FeedType -> Model -> Cmd Msg
@@ -13847,7 +13914,7 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
                 feed.newElements
                 feedType
                 renderEnv
-                feedEnv.bodyEnv
+                bodyEnv
                 feed.elements
             , footer feed.elements
             ]
@@ -14016,6 +14083,7 @@ renderFeedElements error newElements feedType renderEnv bodyEnv elements =
                     , List.indexedMap
                         (renderGangedNotificationWithNewMarker feedType
                             renderEnv
+                            bodyEnv
                             newElements2
                         )
                         gangedNotifications
@@ -14025,8 +14093,8 @@ renderFeedElements error newElements feedType renderEnv bodyEnv elements =
             text ""
 
 
-renderGangedNotificationWithNewMarker : FeedType -> RenderEnv -> Int -> Int -> GangedNotification -> Html Msg
-renderGangedNotificationWithNewMarker feedType renderEnv newElements index gangedNotification =
+renderGangedNotificationWithNewMarker : FeedType -> RenderEnv -> FeedBodyEnv -> Int -> Int -> GangedNotification -> Html Msg
+renderGangedNotificationWithNewMarker feedType renderEnv bodyEnv newElements index gangedNotification =
     let
         feedId =
             Types.feedID feedType
@@ -14034,15 +14102,15 @@ renderGangedNotificationWithNewMarker feedType renderEnv newElements index gange
     if newElements > 0 && newElements == index then
         div []
             [ renderNewMarker feedType renderEnv
-            , renderGangedNotification feedId renderEnv gangedNotification
+            , renderGangedNotification feedId renderEnv bodyEnv gangedNotification
             ]
 
     else
-        renderGangedNotification feedId renderEnv gangedNotification
+        renderGangedNotification feedId renderEnv bodyEnv gangedNotification
 
 
-renderGangedNotification : String -> RenderEnv -> GangedNotification -> Html Msg
-renderGangedNotification ellipsisPrefix renderEnv gangedNotification =
+renderGangedNotification : String -> RenderEnv -> FeedBodyEnv -> GangedNotification -> Html Msg
+renderGangedNotification ellipsisPrefix renderEnv bodyEnv gangedNotification =
     let
         notification =
             gangedNotification.notification
@@ -14050,21 +14118,22 @@ renderGangedNotification ellipsisPrefix renderEnv gangedNotification =
     case gangedNotification.accounts of
         account :: others ->
             if others == [] then
-                renderNotification renderEnv ellipsisPrefix notification
+                renderNotification renderEnv bodyEnv ellipsisPrefix notification
 
             else
                 renderMultiNotification renderEnv
+                    bodyEnv
                     account
                     others
                     ellipsisPrefix
                     notification
 
         _ ->
-            renderNotification renderEnv ellipsisPrefix notification
+            renderNotification renderEnv bodyEnv ellipsisPrefix notification
 
 
-renderMultiNotification : RenderEnv -> Account -> List Account -> String -> Notification -> Html Msg
-renderMultiNotification renderEnv account others ellipsisPrefix notification =
+renderMultiNotification : RenderEnv -> FeedBodyEnv -> Account -> List Account -> String -> Notification -> Html Msg
+renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix notification =
     let
         { color, borderColor } =
             getStyle renderEnv
@@ -14112,7 +14181,7 @@ renderMultiNotification renderEnv account others ellipsisPrefix notification =
                 |> List.intersperse (text " ")
                 |> span []
             ]
-        , renderNotificationBody renderEnv notification.id ellipsisPrefix notification
+        , renderNotificationBody renderEnv bodyEnv notification.id ellipsisPrefix notification
         ]
 
 
@@ -14280,8 +14349,8 @@ headerFontSizeStyle =
     style "font-size" headerFontSize
 
 
-renderNotification : RenderEnv -> String -> Notification -> Html Msg
-renderNotification renderEnv ellipsisPrefix notification =
+renderNotification : RenderEnv -> FeedBodyEnv -> String -> Notification -> Html Msg
+renderNotification renderEnv bodyEnv ellipsisPrefix notification =
     let
         description =
             notificationDescription notification renderEnv
@@ -14299,7 +14368,7 @@ renderNotification renderEnv ellipsisPrefix notification =
                     (Just notification.created_at)
                     Nothing
                 ]
-            , renderNotificationBody renderEnv notification.id ellipsisPrefix notification
+            , renderNotificationBody renderEnv bodyEnv notification.id ellipsisPrefix notification
             ]
         ]
 
@@ -14523,8 +14592,8 @@ smallTextFontSize =
     "80%"
 
 
-renderNotificationBody : RenderEnv -> String -> String -> Notification -> Html Msg
-renderNotificationBody renderEnv notificationId ellipsisPrefix notification =
+renderNotificationBody : RenderEnv -> FeedBodyEnv -> String -> String -> Notification -> Html Msg
+renderNotificationBody renderEnv bodyEnv notificationId ellipsisPrefix notification =
     let
         { color, borderColor } =
             getStyle renderEnv
@@ -14558,7 +14627,7 @@ renderNotificationBody renderEnv notificationId ellipsisPrefix notification =
                         [ [ p [ style "font-size" smallTextFontSize ] [ postLink ] ]
                         , body
                         ]
-                , renderPoll renderEnv status
+                , renderPoll renderEnv bodyEnv status
                 , renderMediaAttachments renderEnv status
                 , renderStatusActions renderEnv
                     notificationId
@@ -15074,7 +15143,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                 , style "color" color
                 ]
                 body
-            , renderPoll renderEnv status
+            , renderPoll renderEnv bodyEnv status
             , renderMediaAttachments renderEnv status
             , renderStatusQuote renderEnv bodyEnv ellipsisPrefix status
             , renderStatusCard renderEnv status
@@ -15087,8 +15156,28 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
         ]
 
 
-renderPoll : RenderEnv -> Status -> Html Msg
-renderPoll renderEnv status =
+isPollOptionChecked : String -> Int -> FeedBodyEnv -> Bool
+isPollOptionChecked statusId idx { pollSelections } =
+    case Dict.get statusId pollSelections of
+        Nothing ->
+            False
+
+        Just indices ->
+            List.member idx indices
+
+
+pollOptionValue : String -> Int -> FeedBodyEnv -> Int
+pollOptionValue statusId idx { pollSelections } =
+    case Dict.get statusId pollSelections of
+        Just [ value ] ->
+            value
+
+        _ ->
+            -1
+
+
+renderPoll : RenderEnv -> FeedBodyEnv -> Status -> Html Msg
+renderPoll renderEnv bodyEnv status =
     let
         renderStyle =
             getStyle renderEnv
@@ -15098,6 +15187,9 @@ renderPoll renderEnv status =
 
         expiredColor =
             "red"
+
+        statusId =
+            status.id
     in
     case status.poll of
         Nothing ->
@@ -15118,15 +15210,33 @@ renderPoll renderEnv status =
                                 [ if not expired && not voted then
                                     if multiple then
                                         td []
-                                            [ checkBox Noop False "" ]
+                                            [ checkBox
+                                                (ColumnsUIMsg <|
+                                                    SelectPollOption statusId
+                                                        idx
+                                                        True
+                                                )
+                                                (isPollOptionChecked statusId
+                                                    idx
+                                                    bodyEnv
+                                                )
+                                                ""
+                                            ]
 
                                     else
                                         td []
                                             [ radioButton
                                                 { buttonValue = idx
-                                                , radioValue = -1
+                                                , radioValue =
+                                                    pollOptionValue statusId
+                                                        idx
+                                                        bodyEnv
                                                 , radioName = id
-                                                , setter = Noop
+                                                , setter =
+                                                    ColumnsUIMsg <|
+                                                        SelectPollOption statusId
+                                                            idx
+                                                            False
                                                 , label = ""
                                                 }
                                             ]
@@ -16079,20 +16189,20 @@ renderColumns model =
         ]
 
 
-foldStatuses : (a -> Status -> ( a, Bool )) -> a -> List Feed -> a
+foldStatuses : (a -> Feed -> Status -> ( a, Bool )) -> a -> List Feed -> a
 foldStatuses folder initialA initialFeeds =
     let
-        foldWrapped : a -> Maybe WrappedStatus -> ( a, Bool )
-        foldWrapped a maybeWrapped =
+        foldWrapped : a -> Feed -> Maybe WrappedStatus -> ( a, Bool )
+        foldWrapped a feed maybeWrapped =
             case maybeWrapped of
                 Nothing ->
                     ( a, False )
 
                 Just (WrappedStatus wrapped) ->
-                    folder a wrapped
+                    folder a feed wrapped
 
-        statusesLoop : a -> List Status -> ( a, Bool )
-        statusesLoop a statuses =
+        statusesLoop : a -> Feed -> List Status -> ( a, Bool )
+        statusesLoop a feed statuses =
             case statuses of
                 [] ->
                     ( a, False )
@@ -16100,7 +16210,7 @@ foldStatuses folder initialA initialFeeds =
                 status :: rest ->
                     let
                         ( a2, done2 ) =
-                            folder a status
+                            folder a feed status
                     in
                     if done2 then
                         ( a2, True )
@@ -16108,7 +16218,7 @@ foldStatuses folder initialA initialFeeds =
                     else
                         let
                             ( a3, done3 ) =
-                                foldWrapped a2 status.reblog
+                                foldWrapped a2 feed status.reblog
                         in
                         if done3 then
                             ( a3, True )
@@ -16116,16 +16226,16 @@ foldStatuses folder initialA initialFeeds =
                         else
                             let
                                 ( a4, done4 ) =
-                                    foldWrapped a3 status.quote
+                                    foldWrapped a3 feed status.quote
                             in
                             if done4 then
                                 ( a4, True )
 
                             else
-                                statusesLoop a2 rest
+                                statusesLoop a2 feed rest
 
-        notificationsLoop : a -> List Notification -> ( a, Bool )
-        notificationsLoop a notifications =
+        notificationsLoop : a -> Feed -> List Notification -> ( a, Bool )
+        notificationsLoop a feed notifications =
             case notifications of
                 [] ->
                     ( a, False )
@@ -16133,27 +16243,27 @@ foldStatuses folder initialA initialFeeds =
                 notification :: rest ->
                     case notification.status of
                         Nothing ->
-                            notificationsLoop a rest
+                            notificationsLoop a feed rest
 
                         Just status ->
                             let
                                 ( a2, done ) =
-                                    folder a status
+                                    folder a feed status
                             in
                             if done then
                                 ( a2, True )
 
                             else
-                                notificationsLoop a2 rest
+                                notificationsLoop a2 feed rest
 
-        elementsLoop : a -> FeedElements -> ( a, Bool )
-        elementsLoop a elements =
+        elementsLoop : a -> Feed -> FeedElements -> ( a, Bool )
+        elementsLoop a feed elements =
             case elements of
                 StatusElements statuses ->
-                    statusesLoop a statuses
+                    statusesLoop a feed statuses
 
                 NotificationElements notifications ->
-                    notificationsLoop a notifications
+                    notificationsLoop a feed notifications
 
                 _ ->
                     ( a, False )
@@ -16167,7 +16277,7 @@ foldStatuses folder initialA initialFeeds =
                 feed :: rest ->
                     let
                         ( a2, done ) =
-                            elementsLoop a feed.elements
+                            elementsLoop a feed feed.elements
                     in
                     if done then
                         ( a2, True )
@@ -16184,8 +16294,8 @@ foldStatuses folder initialA initialFeeds =
 maybeUpdateRenderEnvNow : Posix -> Model -> Model
 maybeUpdateRenderEnvNow now model =
     let
-        folder : Bool -> Status -> ( Bool, Bool )
-        folder a status =
+        folder : Bool -> Feed -> Status -> ( Bool, Bool )
+        folder a _ status =
             case status.poll of
                 Nothing ->
                     ( a, False )
