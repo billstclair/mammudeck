@@ -5732,6 +5732,64 @@ selectPollOption statusId idx isMultiple model =
         |> withNoCmd
 
 
+updateFeedBodyPollSelections : Feed -> Model -> Model
+updateFeedBodyPollSelections feed model =
+    let
+        feedId =
+            Types.feedID feed.feedType
+    in
+    case Dict.get feedId model.feedEnvs of
+        Nothing ->
+            let
+                x =
+                    Debug.log "udateFeedBodyPollSelections, No feedEnv for feedId"
+                        feedId
+            in
+            model
+
+        Just feedEnv ->
+            let
+                pollSelections =
+                    model.pollSelections
+
+                folder : Dict String (List Int) -> Feed -> Status -> ( Dict String (List Int), Bool )
+                folder dict _ status =
+                    if status.poll == Nothing then
+                        ( dict, False )
+
+                    else
+                        case Dict.get status.id pollSelections of
+                            Nothing ->
+                                ( dict, False )
+
+                            Just selections ->
+                                ( Dict.insert status.id selections dict, False )
+
+                bodyPollSelections =
+                    foldStatuses folder Dict.empty [ feed ]
+
+                bodyEnv =
+                    feedEnv.bodyEnv
+            in
+            if bodyEnv.pollSelections == bodyPollSelections then
+                model
+
+            else
+                let
+                    newFeedEnv =
+                        { feedEnv
+                            | bodyEnv =
+                                { bodyEnv
+                                    | pollSelections = bodyPollSelections
+                                }
+                        }
+                in
+                { model
+                    | feedEnvs =
+                        Dict.insert feedId newFeedEnv model.feedEnvs
+                }
+
+
 fetchRelationships : List Account -> Model -> ( Model, Cmd Msg )
 fetchRelationships accounts model =
     let
@@ -7930,6 +7988,9 @@ adjustColumnsForPost status model =
 
         feedSet =
             model.feedSet
+
+        updateBodyEnvs mdl =
+            List.foldl updateFeedBodyPollSelections mdl mdl.feedSet.feeds
     in
     { model
         | feedSet =
@@ -7954,6 +8015,12 @@ adjustColumnsForPost status model =
                     d
         , postState = initialPostState
     }
+        |> (if showReceivedPost then
+                updateBodyEnvs
+
+            else
+                identity
+           )
 
 
 splitUserAtServer : String -> ( String, String )
@@ -8838,8 +8905,16 @@ receiveFeed request paging feedType result model =
 
                             else
                                 fillinMissingReplyToAccountIds mdl3
+
+                        mdl8 =
+                            case findFeed feedType model.feedSet of
+                                Nothing ->
+                                    mdl4
+
+                                Just feed ->
+                                    updateFeedBodyPollSelections feed mdl4
                     in
-                    { mdl4
+                    { mdl8
                         | feedSet =
                             { feedSet | feeds = feeds }
                         , references = references
@@ -11486,6 +11561,7 @@ applyProTimelineSideEffects response model =
                                 | feedSet = newFeedSet
                                 , feedSetDefinition = newFeedSetDefinition
                             }
+                                |> updateFeedBodyPollSelections proFeed
 
                         _ ->
                             mdl
