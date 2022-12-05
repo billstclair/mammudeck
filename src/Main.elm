@@ -14215,15 +14215,15 @@ renderGangedNotificationWithNewMarker feedType renderEnv bodyEnv newElements ind
     if newElements > 0 && newElements == index then
         div []
             [ renderNewMarker feedType renderEnv
-            , renderGangedNotification feedId renderEnv bodyEnv gangedNotification
+            , renderGangedNotification feedId renderEnv bodyEnv index gangedNotification
             ]
 
     else
-        renderGangedNotification feedId renderEnv bodyEnv gangedNotification
+        renderGangedNotification feedId renderEnv bodyEnv index gangedNotification
 
 
-renderGangedNotification : String -> RenderEnv -> FeedBodyEnv -> GangedNotification -> Html Msg
-renderGangedNotification ellipsisPrefix renderEnv bodyEnv gangedNotification =
+renderGangedNotification : String -> RenderEnv -> FeedBodyEnv -> Int -> GangedNotification -> Html Msg
+renderGangedNotification ellipsisPrefix renderEnv bodyEnv index gangedNotification =
     let
         notification =
             gangedNotification.notification
@@ -14231,7 +14231,7 @@ renderGangedNotification ellipsisPrefix renderEnv bodyEnv gangedNotification =
     case gangedNotification.accounts of
         account :: others ->
             if others == [] then
-                renderNotification renderEnv bodyEnv ellipsisPrefix notification
+                renderNotification renderEnv bodyEnv ellipsisPrefix index notification
 
             else
                 renderMultiNotification renderEnv
@@ -14239,14 +14239,15 @@ renderGangedNotification ellipsisPrefix renderEnv bodyEnv gangedNotification =
                     account
                     others
                     ellipsisPrefix
+                    index
                     notification
 
         _ ->
-            renderNotification renderEnv bodyEnv ellipsisPrefix notification
+            renderNotification renderEnv bodyEnv ellipsisPrefix index notification
 
 
-renderMultiNotification : RenderEnv -> FeedBodyEnv -> Account -> List Account -> String -> Notification -> Html Msg
-renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix notification =
+renderMultiNotification : RenderEnv -> FeedBodyEnv -> Account -> List Account -> String -> Int -> Notification -> Html Msg
+renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix index notification =
     let
         { color, borderColor } =
             getStyle renderEnv
@@ -14294,7 +14295,7 @@ renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix notifica
                 |> List.intersperse (text " ")
                 |> span []
             ]
-        , renderNotificationBody renderEnv bodyEnv notification.id ellipsisPrefix notification
+        , renderNotificationBody renderEnv bodyEnv notification.id ellipsisPrefix index notification
         ]
 
 
@@ -14462,8 +14463,8 @@ headerFontSizeStyle =
     style "font-size" headerFontSize
 
 
-renderNotification : RenderEnv -> FeedBodyEnv -> String -> Notification -> Html Msg
-renderNotification renderEnv bodyEnv ellipsisPrefix notification =
+renderNotification : RenderEnv -> FeedBodyEnv -> String -> Int -> Notification -> Html Msg
+renderNotification renderEnv bodyEnv ellipsisPrefix index notification =
     let
         description =
             notificationDescription notification renderEnv
@@ -14481,7 +14482,7 @@ renderNotification renderEnv bodyEnv ellipsisPrefix notification =
                     (Just notification.created_at)
                     Nothing
                 ]
-            , renderNotificationBody renderEnv bodyEnv notification.id ellipsisPrefix notification
+            , renderNotificationBody renderEnv bodyEnv notification.id ellipsisPrefix index notification
             ]
         ]
 
@@ -14705,8 +14706,8 @@ smallTextFontSize =
     "80%"
 
 
-renderNotificationBody : RenderEnv -> FeedBodyEnv -> String -> String -> Notification -> Html Msg
-renderNotificationBody renderEnv bodyEnv notificationId ellipsisPrefix notification =
+renderNotificationBody : RenderEnv -> FeedBodyEnv -> String -> String -> Int -> Notification -> Html Msg
+renderNotificationBody renderEnv bodyEnv notificationId ellipsisPrefix index notification =
     let
         { color, borderColor } =
             getStyle renderEnv
@@ -14740,7 +14741,7 @@ renderNotificationBody renderEnv bodyEnv notificationId ellipsisPrefix notificat
                         [ [ p [ style "font-size" smallTextFontSize ] [ postLink ] ]
                         , body
                         ]
-                , renderPoll renderEnv bodyEnv status
+                , renderPoll renderEnv bodyEnv index status
                 , renderMediaAttachments renderEnv status
                 , renderStatusActions renderEnv
                     notificationId
@@ -15092,20 +15093,20 @@ renderStatusWithNewMarker feedType renderEnv bodyEnv newElements index status =
     if newElements > 0 && newElements == index then
         div []
             [ renderNewMarker feedType renderEnv
-            , renderStatus renderEnv bodyEnv feedId status
+            , renderStatus renderEnv bodyEnv feedId index status
             ]
 
     else
-        renderStatus renderEnv bodyEnv feedId status
+        renderStatus renderEnv bodyEnv feedId index status
 
 
-renderStatus : RenderEnv -> FeedBodyEnv -> String -> Status -> Html Msg
+renderStatus : RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
 renderStatus =
     renderStatusWithId Nothing
 
 
-renderStatusWithId : Maybe String -> RenderEnv -> FeedBodyEnv -> String -> Status -> Html Msg
-renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
+renderStatusWithId : Maybe String -> RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
+renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
     let
         ( status, account, reblogAccount ) =
             case statusIn.reblog of
@@ -15256,9 +15257,9 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix statusIn =
                 , style "color" color
                 ]
                 body
-            , renderPoll renderEnv bodyEnv status
+            , renderPoll renderEnv bodyEnv index status
             , renderMediaAttachments renderEnv status
-            , renderStatusQuote renderEnv bodyEnv ellipsisPrefix status
+            , renderStatusQuote renderEnv bodyEnv ellipsisPrefix index status
             , renderStatusCard renderEnv status
             , renderStatusActions renderEnv
                 statusIn.id
@@ -15289,8 +15290,8 @@ pollOptionValue statusId idx { pollSelections } =
             -1
 
 
-renderPoll : RenderEnv -> FeedBodyEnv -> Status -> Html Msg
-renderPoll renderEnv bodyEnv status =
+renderPoll : RenderEnv -> FeedBodyEnv -> Int -> Status -> Html Msg
+renderPoll renderEnv bodyEnv index status =
     let
         renderStyle =
             getStyle renderEnv
@@ -15346,7 +15347,7 @@ renderPoll renderEnv bodyEnv status =
                                                         bodyEnv
 
                                                 -- This isn't unique. It needs a path to this poll, through containing statuses.
-                                                , radioName = bodyEnv.feedId ++ "." ++ id
+                                                , radioName = bodyEnv.feedId ++ "." ++ id ++ "." ++ String.fromInt index
                                                 , setter =
                                                     ColumnsUIMsg <|
                                                         SelectPollOption statusId
@@ -15461,8 +15462,8 @@ renderPoll renderEnv bodyEnv status =
                 ]
 
 
-renderStatusQuote : RenderEnv -> FeedBodyEnv -> String -> Status -> Html Msg
-renderStatusQuote renderEnv bodyEnv ellipsisPrefix status =
+renderStatusQuote : RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
+renderStatusQuote renderEnv bodyEnv ellipsisPrefix index status =
     case status.quote of
         Nothing ->
             text ""
@@ -15484,6 +15485,7 @@ renderStatusQuote renderEnv bodyEnv ellipsisPrefix status =
                                 }
                                 bodyEnv
                                 (ellipsisPrefix ++ ".quote")
+                                index
                                 wrappedStatus
                             ]
                         ]
@@ -18623,7 +18625,7 @@ renderThreadExplorer state model =
 
         { status, displayed, visited } :: _ ->
             let
-                renderAStatus s idx replyChain =
+                renderAStatus idx s replyChain =
                     let
                         nodeid =
                             threadExplorerStatusId idx
@@ -18637,6 +18639,7 @@ renderThreadExplorer state model =
                                 renderEnv2
                                 bodyEnv
                                 ellipsisId
+                                idx
                                 s
                             ]
 
@@ -18653,6 +18656,7 @@ renderThreadExplorer state model =
                                 renderEnv2
                                 bodyEnv
                                 ellipsisId
+                                idx
                                 s
                             ]
 
@@ -18661,6 +18665,7 @@ renderThreadExplorer state model =
                             renderEnv2
                             bodyEnv
                             ellipsisId
+                            idx
                             s
 
                 loop : Int -> Bool -> List Status -> List (Html Msg) -> List (Html Msg)
@@ -18687,7 +18692,7 @@ renderThreadExplorer state model =
                                         replyChain
 
                                 html =
-                                    renderAStatus s idx sReplyChain
+                                    renderAStatus idx s sReplyChain
                             in
                             loop (idx + 1) rc tail <| html :: res
             in
@@ -20147,6 +20152,7 @@ accountDialogStatusId idx =
 renderAccountDialogStatuses : RenderEnv -> FeedBodyEnv -> List Status -> Html Msg
 renderAccountDialogStatuses renderEnv feedBodyEnv statuses =
     let
+        renderAStatus : Int -> Status -> Html Msg
         renderAStatus idx s =
             let
                 nodeid =
@@ -20159,6 +20165,7 @@ renderAccountDialogStatuses renderEnv feedBodyEnv statuses =
                 renderEnv2
                 feedBodyEnv
                 nodeid
+                idx
                 s
     in
     List.indexedMap renderAStatus statuses
