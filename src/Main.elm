@@ -23,6 +23,11 @@
 See ../TODO.md for the full list.
 
 * Finish polls. Voting and creating.
+  Small memory leak: model.pollSelections is never trimmed.https://github.com/billstclair/mammudeck/commit/33143ee0d38e8e407a5366a2d23dd3b6c4732939sssshessss
+
+* maybeUpdateRenderEnvNow causes all the feeds to be rendered when one of
+  them has a poll whose time has changed.
+  Move the time into the BodyEnv, so only that feed gets re-rendered.
 
 * account.is_verified came from Gab. Pleroma represents this as
   account.pleroma.is_admin, .is_confirmed, .is_moderator, and .is_suggested
@@ -564,7 +569,8 @@ emptyRenderEnv =
 
 
 type alias FeedBodyEnv =
-    { group : Maybe Group
+    { feedId : String
+    , group : Maybe Group
     , references : ReferenceDict
     , missingReplyToAccountIds : Set String
     , pollSelections : Dict String (List Int)
@@ -584,7 +590,8 @@ type alias FeedEnv =
 
 emptyFeedBodyEnv : FeedBodyEnv
 emptyFeedBodyEnv =
-    { group = Nothing
+    { feedId = ""
+    , group = Nothing
     , references = Dict.empty
     , missingReplyToAccountIds = Set.empty
     , pollSelections = Dict.empty
@@ -600,6 +607,14 @@ emptyFeedEnv =
     , newElementsRight = 0
     , newColumnsRight = 0
     , bodyEnv = emptyFeedBodyEnv
+    }
+
+
+makeFeedEnv : String -> FeedEnv
+makeFeedEnv feedId =
+    { emptyFeedEnv
+        | bodyEnv =
+            { emptyFeedBodyEnv | feedId = feedId }
     }
 
 
@@ -2079,7 +2094,7 @@ getFeedEnv feedType model =
             feedEnv
 
         Nothing ->
-            emptyFeedEnv
+            makeFeedEnv feedId
 
 
 addFeedEnv : FeedType -> Model -> Model
@@ -2099,7 +2114,10 @@ addFeedEnv feedType model =
                         feedEnv =
                             { emptyFeedEnv
                                 | bodyEnv =
-                                    { emptyFeedBodyEnv | group = Just group }
+                                    { emptyFeedBodyEnv
+                                        | group = Just group
+                                        , feedId = feedId
+                                    }
                             }
                     in
                     { model
@@ -2115,7 +2133,13 @@ addFeedEnv feedType model =
                 Just list ->
                     let
                         feedEnv =
-                            { emptyFeedEnv | list = Just list }
+                            { emptyFeedEnv
+                                | list = Just list
+                                , bodyEnv =
+                                    { emptyFeedBodyEnv
+                                        | feedId = feedId
+                                    }
+                            }
                     in
                     { model
                         | feedEnvs =
@@ -5182,7 +5206,7 @@ columnsUIMsg msg model =
                 feedEnv =
                     case Dict.get id model.feedEnvs of
                         Nothing ->
-                            emptyFeedEnv
+                            makeFeedEnv id
 
                         Just env ->
                             env
@@ -5658,6 +5682,16 @@ columnsUIMsg msg model =
                         |> withNoCmd
 
         SelectPollOption statusId idx isMultiple ->
+            let
+                sid =
+                    Debug.log "SelectPollOption, statusId" statusId
+
+                idx2 =
+                    Debug.log "  idx" idx
+
+                isMultiple2 =
+                    Debug.log "  isMultiple" isMultiple
+            in
             selectPollOption statusId idx isMultiple model
 
 
@@ -5692,13 +5726,15 @@ selectPollOption statusId idx isMultiple model =
             else
                 let
                     feedType =
-                        feed.feedType
+                        Debug.log "feedType" <|
+                            feed.feedType
 
                     feedEnv =
                         getFeedEnv feedType mdl3
 
                     bodyEnv =
-                        feedEnv.bodyEnv
+                        Debug.log "bodyEnv" <|
+                            feedEnv.bodyEnv
 
                     pollSelections =
                         bodyEnv.pollSelections
@@ -5711,12 +5747,13 @@ selectPollOption statusId idx isMultiple model =
                         newFeedEnv =
                             { feedEnv
                                 | bodyEnv =
-                                    { bodyEnv
-                                        | pollSelections =
-                                            Dict.insert statusId
-                                                newSelections
-                                                pollSelections
-                                    }
+                                    Debug.log "new bodyEnv" <|
+                                        { bodyEnv
+                                            | pollSelections =
+                                                Dict.insert statusId
+                                                    newSelections
+                                                    pollSelections
+                                        }
                             }
                     in
                     ( { mdl3
@@ -5728,7 +5765,7 @@ selectPollOption statusId idx isMultiple model =
                     , False
                     )
     in
-    foldStatuses folder mdl2 model.feedSet.feeds
+    foldStatuses folder mdl2 mdl2.feedSet.feeds
         |> withNoCmd
 
 
@@ -8823,7 +8860,7 @@ receiveFeed request paging feedType result model =
                         feedEnv =
                             case Dict.get feedId model.feedEnvs of
                                 Nothing ->
-                                    emptyFeedEnv
+                                    makeFeedEnv feedId
 
                                 Just env ->
                                     env
@@ -15292,9 +15329,10 @@ renderPoll renderEnv bodyEnv status =
                                                         idx
                                                         True
                                                 )
-                                                (isPollOptionChecked statusId
-                                                    idx
-                                                    bodyEnv
+                                                (Debug.log ("isPollOptionChecked, " ++ statusId) <|
+                                                    isPollOptionChecked statusId
+                                                        idx
+                                                        bodyEnv
                                                 )
                                                 ""
                                             ]
@@ -15307,7 +15345,9 @@ renderPoll renderEnv bodyEnv status =
                                                     pollOptionValue statusId
                                                         idx
                                                         bodyEnv
-                                                , radioName = id
+
+                                                -- This isn't unique. It needs a path to this poll, through containing statuses.
+                                                , radioName = bodyEnv.feedId ++ "." ++ id
                                                 , setter =
                                                     ColumnsUIMsg <|
                                                         SelectPollOption statusId
