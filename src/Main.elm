@@ -544,7 +544,6 @@ type alias RenderEnv =
     , emojisList : List Emoji
     , windowSize : ( Int, Int )
     , here : Zone
-    , now : Posix
     }
 
 
@@ -564,7 +563,6 @@ emptyRenderEnv =
     , emojisList = []
     , windowSize = ( 1024, 768 )
     , here = Time.utc
-    , now = Time.millisToPosix 0
     }
 
 
@@ -574,6 +572,7 @@ type alias FeedBodyEnv =
     , references : ReferenceDict
     , missingReplyToAccountIds : Set String
     , pollSelections : Dict String (List Int)
+    , now : Posix
     }
 
 
@@ -595,6 +594,7 @@ emptyFeedBodyEnv =
     , references = Dict.empty
     , missingReplyToAccountIds = Set.empty
     , pollSelections = Dict.empty
+    , now = Time.millisToPosix 0
     }
 
 
@@ -15329,10 +15329,9 @@ renderPoll renderEnv bodyEnv status =
                                                         idx
                                                         True
                                                 )
-                                                (Debug.log ("isPollOptionChecked, " ++ statusId) <|
-                                                    isPollOptionChecked statusId
-                                                        idx
-                                                        bodyEnv
+                                                (isPollOptionChecked statusId
+                                                    idx
+                                                    bodyEnv
                                                 )
                                                 ""
                                             ]
@@ -15401,7 +15400,7 @@ renderPoll renderEnv bodyEnv status =
                                 ( " voters", vcount )
 
                 maybeUntil =
-                    pollTimeUntil renderEnv.here renderEnv.now expires_at
+                    pollTimeUntil renderEnv.here bodyEnv.now expires_at
             in
             div []
                 [ br
@@ -16405,23 +16404,52 @@ foldStatuses folder initialA initialFeeds =
         |> Tuple.first
 
 
-{-| Update feedEnv.now, if there's a poll in Feed whose time display would change.
+{-| Update bodyEnv.now, if there's a poll in Feed whose time display would change.
 -}
 maybeUpdateRenderEnvNow : Posix -> Model -> Model
 maybeUpdateRenderEnvNow now model =
     let
-        folder : Bool -> Feed -> Status -> ( Bool, Bool )
-        folder a _ status =
-            case status.poll of
-                Nothing ->
-                    ( a, False )
+        folder : ( Model, Maybe String ) -> Feed -> Status -> ( ( Model, Maybe String ), Bool )
+        folder ( mdl, mfid ) feed status =
+            let
+                feedId =
+                    Types.feedID feed.feedType
+            in
+            if mfid == Just feedId then
+                ( ( mdl, mfid ), False )
 
-                Just poll ->
-                    let
-                        a2 =
-                            pollTimeChanges poll
-                    in
-                    ( a2, a2 )
+            else
+                case status.poll of
+                    Nothing ->
+                        ( ( mdl, mfid ), False )
+
+                    Just poll ->
+                        let
+                            feedEnv =
+                                getFeedEnv feed.feedType mdl
+                        in
+                        if not <| pollTimeChanges poll feedEnv.bodyEnv.now then
+                            ( ( mdl, mfid ), False )
+
+                        else
+                            let
+                                bodyEnv =
+                                    feedEnv.bodyEnv
+
+                                newFeedEnv =
+                                    { feedEnv
+                                        | bodyEnv =
+                                            { bodyEnv | now = now }
+                                    }
+                            in
+                            ( ( { mdl
+                                    | feedEnvs =
+                                        Dict.insert feedId newFeedEnv mdl.feedEnvs
+                                }
+                              , Just feedId
+                              )
+                            , False
+                            )
 
         renderEnv =
             model.renderEnv
@@ -16429,25 +16457,18 @@ maybeUpdateRenderEnvNow now model =
         here =
             renderEnv.here
 
-        renderEnvNow =
-            renderEnv.now
-
-        pollTimeChanges poll =
+        pollTimeChanges poll bodyEnvNow =
             let
                 expires_at =
                     poll.expires_at
             in
-            pollTimeUntil here renderEnvNow expires_at
+            pollTimeUntil here bodyEnvNow expires_at
                 /= pollTimeUntil here now expires_at
-    in
-    if foldStatuses folder False model.feedSet.feeds then
-        { model
-            | renderEnv =
-                { renderEnv | now = now }
-        }
 
-    else
-        model
+        ( mdl2, _ ) =
+            foldStatuses folder ( model, Nothing ) model.feedSet.feeds
+    in
+    mdl2
 
 
 pollTimeUntil : Zone -> Posix -> Maybe Datetime -> Maybe ( String, Bool )
