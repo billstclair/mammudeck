@@ -22,7 +22,14 @@
 
 See ../TODO.md for the full list.
 
+* Don't allow reposting of other than public posts.
+  See: https://gleasonator.com/@billstclair/posts/AQLCjEXkIURjOFs7ai
+
 * Finish polls. Voting and creating.
+  The poll status isn't getting into new statuses after updating
+  It sometimes doesn't cross feed boundaries at all, when one has a reblog.
+  Need to fetch polls every time the feed is refreshed. They may have changed.
+  It's worse, ANY status may have been edited.
   Small memory leak: model.pollSelections is never trimmed.https://github.com/billstclair/mammudeck/commit/33143ee0d38e8e407a5366a2d23dd3b6c4732939sssshessss
 
 * maybeUpdateRenderEnvNow causes all the feeds to be rendered when one of
@@ -1027,6 +1034,7 @@ type ColumnsUIMsg
     | PostGroupNameInput String
     | TogglePostGroup
     | SetPostText String
+    | SetPostVisibility String
     | ChoosePostAttachment
     | PostAttachmentChosen File
     | PostDrop (DropZone.DropZoneMessage (List File))
@@ -4890,15 +4898,22 @@ columnsUIMsg msg model =
                         Just account ->
                             account.username
 
-                ( ( replyTo, replyType ), ( groupName, group_id ) ) =
+                ( ( replyTo, replyType, visibility ), ( groupName, group_id ) ) =
                     case maybeStatus of
                         Nothing ->
-                            ( ( postState.replyTo, postState.replyType )
+                            ( ( postState.replyTo
+                              , postState.replyType
+                              , if postState.replyTo == Nothing then
+                                    postState.setVisibility
+
+                                else
+                                    postState.visibility
+                              )
                             , ( postState.groupName, postState.group_id )
                             )
 
                         Just status ->
-                            ( ( maybeStatus, ReplyToPost )
+                            ( ( maybeStatus, ReplyToPost, status.visibility )
                             , case status.group of
                                 Nothing ->
                                     ( postState.groupName, postState.group_id )
@@ -4913,6 +4928,7 @@ columnsUIMsg msg model =
                     { postState
                         | replyTo = replyTo
                         , replyType = replyType
+                        , visibility = visibility
                         , groupName = groupName
                         , group_id = group_id
                     }
@@ -5340,6 +5356,34 @@ columnsUIMsg msg model =
             }
                 |> initializePostTextPopup postState.text string
 
+        SetPostVisibility string ->
+            let
+                postState =
+                    model.postState
+
+                visibility =
+                    case string of
+                        "unlisted" ->
+                            UnlistedVisibility
+
+                        "private" ->
+                            PrivateVisibility
+
+                        "direct" ->
+                            DirectVisibility
+
+                        _ ->
+                            PublicVisibility
+            in
+            { model
+                | postState =
+                    { postState
+                        | visibility = visibility
+                        , setVisibility = visibility
+                    }
+            }
+                |> withNoCmd
+
         ChoosePostAttachment ->
             model
                 |> withCmd
@@ -5525,7 +5569,7 @@ columnsUIMsg msg model =
                     , poll = Nothing
                     , sensitive = postState.sensitive
                     , spoiler_text = Nothing
-                    , visibility = Just PublicVisibility
+                    , visibility = Just postState.visibility
                     , scheduled_at = Nothing
                     , language = Nothing
                     , idempotencyKey = Nothing
@@ -5934,6 +5978,7 @@ clearPostStateReplyTo postState =
     { postState
         | replyTo = Nothing
         , replyType = NoReply
+        , visibility = postState.setVisibility
         , text = text
         , mentionsString = ""
     }
@@ -10794,14 +10839,16 @@ explorerSendMsg msg model =
                 (StatusesRequest <|
                     Request.PostReblogStatus { id = model.statusId }
                 )
-                { model | dialog = NoDialog }
+                --{ model | dialog = NoDialog }
+                model
 
         SendPostUnreblogStatus ->
             sendRequest
                 (StatusesRequest <|
                     Request.PostUnreblogStatus { id = model.statusId }
                 )
-                { model | dialog = NoDialog }
+                --{ model | dialog = NoDialog }
+                model
 
         SendPostPinStatus ->
             sendRequest
@@ -15685,19 +15732,60 @@ renderStatusActions renderEnv statusId selectedRequest ellipsisPrefix status =
             else
                 ""
 
+        visibility =
+            status.visibility
+
         rebloggedTitle =
             if reblogged then
                 "unRepeat"
 
             else
-                "Repeat"
+                case visibility of
+                    PublicVisibility ->
+                        "Repeat"
 
-        retweetedClass =
+                    UnlistedVisibility ->
+                        "Repeat"
+
+                    PrivateVisibility ->
+                        "Visibile only to followers"
+
+                    DirectVisibility ->
+                        "Direct message, visible only to mentions"
+
+                    _ ->
+                        "Private group visibility"
+
+        toggleStatusRepeat =
+            ColumnsUIMsg <| ToggleStatusRepeat status
+
+        ( retweetedClass, reblogsMsg ) =
             if reblogged then
-                " retweeted"
+                ( " button-icon rt-active icon-retweet retweeted"
+                , toggleStatusRepeat
+                )
 
             else
-                " retweeted-empty"
+                case visibility of
+                    PublicVisibility ->
+                        ( " button-icon rt-active icon-retweet retweeted-empty"
+                        , toggleStatusRepeat
+                        )
+
+                    UnlistedVisibility ->
+                        ( " button-icon rt-active icon-retweet retweeted-empty"
+                        , toggleStatusRepeat
+                        )
+
+                    PrivateVisibility ->
+                        ( " icon-lock"
+                        , Noop
+                        )
+
+                    _ ->
+                        ( " icon-mail-alt"
+                        , Noop
+                        )
 
         reblogsString =
             if reblogs_count > 0 then
@@ -15763,12 +15851,10 @@ renderStatusActions renderEnv statusId selectedRequest ellipsisPrefix status =
                 (ColumnsUIMsg <| ShowPostDialog (Just status))
             , statusButton
                 [ title rebloggedTitle
-                , class <|
-                    "button-icon retweet-button icon-retweet rt-active"
-                        ++ retweetedClass
+                , class retweetedClass
                 ]
                 reblogsString
-                (ColumnsUIMsg <| ToggleStatusRepeat status)
+                reblogsMsg
             , statusButton
                 [ title favoriteTitle
                 , class <|
@@ -19637,6 +19723,8 @@ type alias PostState =
     , text : String
     , mentionsString : String
     , sensitive : Bool
+    , visibility : Visibility
+    , setVisibility : Visibility
     , media_ids : List String
     , fileNames : List String
     , fileUrls : List String
@@ -19654,6 +19742,8 @@ initialPostState =
     , text = ""
     , mentionsString = ""
     , sensitive = False
+    , visibility = PublicVisibility
+    , setVisibility = PublicVisibility
     , media_ids = []
     , fileNames = []
     , fileUrls = []
@@ -20412,7 +20502,7 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
       p []
         [ textarea
             [ id nodeIds.postDialogText
-            , rows 20
+            , rows 19
             , style "width" "100%"
             , style "color" color
             , style "background-color" inputBackground
@@ -20429,7 +20519,39 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
             text lenstr
         , text " / "
         , text (String.fromInt max_toot_chars)
-        , br
+        , p []
+            [ text "Visibility: "
+            , let
+                visibility =
+                    postState.visibility
+              in
+              select [ onInput (ColumnsUIMsg << SetPostVisibility) ]
+                [ option
+                    [ value "public"
+                    , selected <| visibility == PublicVisibility
+                    , title "Post to public timelines"
+                    ]
+                    [ text "Public" ]
+                , option
+                    [ value "unlisted"
+                    , selected <| visibility == UnlistedVisibility
+                    , title "Do not post to public timelines"
+                    ]
+                    [ text "Unlisted" ]
+                , option
+                    [ value "private"
+                    , selected <| visibility == PrivateVisibility
+                    , title "Post to followers only"
+                    ]
+                    [ text "Followers-only" ]
+                , option
+                    [ value "direct"
+                    , selected <| visibility == DirectVisibility
+                    , title "Post to mentioned users only"
+                    ]
+                    [ text "Direct" ]
+                ]
+            ]
         , case ( renderEnv.loginServer, maybeAccount ) of
             ( Just server, Just { username } ) ->
                 span []
@@ -21658,32 +21780,73 @@ replyTypeDecoder =
 
 encodePostState : PostState -> Value
 encodePostState postState =
-    JE.object
-        [ ( "replyTo", ED.encodeMaybe ED.encodeStatus postState.replyTo )
-        , ( "replyType", encodeReplyType postState.replyType )
-        , ( "text", JE.string postState.text )
-        , ( "mentionsString", JE.string postState.mentionsString )
-        , ( "sensitive", JE.bool postState.sensitive )
-        , ( "media_ids", JE.list JE.string postState.media_ids )
-        , ( "fileNames", JE.list JE.string postState.fileNames )
-        , ( "fileUrls", JE.list JE.string postState.fileUrls )
-        , ( "groupName", JE.string postState.groupName )
-        , ( "group_id", ED.encodeMaybe JE.string postState.group_id )
-        , ( "deleteAndRedraft", JE.bool postState.deleteAndRedraft )
-        ]
+    JE.object <|
+        List.concat
+            [ encodePropertyAsList "replyTo"
+                postState.replyTo
+                (ED.encodeMaybe ED.encodeStatus)
+                Nothing
+            , encodePropertyAsList "replyType"
+                postState.replyType
+                encodeReplyType
+                NoReply
+            , [ ( "text", JE.string postState.text ) ]
+            , encodePropertyAsList "mentionsString"
+                postState.mentionsString
+                JE.string
+                ""
+            , encodePropertyAsList "sensitive"
+                postState.sensitive
+                JE.bool
+                False
+            , encodePropertyAsList "visibility"
+                postState.visibility
+                ED.encodeVisibility
+                PublicVisibility
+            , encodePropertyAsList "setVisibility"
+                postState.setVisibility
+                ED.encodeVisibility
+                PublicVisibility
+            , encodePropertyAsList "media_ids"
+                postState.media_ids
+                (JE.list JE.string)
+                []
+            , encodePropertyAsList "fileNames"
+                postState.fileNames
+                (JE.list JE.string)
+                []
+            , encodePropertyAsList "fileUrls"
+                postState.fileUrls
+                (JE.list JE.string)
+                []
+            , encodePropertyAsList "groupName"
+                postState.groupName
+                JE.string
+                ""
+            , encodePropertyAsList "group_id"
+                postState.group_id
+                (ED.encodeMaybe JE.string)
+                Nothing
+            , encodePropertyAsList "deleteAndRedraft"
+                postState.deleteAndRedraft
+                JE.bool
+                False
+            ]
 
 
 postStateDecoder : Decoder PostState
 postStateDecoder =
     JD.succeed PostState
-        |> required "replyTo" (JD.nullable ED.statusDecoder)
+        |> optional "replyTo" (JD.nullable ED.statusDecoder) Nothing
         |> optional "replyType" replyTypeDecoder NoReply
         |> required "text" JD.string
-        |> required "mentionsString" JD.string
-        |> required "sensitive" JD.bool
-        |> required "media_ids" (JD.list JD.string)
-        |> required "fileNames" (JD.list JD.string)
-        |> required "fileUrls" (JD.list JD.string)
+        |> optional "mentionsString" JD.string ""
+        |> optional "sensitive" JD.bool False
+        |> optional "visibility" ED.visibilityDecoder PublicVisibility
+        |> optional "setVisibility" ED.visibilityDecoder PublicVisibility
+        |> optional "media_ids" (JD.list JD.string) []
+        |> optional "fileNames" (JD.list JD.string) []
+        |> optional "fileUrls" (JD.list JD.string) []
         |> optional "groupName" JD.string ""
         |> optional "group_id" (JD.nullable JD.string) Nothing
         |> optional "deleteAndRedraft" JD.bool False
