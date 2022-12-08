@@ -22,12 +22,8 @@
 
 See ../TODO.md for the full list.
 
-* Finish polls. Voting and creating.
-  The poll status isn't getting into new statuses after updating
-  It sometimes doesn't cross feed boundaries at all, when one has a reblog.
-  Need to fetch polls every time the feed is refreshed. They may have changed.
-  It's worse, ANY status may have been edited.
-  Small memory leak: model.pollSelections is never trimmed.https://github.com/billstclair/mammudeck/commit/33143ee0d38e8e407a5366a2d23dd3b6c4732939sssshessss
+* Trim model.pollSelections on vote.
+  Create poll in Post dialog.
 
 * account.is_verified came from Gab. Pleroma represents this as
   account.pleroma.is_admin, .is_confirmed, .is_moderator, and .is_suggested
@@ -572,6 +568,7 @@ type alias FeedBodyEnv =
     , references : ReferenceDict
     , missingReplyToAccountIds : Set String
     , pollSelections : Dict String (List Int)
+    , pollsSubmitted : Set String
     , now : Posix
     }
 
@@ -594,6 +591,7 @@ emptyFeedBodyEnv =
     , references = Dict.empty
     , missingReplyToAccountIds = Set.empty
     , pollSelections = Dict.empty
+    , pollsSubmitted = Set.empty
     , now = Time.millisToPosix 0
     }
 
@@ -1054,6 +1052,8 @@ type ColumnsUIMsg
     | RefreshStatus Status
     | ReceiveRefreshStatus Status (Result Error Response)
     | SelectPollOption String Int Bool
+    | SubmitPollVotes String String
+    | ReceivePollVotes String (Result Error Response)
 
 
 type ReceiveFeedType
@@ -1815,6 +1815,22 @@ storageHandler response state model =
 
         _ ->
             mdl |> withCmd cmd
+
+
+serverRequest : (id -> Result Error Response -> Msg) -> id -> Request -> Model -> Cmd Msg
+serverRequest wrapper id request model =
+    case model.renderEnv.loginServer of
+        Nothing ->
+            Cmd.none
+
+        Just server ->
+            Request.serverRequest wrapper
+                []
+                { server = server
+                , token = model.token
+                }
+                id
+                request
 
 
 getInstance : Model -> Cmd Msg
@@ -5719,17 +5735,144 @@ columnsUIMsg msg model =
                         |> withNoCmd
 
         SelectPollOption statusId idx isMultiple ->
-            let
-                sid =
-                    Debug.log "SelectPollOption, statusId" statusId
-
-                idx2 =
-                    Debug.log "  idx" idx
-
-                isMultiple2 =
-                    Debug.log "  isMultiple" isMultiple
-            in
             selectPollOption statusId idx isMultiple model
+
+        SubmitPollVotes statusId pollId ->
+            submitPollVotes statusId pollId model
+
+        ReceivePollVotes statusId result ->
+            receivePollVotes statusId result model
+
+
+receivePollVotes : String -> Result Error Response -> Model -> ( Model, Cmd Msg )
+receivePollVotes statusId result model =
+    let
+        folder : Feed -> Dict String FeedEnv -> Dict String FeedEnv
+        folder feed feedEnvs =
+            let
+                feedId =
+                    Types.feedID feed.feedType
+            in
+            case Dict.get feedId feedEnvs of
+                Nothing ->
+                    feedEnvs
+
+                Just feedEnv ->
+                    let
+                        bodyEnv =
+                            feedEnv.bodyEnv
+
+                        pollsSubmitted =
+                            Set.remove statusId bodyEnv.pollsSubmitted
+                    in
+                    if pollsSubmitted == bodyEnv.pollsSubmitted then
+                        feedEnvs
+
+                    else
+                        Dict.insert feedId
+                            { feedEnv
+                                | bodyEnv =
+                                    { bodyEnv
+                                        | pollsSubmitted = pollsSubmitted
+                                    }
+                            }
+                            feedEnvs
+
+        mdl =
+            { model
+                | feedEnvs =
+                    List.foldl folder model.feedEnvs model.feedSet.feeds
+            }
+    in
+    case result of
+        Err err ->
+            { mdl | msg = Just <| Debug.toString err }
+                |> withNoCmd
+
+        Ok response ->
+            case response.entity of
+                PollEntity poll ->
+                    modifyColumnsStatus statusId
+                        (\s -> { s | poll = Just poll })
+                        model
+                        |> withNoCmd
+
+                entity ->
+                    let
+                        e =
+                            Debug.log "Bad entity in receivePollVotes" entity
+                    in
+                    { model | msg = Just "Bad entity in receivePollVotes" }
+                        |> withNoCmd
+
+
+isPollSubmitted : String -> FeedBodyEnv -> Bool
+isPollSubmitted statusId bodyEnv =
+    Set.member statusId bodyEnv.pollsSubmitted
+
+
+setPollSubmitted : String -> Bool -> FeedType -> Model -> Model
+setPollSubmitted statusId isSubmitted feedType model =
+    let
+        feedEnv =
+            getFeedEnv feedType model
+
+        bodyEnv =
+            feedEnv.bodyEnv
+    in
+    { model
+        | feedEnvs =
+            Dict.insert (Types.feedID feedType)
+                { feedEnv
+                    | bodyEnv =
+                        { bodyEnv
+                            | pollsSubmitted =
+                                if isSubmitted then
+                                    Set.insert statusId bodyEnv.pollsSubmitted
+
+                                else
+                                    Set.remove statusId bodyEnv.pollsSubmitted
+                        }
+                }
+                model.feedEnvs
+    }
+
+
+submitPollVotes : String -> String -> Model -> ( Model, Cmd Msg )
+submitPollVotes statusId pollId model =
+    case Maybe.withDefault [] <| Dict.get statusId model.pollSelections of
+        [] ->
+            { model | msg = Just <| "No poll selection for statusId: " ++ statusId }
+                |> withNoCmd
+
+        selections ->
+            let
+                folder : Model -> Feed -> Status -> ( Model, Bool )
+                folder mdl feed status =
+                    if statusId /= status.id then
+                        ( mdl, False )
+
+                    else
+                        ( setPollSubmitted statusId True feed.feedType model
+                        , False
+                        )
+
+                mdl2 =
+                    foldStatuses folder model model.feedSet.feeds
+            in
+            mdl2
+                |> withCmd
+                    (serverRequest
+                        (\id result -> ColumnsUIMsg <| ReceivePollVotes id result)
+                        statusId
+                        (PollsRequest <|
+                            Request.PostVotes
+                                { id = pollId
+                                , choices = selections
+                                }
+                        )
+                        mdl2
+                    )
 
 
 selectPollOption : String -> Int -> Bool -> Model -> ( Model, Cmd Msg )
@@ -5763,8 +5906,7 @@ selectPollOption statusId idx isMultiple model =
             else
                 let
                     feedType =
-                        Debug.log "feedType" <|
-                            feed.feedType
+                        feed.feedType
 
                     feedEnv =
                         getFeedEnv feedType mdl3
@@ -5812,11 +5954,6 @@ updateFeedBodyPollSelections feed model =
     in
     case Dict.get feedId model.feedEnvs of
         Nothing ->
-            let
-                x =
-                    Debug.log "udateFeedBodyPollSelections, No feedEnv for feedId"
-                        feedId
-            in
             model
 
         Just feedEnv ->
@@ -15328,6 +15465,19 @@ pollOptionValue statusId idx { pollSelections } =
             -1
 
 
+isAPollOptionSelected : String -> FeedBodyEnv -> Bool
+isAPollOptionSelected statusId { pollSelections } =
+    case Dict.get statusId pollSelections of
+        Nothing ->
+            False
+
+        Just [] ->
+            False
+
+        _ ->
+            True
+
+
 renderPoll : RenderEnv -> FeedBodyEnv -> Int -> Status -> Html Msg
 renderPoll renderEnv bodyEnv index status =
     let
@@ -15351,6 +15501,10 @@ renderPoll renderEnv bodyEnv index status =
             let
                 myPoll =
                     status.account.id == renderEnv.accountId
+
+                voting =
+                    -- TODO
+                    False
 
                 renderOption idx option =
                     tr [] <|
@@ -15445,6 +15599,31 @@ renderPoll renderEnv bodyEnv index status =
                 [ br
                 , table [ class "prettytable" ] <|
                     List.indexedMap renderOption options
+                , if myPoll || expired then
+                    text ""
+
+                  else
+                    let
+                        enabled =
+                            not voted
+                                && not voting
+                                && isAPollOptionSelected statusId bodyEnv
+
+                        label =
+                            if voted then
+                                "You voted!"
+
+                            else if voting then
+                                "Vote submitted"
+
+                            else
+                                "Submit Vote"
+                    in
+                    p []
+                        [ enabledButton enabled
+                            (ColumnsUIMsg <| SubmitPollVotes statusId id)
+                            label
+                        ]
                 , p
                     [ style "color" <|
                         if expired then
