@@ -22,19 +22,12 @@
 
 See ../TODO.md for the full list.
 
-* Don't allow reposting of other than public posts.
-  See: https://gleasonator.com/@billstclair/posts/AQLCjEXkIURjOFs7ai
-
 * Finish polls. Voting and creating.
   The poll status isn't getting into new statuses after updating
   It sometimes doesn't cross feed boundaries at all, when one has a reblog.
   Need to fetch polls every time the feed is refreshed. They may have changed.
   It's worse, ANY status may have been edited.
   Small memory leak: model.pollSelections is never trimmed.https://github.com/billstclair/mammudeck/commit/33143ee0d38e8e407a5366a2d23dd3b6c4732939sssshessss
-
-* maybeUpdateRenderEnvNow causes all the feeds to be rendered when one of
-  them has a poll whose time has changed.
-  Move the time into the BodyEnv, so only that feed gets re-rendered.
 
 * account.is_verified came from Gab. Pleroma represents this as
   account.pleroma.is_admin, .is_confirmed, .is_moderator, and .is_suggested
@@ -5748,7 +5741,7 @@ selectPollOption statusId idx isMultiple model =
         newSelections =
             if isMultiple then
                 if List.member idx selections then
-                    selections
+                    LE.filterNot ((==) idx) selections
 
                 else
                     idx :: selections
@@ -5777,8 +5770,7 @@ selectPollOption statusId idx isMultiple model =
                         getFeedEnv feedType mdl3
 
                     bodyEnv =
-                        Debug.log "bodyEnv" <|
-                            feedEnv.bodyEnv
+                        feedEnv.bodyEnv
 
                     pollSelections =
                         bodyEnv.pollSelections
@@ -5791,13 +5783,12 @@ selectPollOption statusId idx isMultiple model =
                         newFeedEnv =
                             { feedEnv
                                 | bodyEnv =
-                                    Debug.log "new bodyEnv" <|
-                                        { bodyEnv
-                                            | pollSelections =
-                                                Dict.insert statusId
-                                                    newSelections
-                                                    pollSelections
-                                        }
+                                    { bodyEnv
+                                        | pollSelections =
+                                            Dict.insert statusId
+                                                newSelections
+                                                pollSelections
+                                    }
                             }
                     in
                     ( { mdl3
