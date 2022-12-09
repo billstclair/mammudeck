@@ -22,6 +22,8 @@
 
 See ../TODO.md for the full list.
 
+
+
 * Trim model.pollSelections on vote.
   Create poll in Post dialog.
 
@@ -14889,7 +14891,12 @@ renderNotificationBody renderEnv bodyEnv notificationId ellipsisPrefix index not
     in
     case notification.status of
         Nothing ->
-            text ""
+            let
+                linkInfo =
+                    selectedRequestToLinkInfo NotificationsSelected
+                        notificationId
+            in
+            maybeRenderStatusIdLink notificationId linkInfo renderEnv
 
         Just status ->
             let
@@ -15989,20 +15996,7 @@ renderStatusActions renderEnv statusId selectedRequest ellipsisPrefix status =
             selectedRequestToLinkInfo selectedRequest statusId
     in
     div []
-        [ if not renderEnv.showIds then
-            text ""
-
-          else
-            div []
-                [ b linkInfo.label
-                , b " id: "
-                , a
-                    [ href "#"
-                    , onClick <| ProcessLinkInfo linkInfo
-                    ]
-                    [ text statusId ]
-                , br
-                ]
+        [ maybeRenderStatusIdLink statusId linkInfo renderEnv
         , div
             [ class "status-el status-actions media-body"
             , style "color" color
@@ -16055,6 +16049,24 @@ renderStatusActions renderEnv statusId selectedRequest ellipsisPrefix status =
                 (ColumnsUIMsg <| StatusEllipsisPopup ellipsisId status)
             ]
         ]
+
+
+maybeRenderStatusIdLink : String -> LinkInfo -> RenderEnv -> Html Msg
+maybeRenderStatusIdLink statusId linkInfo renderEnv =
+    if not renderEnv.showIds then
+        text ""
+
+    else
+        div []
+            [ b linkInfo.label
+            , b " id: "
+            , a
+                [ href "#"
+                , onClick <| ProcessLinkInfo linkInfo
+                ]
+                [ text statusId ]
+            , br
+            ]
 
 
 hrpct : String -> Int -> Html msg
