@@ -19940,6 +19940,7 @@ type alias PostState =
     , media_ids : List String
     , fileNames : List String
     , fileUrls : List String
+    , pollDefinition : Maybe PollDefinition
     , groupName : String
     , group_id : Maybe String
     , deleteAndRedraft : Bool
@@ -19959,6 +19960,7 @@ initialPostState =
     , media_ids = []
     , fileNames = []
     , fileUrls = []
+    , pollDefinition = Nothing
     , groupName = ""
     , group_id = Nothing
     , deleteAndRedraft = False
@@ -22031,6 +22033,10 @@ encodePostState postState =
                 postState.fileUrls
                 (JE.list JE.string)
                 []
+            , encodePropertyAsList "pollDefinition"
+                postState.pollDefinition
+                (ED.encodeMaybe MED.encodePollDefinition)
+                Nothing
             , encodePropertyAsList "groupName"
                 postState.groupName
                 JE.string
@@ -22059,6 +22065,7 @@ postStateDecoder =
         |> optional "media_ids" (JD.list JD.string) []
         |> optional "fileNames" (JD.list JD.string) []
         |> optional "fileUrls" (JD.list JD.string) []
+        |> optional "pollDefinition" (JD.nullable MED.pollDefinitionDecoder) Nothing
         |> optional "groupName" JD.string ""
         |> optional "group_id" (JD.nullable JD.string) Nothing
         |> optional "deleteAndRedraft" JD.bool False

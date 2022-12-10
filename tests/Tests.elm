@@ -18,6 +18,7 @@ import Mammudeck.Types as Types
         , UserFeedFlags
         )
 import Mastodon.Entity exposing (NotificationType(..))
+import Mastodon.Request exposing (PollDefinition)
 import Maybe exposing (withDefault)
 import Set exposing (Set)
 import Test exposing (..)
@@ -38,6 +39,7 @@ all =
         List.concat
             [ testMap fsdTest fsdData
             , testMap acctsTest acctsData
+            , testMap pollTest pollData
             ]
 
 
@@ -237,3 +239,53 @@ acctId2 =
 acctIds : List AccountId
 acctIds =
     [ acctId1, acctId2 ]
+
+
+pollTest : PollDefinition -> String -> Test
+pollTest pollDefinition name =
+    test ("pollDefinition \"" ++ name ++ "\"")
+        (\_ ->
+            let
+                value =
+                    MED.encodePollDefinition pollDefinition
+
+                result =
+                    case JD.decodeValue MED.pollDefinitionDecoder value of
+                        Err e ->
+                            Err e
+
+                        Ok en ->
+                            Ok en
+            in
+            expectResult (Ok pollDefinition) result
+        )
+
+
+pollData : List PollDefinition
+pollData =
+    [ pollDefinition1, pollDefinition2 ]
+
+
+pollDefinition1 : PollDefinition
+pollDefinition1 =
+    { options =
+        [ "Because motorcycles don't have doors"
+        , "One side is the same"
+        ]
+    , expires_in = 120
+    , multiple = False
+    , hide_totals = False
+    }
+
+
+pollDefinition2 : PollDefinition
+pollDefinition2 =
+    { options =
+        [ "Because motorcycles don't have doors"
+        , "One side is the same"
+        , "How can you be in two places at once, when you're not anywhere at all?"
+        ]
+    , expires_in = 1200
+    , multiple = True
+    , hide_totals = True
+    }
