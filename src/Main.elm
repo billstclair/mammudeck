@@ -24,8 +24,13 @@ See ../TODO.md for the full list.
 
 
 
-* Trim model.pollSelections on vote.
-  Create poll in Post dialog.
+* Create poll in Post dialog.
+
+* Support notification type "move".
+  It has a "target" field, which is the new Account entity for a moved account.
+  Besides displaying the new account, update internal tables and persistent
+  state with the new address.
+  Example, Gleasonator.com notification id: 729894
 
 * account.is_verified came from Gab. Pleroma represents this as
   account.pleroma.is_admin, .is_confirmed, .is_moderator, and .is_suggested
@@ -5749,8 +5754,8 @@ columnsUIMsg msg model =
 receivePollVotes : String -> Result Error Response -> Model -> ( Model, Cmd Msg )
 receivePollVotes statusId result model =
     let
-        folder : Feed -> Dict String FeedEnv -> Dict String FeedEnv
-        folder feed feedEnvs =
+        folder : (FeedBodyEnv -> FeedBodyEnv) -> Feed -> Dict String FeedEnv -> Dict String FeedEnv
+        folder modifier feed feedEnvs =
             let
                 feedId =
                     Types.feedID feed.feedType
@@ -5762,28 +5767,33 @@ receivePollVotes statusId result model =
                 Just feedEnv ->
                     let
                         bodyEnv =
-                            feedEnv.bodyEnv
-
-                        pollsSubmitted =
-                            Set.remove statusId bodyEnv.pollsSubmitted
+                            modifier feedEnv.bodyEnv
                     in
-                    if pollsSubmitted == bodyEnv.pollsSubmitted then
+                    if bodyEnv == feedEnv.bodyEnv then
                         feedEnvs
 
                     else
                         Dict.insert feedId
                             { feedEnv
                                 | bodyEnv =
-                                    { bodyEnv
-                                        | pollsSubmitted = pollsSubmitted
-                                    }
+                                    bodyEnv
                             }
                             feedEnvs
 
         mdl =
             { model
                 | feedEnvs =
-                    List.foldl folder model.feedEnvs model.feedSet.feeds
+                    List.foldl
+                        (folder
+                            (\bodyEnv ->
+                                { bodyEnv
+                                    | pollsSubmitted =
+                                        Set.remove statusId bodyEnv.pollsSubmitted
+                                }
+                            )
+                        )
+                        model.feedEnvs
+                        model.feedSet.feeds
             }
     in
     case result of
@@ -5794,9 +5804,29 @@ receivePollVotes statusId result model =
         Ok response ->
             case response.entity of
                 PollEntity poll ->
+                    let
+                        mdl2 =
+                            { mdl
+                                | pollSelections =
+                                    Dict.remove statusId mdl.pollSelections
+                                , feedEnvs =
+                                    List.foldl
+                                        (folder
+                                            (\bodyEnv ->
+                                                { bodyEnv
+                                                    | pollSelections =
+                                                        Dict.remove statusId
+                                                            bodyEnv.pollSelections
+                                                }
+                                            )
+                                        )
+                                        mdl.feedEnvs
+                                        mdl.feedSet.feeds
+                            }
+                    in
                     modifyColumnsStatus statusId
                         (\s -> { s | poll = Just poll })
-                        model
+                        mdl2
                         |> withNoCmd
 
                 entity ->
@@ -5804,7 +5834,7 @@ receivePollVotes statusId result model =
                         e =
                             Debug.log "Bad entity in receivePollVotes" entity
                     in
-                    { model | msg = Just "Bad entity in receivePollVotes" }
+                    { mdl | msg = Just "Bad entity in receivePollVotes" }
                         |> withNoCmd
 
 
