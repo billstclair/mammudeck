@@ -1033,6 +1033,7 @@ type ColumnsUIMsg
     | TogglePostGroup
     | SetPostText String
     | SetPostVisibility String
+    | PostCommand String
     | ChoosePostAttachment
     | PostAttachmentChosen File
     | PostDrop (DropZone.DropZoneMessage (List File))
@@ -5399,6 +5400,10 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+        PostCommand command ->
+            -- TODO
+            model |> withNoCmd
 
         ChoosePostAttachment ->
             model
@@ -20764,6 +20769,35 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                     , title "Post to mentioned users only"
                     ]
                     [ text "Direct" ]
+                ]
+            , text " "
+            , select [ onInput (ColumnsUIMsg << PostCommand) ]
+                [ option
+                    [ value ""
+                    , disabled True
+                    , selected True
+                    ]
+                    [ text "choose command..." ]
+                , let
+                    hasImages =
+                        postState.fileNames /= []
+                  in
+                  option
+                    [ value "poll"
+                    , selected False
+                    , disabled hasImages
+                    ]
+                    [ case postState.pollDefinition of
+                        Just _ ->
+                            text "Remove poll"
+
+                        Nothing ->
+                            if hasImages then
+                                text "Remove images to add poll"
+
+                            else
+                                text "Add poll"
+                    ]
                 ]
             ]
         , case ( renderEnv.loginServer, maybeAccount ) of

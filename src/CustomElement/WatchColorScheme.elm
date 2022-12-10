@@ -46,7 +46,7 @@ import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE exposing (Value)
 
 
-{-| Create a render-notify HTML element.
+{-| Create a watch-color-scheme HTML element.
 -}
 watchColorScheme : List (Attribute msg) -> List (Html msg) -> Html msg
 watchColorScheme =
@@ -58,6 +58,25 @@ watchColorScheme =
 type ColorScheme
     = LightColorScheme
     | DarkColorScheme
+
+
+{-| Notification will happen after your `view` function sends a value.
+-}
+onChange : (ColorScheme -> msg) -> Attribute msg
+onChange tagger =
+    on "change" <|
+        JD.map tagger
+            (JD.at [ "target", "prefersDarkColorScheme" ] JD.bool
+                |> JD.andThen
+                    (\bool ->
+                        JD.succeed <|
+                            if bool then
+                                DarkColorScheme
+
+                            else
+                                LightColorScheme
+                    )
+            )
 
 
 {-| Convert a `ColorScheme` to a `String`.
@@ -107,23 +126,4 @@ colorSchemeDecoder =
 
                     Nothing ->
                         JD.fail <| "Unknown ColorScheme: " ++ s
-            )
-
-
-{-| Notification will happen after your `view` function sends a value.
--}
-onChange : (ColorScheme -> msg) -> Attribute msg
-onChange tagger =
-    on "change" <|
-        JD.map tagger
-            (JD.at [ "target", "prefersDarkColorScheme" ] JD.bool
-                |> JD.andThen
-                    (\bool ->
-                        JD.succeed <|
-                            if bool then
-                                DarkColorScheme
-
-                            else
-                                LightColorScheme
-                    )
             )
