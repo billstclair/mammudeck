@@ -5402,8 +5402,26 @@ columnsUIMsg msg model =
                 |> withNoCmd
 
         PostCommand command ->
-            -- TODO
-            model |> withNoCmd
+            let
+                postState =
+                    model.postState
+
+                newPostState =
+                    if command == postCommand.poll then
+                        case postState.pollDefinition of
+                            Nothing ->
+                                { postState
+                                    | pollDefinition = Just defaultPollDefinition
+                                }
+
+                            Just _ ->
+                                { postState | pollDefinition = Nothing }
+
+                    else
+                        postState
+            in
+            { model | postState = newPostState }
+                |> withNoCmd
 
         ChoosePostAttachment ->
             model
@@ -13024,6 +13042,7 @@ type alias StyleProperties =
     , repliedToStatusColor : String
     , visitedStatusColor : String
     , borderColor : String
+    , darkGrayColor : String
     }
 
 
@@ -13047,6 +13066,7 @@ styles =
         , repliedToStatusColor = "darkslategray"
         , visitedStatusColor = "#444"
         , borderColor = "#555"
+        , darkGrayColor = "#888"
         }
     , light =
         { backgroundColor = "white"
@@ -13057,6 +13077,7 @@ styles =
         , repliedToStatusColor = "#eee"
         , visitedStatusColor = "#ececec"
         , borderColor = "#ddd"
+        , darkGrayColor = "#777"
         }
     }
 
@@ -20621,7 +20642,7 @@ maximumPostAttachments =
 postDialogContent : ( Bool, Bool ) -> RenderEnv -> Maybe Account -> DropZone.Model -> Int -> Maybe String -> PostState -> List (Html Msg)
 postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount dropZone max_toot_chars maybeMsg postState =
     let
-        { inputBackground, color } =
+        { inputBackground, color, darkGrayColor } =
             getStyle renderEnv
     in
     [ case postState.replyTo of
@@ -20771,34 +20792,30 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                     [ text "Direct" ]
                 ]
             , text " "
-            , select [ onInput (ColumnsUIMsg << PostCommand) ]
-                [ option
-                    [ value ""
-                    , disabled True
-                    , selected True
-                    ]
-                    [ text "choose command..." ]
-                , let
-                    hasImages =
-                        postState.fileNames /= []
-                  in
-                  option
-                    [ value "poll"
-                    , selected False
-                    , disabled hasImages
-                    ]
-                    [ case postState.pollDefinition of
-                        Just _ ->
-                            text "Remove poll"
+            , let
+                hasImages =
+                    postState.fileNames /= []
 
-                        Nothing ->
-                            if hasImages then
-                                text "Remove images to add poll"
+                cmd =
+                    if hasImages then
+                        Noop
 
-                            else
-                                text "Add poll"
-                    ]
+                    else
+                        ColumnsUIMsg <| PostCommand postCommand.poll
+
+                ( iconColor, theTitle ) =
+                    if postState.pollDefinition == Nothing then
+                        ( color, "Add poll" )
+
+                    else
+                        ( darkGrayColor, "Remove poll" )
+              in
+              span
+                [ onClick cmd
+                , style "color" iconColor
+                , title theTitle
                 ]
+                [ Html.i [ class "icon-chart-bar" ] [] ]
             ]
         , case ( renderEnv.loginServer, maybeAccount ) of
             ( Just server, Just { username } ) ->
@@ -20863,6 +20880,21 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                 ]
         ]
     ]
+
+
+defaultPollDefinition : PollDefinition
+defaultPollDefinition =
+    { options = [ "", "" ]
+    , expires_in = 60 * 60 * 24 --one day
+    , multiple = False
+    , hide_totals = False
+    }
+
+
+postCommand =
+    { none = ""
+    , poll = "poll"
+    }
 
 
 {-| TODO: hide this on mobile.
