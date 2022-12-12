@@ -20763,6 +20763,14 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
     let
         { inputBackground, color, darkGrayColor } =
             getStyle renderEnv
+
+        ( pollRows, pollDef ) =
+            case postState.pollDefinition of
+                Nothing ->
+                    ( 0, defaultPollDefinition )
+
+                Just def ->
+                    ( List.length def.options + 5, def )
     in
     [ case postState.replyTo of
         Nothing ->
@@ -20857,14 +20865,6 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
 
         lenstr =
             String.fromInt len
-
-        ( pollRows, pollDef ) =
-            case postState.pollDefinition of
-                Nothing ->
-                    ( 0, defaultPollDefinition )
-
-                Just def ->
-                    ( List.length def.options + 7, def )
       in
       p []
         [ textarea
@@ -20882,77 +20882,7 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
             text ""
 
           else
-            let
-                pollOption : Int -> String -> Html Msg
-                pollOption idx s =
-                    let
-                        ph =
-                            "Answer #" ++ String.fromInt idx
-                    in
-                    span []
-                        [ input
-                            [ value s
-                            , onInput (ColumnsUIMsg << SetPollDefinitionOption idx)
-                            , size 50
-                            , placeholder ph
-                            ]
-                            []
-                        , if List.length pollDef.options < 3 then
-                            text ""
-
-                          else
-                            span []
-                                [ text " "
-                                , button (ColumnsUIMsg <| RemovePollDefinitionOption idx)
-                                    "X"
-                                ]
-                        , br
-                        ]
-
-                { days, hours, minutes } =
-                    postState.daysHoursMinutes
-            in
-            p [] <|
-                List.concat
-                    [ [ br
-                      , b "Poll:"
-                      , br
-                      ]
-                    , List.indexedMap pollOption pollDef.options
-                    , [ -- Need to limit number of options
-                        button (ColumnsUIMsg AddPollDefinitionOption)
-                            "Add an answer"
-                      , text " "
-                      , checkBox (ColumnsUIMsg TogglePollDefinitionMultiple)
-                            pollDef.multiple
-                            "Multiple"
-                      , br
-                      , b "Expires: "
-                      , input
-                            [ value days
-                            , onInput (ColumnsUIMsg << SetDaysHoursMinutes "days")
-                            , size 2
-                            ]
-                            []
-                      , text " days"
-                      , text <| special.nbsp ++ special.nbsp
-                      , input
-                            [ value hours
-                            , onInput (ColumnsUIMsg << SetDaysHoursMinutes "hours")
-                            , size 2
-                            ]
-                            []
-                      , text " hours"
-                      , text <| special.nbsp ++ special.nbsp
-                      , input
-                            [ value minutes
-                            , onInput (ColumnsUIMsg << SetDaysHoursMinutes "minutes")
-                            , size 2
-                            ]
-                            []
-                      , text " minutes"
-                      ]
-                    ]
+            renderPollRows pollDef postState
         , if len > max_toot_chars then
             span [ style "color" "red" ]
                 [ text lenstr ]
@@ -21007,7 +20937,13 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
 
                 ( iconColor, theTitle ) =
                     if postState.pollDefinition == Nothing then
-                        ( color, "Add poll" )
+                        ( color
+                        , if hasImages then
+                            "Remove images to add poll"
+
+                          else
+                            "Add poll"
+                        )
 
                     else
                         ( darkGrayColor, "Remove poll" )
@@ -21037,51 +20973,137 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
         Just msg ->
             p [ style "color" "red" ]
                 [ text msg ]
-    , p []
-        [ let
-            fileCount =
-                List.length postState.fileNames
+    , if pollRows > 0 then
+        text ""
 
-            enabled =
-                (fileCount < maximumPostAttachments)
-                    && (fileCount == List.length postState.media_ids)
-          in
-          enabledButton enabled
-            (ColumnsUIMsg ChoosePostAttachment)
-            "Choose File"
-        , text " "
-        , renderDropZone dropZone
-        ]
-    , p []
-        [ let
-            urls =
-                postState.fileUrls
-
-            fileNames =
-                postState.fileNames
-
-            images =
-                List.map3 postImage
-                    fileNames
-                    urls
-                    (List.range 0 <| List.length urls - 1)
-          in
-          if images == [] then
-            text ""
-
-          else
-            p []
-                [ span [] <| List.intersperse (text " ") images
-                , br
-                , checkBox (ColumnsUIMsg TogglePostSensitive)
-                    postState.sensitive
-                    "Mark attachments as sensitive"
-                , br
-                , span [ style "font-size" smallTextFontSize ]
-                    [ text "Click on image to remove it." ]
-                ]
-        ]
+      else
+        renderPostImages postState dropZone
     ]
+
+
+renderPostImages : PostState -> DropZone.Model -> Html Msg
+renderPostImages postState dropZone =
+    span []
+        [ p []
+            [ let
+                fileCount =
+                    List.length postState.fileNames
+
+                enabled =
+                    (fileCount < maximumPostAttachments)
+                        && (fileCount == List.length postState.media_ids)
+              in
+              enabledButton enabled
+                (ColumnsUIMsg ChoosePostAttachment)
+                "Choose File"
+            , text " "
+            , renderDropZone dropZone
+            ]
+        , p []
+            [ let
+                urls =
+                    postState.fileUrls
+
+                fileNames =
+                    postState.fileNames
+
+                images =
+                    List.map3 postImage
+                        fileNames
+                        urls
+                        (List.range 0 <| List.length urls - 1)
+              in
+              if images == [] then
+                text ""
+
+              else
+                p []
+                    [ span [] <| List.intersperse (text " ") images
+                    , br
+                    , checkBox (ColumnsUIMsg TogglePostSensitive)
+                        postState.sensitive
+                        "Mark attachments as sensitive"
+                    , br
+                    , span [ style "font-size" smallTextFontSize ]
+                        [ text "Click on image to remove it." ]
+                    ]
+            ]
+        ]
+
+
+renderPollRows : PollDefinition -> PostState -> Html Msg
+renderPollRows pollDef postState =
+    let
+        pollOption : Int -> String -> Html Msg
+        pollOption idx s =
+            let
+                ph =
+                    "Answer #" ++ String.fromInt idx
+            in
+            span []
+                [ input
+                    [ value s
+                    , onInput (ColumnsUIMsg << SetPollDefinitionOption idx)
+                    , size 50
+                    , placeholder ph
+                    ]
+                    []
+                , if List.length pollDef.options < 3 then
+                    text ""
+
+                  else
+                    span []
+                        [ text " "
+                        , button (ColumnsUIMsg <| RemovePollDefinitionOption idx)
+                            "X"
+                        ]
+                , br
+                ]
+
+        { days, hours, minutes } =
+            postState.daysHoursMinutes
+    in
+    p [] <|
+        List.concat
+            [ [ br
+              , b "Poll:"
+              , br
+              ]
+            , List.indexedMap pollOption pollDef.options
+            , [ -- Need to limit number of options
+                button (ColumnsUIMsg AddPollDefinitionOption)
+                    "Add an answer"
+              , text " "
+              , checkBox (ColumnsUIMsg TogglePollDefinitionMultiple)
+                    pollDef.multiple
+                    "Multiple"
+              , br
+              , b "Expires: "
+              , input
+                    [ value days
+                    , onInput (ColumnsUIMsg << SetDaysHoursMinutes "days")
+                    , size 2
+                    ]
+                    []
+              , text " days"
+              , text <| special.nbsp ++ special.nbsp
+              , input
+                    [ value hours
+                    , onInput (ColumnsUIMsg << SetDaysHoursMinutes "hours")
+                    , size 2
+                    ]
+                    []
+              , text " hours"
+              , text <| special.nbsp ++ special.nbsp
+              , input
+                    [ value minutes
+                    , onInput (ColumnsUIMsg << SetDaysHoursMinutes "minutes")
+                    , size 2
+                    ]
+                    []
+              , text " minutes"
+              ]
+            ]
 
 
 defaultPollDefinition : PollDefinition
