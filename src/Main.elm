@@ -1062,6 +1062,10 @@ type ColumnsUIMsg
     | SelectPollOption String Int Bool
     | SubmitPollVotes String String
     | ReceivePollVotes String (Result Error Response)
+    | SetPollDefinitionOption Int String
+    | AddPollDefinitionOption
+    | RemovePollDefinitionOption Int
+    | TogglePollDefinitionMultiple
 
 
 type ReceiveFeedType
@@ -5772,6 +5776,68 @@ columnsUIMsg msg model =
 
         ReceivePollVotes statusId result ->
             receivePollVotes statusId result model
+
+        SetPollDefinitionOption idx string ->
+            updatePostDialogPoll
+                model
+                (\def ->
+                    { def
+                        | options =
+                            LE.setAt idx string def.options
+                    }
+                )
+
+        AddPollDefinitionOption ->
+            updatePostDialogPoll
+                model
+                (\def ->
+                    { def | options = def.options ++ [ "" ] }
+                )
+
+        RemovePollDefinitionOption idx ->
+            updatePostDialogPoll
+                model
+                (\def ->
+                    { def
+                        | options =
+                            LE.removeAt idx def.options
+                    }
+                )
+
+        TogglePollDefinitionMultiple ->
+            updatePostDialogPoll
+                model
+                (\def ->
+                    { def
+                        | multiple = not def.multiple
+                    }
+                )
+
+
+updatePostDialogPoll : Model -> (PollDefinition -> PollDefinition) -> ( Model, Cmd Msg )
+updatePostDialogPoll model updater =
+    case model.dialog of
+        PostDialog ->
+            case model.postState.pollDefinition of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just def ->
+                    let
+                        state =
+                            model.postState
+                    in
+                    { model
+                        | postState =
+                            { state
+                                | pollDefinition =
+                                    Just <| updater def
+                            }
+                    }
+                        |> withNoCmd
+
+        _ ->
+            model |> withNoCmd
 
 
 receivePollVotes : String -> Result Error Response -> Model -> ( Model, Cmd Msg )
@@ -20738,11 +20804,19 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
 
         lenstr =
             String.fromInt len
+
+        ( pollRows, pollDef ) =
+            case postState.pollDefinition of
+                Nothing ->
+                    ( 0, defaultPollDefinition )
+
+                Just def ->
+                    ( List.length def.options + 5, def )
       in
       p []
         [ textarea
             [ id nodeIds.postDialogText
-            , rows 19
+            , rows (max 5 <| 19 - pollRows)
             , style "width" "100%"
             , style "color" color
             , style "background-color" inputBackground
@@ -20751,6 +20825,47 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
             ]
             []
         , br
+        , if pollRows == 0 then
+            text ""
+
+          else
+            let
+                pollOption : Int -> String -> Html Msg
+                pollOption idx s =
+                    let
+                        ph =
+                            "Answer #" ++ String.fromInt idx
+                    in
+                    span []
+                        [ input
+                            [ value s
+                            , onInput (ColumnsUIMsg << SetPollDefinitionOption idx)
+                            , size 50
+                            , placeholder ph
+                            ]
+                            []
+                        , text " "
+                        , button (ColumnsUIMsg <| RemovePollDefinitionOption idx)
+                            "X"
+                        , br
+                        ]
+            in
+            p [] <|
+                List.concat
+                    [ [ br
+                      , b "Poll:"
+                      , br
+                      ]
+                    , List.indexedMap pollOption pollDef.options
+                    , [ -- Need to limit number of options
+                        button (ColumnsUIMsg AddPollDefinitionOption)
+                            "Add an answer"
+                      , br
+                      , checkBox (ColumnsUIMsg TogglePollDefinitionMultiple)
+                            pollDef.multiple
+                            "Multiple"
+                      ]
+                    ]
         , if len > max_toot_chars then
             span [ style "color" "red" ]
                 [ text lenstr ]
