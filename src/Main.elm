@@ -5608,13 +5608,28 @@ columnsUIMsg msg model =
                                 _ ->
                                     ( Nothing, Just status.id )
 
+                ( poll, pollValid ) =
+                    case postState.pollDefinition of
+                        Nothing ->
+                            ( Nothing, True )
+
+                        Just pollDef ->
+                            case daysHoursMinutesToSeconds postState.daysHoursMinutes of
+                                Nothing ->
+                                    ( Nothing, False )
+
+                                Just seconds ->
+                                    ( Just { pollDef | expires_in = seconds }
+                                    , True
+                                    )
+
                 post =
                     { status = nothingIfBlank postState.text
                     , in_reply_to_id = in_reply_to_id
                     , group_id = postState.group_id
                     , quote_of_id = quote_id
                     , media_ids = postState.media_ids
-                    , poll = Nothing
+                    , poll = poll
                     , sensitive = postState.sensitive
                     , spoiler_text = Nothing
                     , visibility = Just postState.visibility
@@ -5623,9 +5638,14 @@ columnsUIMsg msg model =
                     , idempotencyKey = Nothing
                     }
             in
-            sendPostRequest
-                (StatusesRequest <| Request.PostStatus post)
-                { model | postState = { postState | posting = True } }
+            if not pollValid then
+                { model | msg = Just "Poll expiration invalid" }
+                    |> withNoCmd
+
+            else
+                sendPostRequest
+                    (StatusesRequest <| Request.PostStatus post)
+                    { model | postState = { postState | posting = True } }
 
         ClearPostState ->
             { model | postState = initialPostState }
@@ -18588,11 +18608,9 @@ loginSelectedUI showSetServerButton model =
 
 renderLoginButton : Model -> Html Msg
 renderLoginButton model =
-    Html.button
-        [ onClick (GlobalMsg Login)
-        , disabled <| model.server == ""
-        ]
-        [ b "Login" ]
+    enabledButton (model.server /= "")
+        (GlobalMsg Login)
+        "Login"
 
 
 renderHeaders : Bool -> String -> Http.Metadata -> Html Msg
@@ -20054,12 +20072,6 @@ smartFeedTitle feedType model =
             feedTitle feedType
 
 
-type ReplyType
-    = ReplyToPost
-    | QuotePost
-    | NoReply
-
-
 type alias DaysHoursMinutes =
     { days : String
     , hours : String
@@ -20070,6 +20082,49 @@ type alias DaysHoursMinutes =
 emptyDaysHoursMinutes : DaysHoursMinutes
 emptyDaysHoursMinutes =
     DaysHoursMinutes "" "" ""
+
+
+daysHoursMinutesToSeconds : DaysHoursMinutes -> Maybe Int
+daysHoursMinutesToSeconds dhm =
+    let
+        toInt x =
+            if x == "" then
+                Just 0
+
+            else
+                String.toInt x
+    in
+    case toInt dhm.days of
+        Nothing ->
+            Nothing
+
+        Just days ->
+            case toInt dhm.hours of
+                Nothing ->
+                    Nothing
+
+                Just hours ->
+                    case toInt dhm.minutes of
+                        Nothing ->
+                            Nothing
+
+                        Just minutes ->
+                            if days < 0 || hours < 0 || minutes < 0 then
+                                Nothing
+
+                            else
+                                case 60 * (minutes + 60 * (hours + 24 * days)) of
+                                    0 ->
+                                        Nothing
+
+                                    seconds ->
+                                        Just seconds
+
+
+type ReplyType
+    = ReplyToPost
+    | QuotePost
+    | NoReply
 
 
 type alias PostState =
@@ -20691,10 +20746,28 @@ postDialog model =
                 button (ColumnsUIMsg ClearPostState) "Clear"
 
               else
-                enabledButton
-                    ((postState.text /= "" || postState.media_ids /= [])
-                        && (List.length postState.fileNames == List.length postState.media_ids)
+                let
+                    ( enabled, note ) =
+                        if postState.text == "" && postState.media_ids == [] then
+                            ( False, "Fillin post text or add media" )
+
+                        else if
+                            List.length postState.fileNames
+                                /= List.length postState.media_ids
+                        then
+                            ( False, "Waiting for media to upload" )
+
+                        else
+                            postDialogPollComplete postState
+                in
+                titledButton
+                    (if enabled then
+                        "Send post to server"
+
+                     else
+                        note
                     )
+                    enabled
                     (ColumnsUIMsg Post)
                     "Post"
             , if model.showLeftColumn || model.scrollPillState.showScrollPill then
@@ -20706,6 +20779,23 @@ postDialog model =
             ]
         }
         True
+
+
+postDialogPollComplete : PostState -> ( Bool, String )
+postDialogPollComplete postState =
+    case postState.pollDefinition of
+        Nothing ->
+            ( True, "" )
+
+        Just pollDef ->
+            if List.filter ((==) "") pollDef.options /= [] then
+                ( False, "Fillin all the poll answers" )
+
+            else if daysHoursMinutesToSeconds postState.daysHoursMinutes == Nothing then
+                ( False, "days/hours/minutes malformed" )
+
+            else
+                ( True, "" )
 
 
 statusMentionsString : String -> Status -> String
