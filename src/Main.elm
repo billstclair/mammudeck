@@ -1066,6 +1066,7 @@ type ColumnsUIMsg
     | AddPollDefinitionOption
     | RemovePollDefinitionOption Int
     | TogglePollDefinitionMultiple
+    | SetDaysHoursMinutes String String
 
 
 type ReceiveFeedType
@@ -5416,10 +5417,14 @@ columnsUIMsg msg model =
                             Nothing ->
                                 { postState
                                     | pollDefinition = Just defaultPollDefinition
+                                    , daysHoursMinutes = defaultDaysHoursMinutes
                                 }
 
                             Just _ ->
-                                { postState | pollDefinition = Nothing }
+                                { postState
+                                    | pollDefinition = Nothing
+                                    , daysHoursMinutes = emptyDaysHoursMinutes
+                                }
 
                     else
                         postState
@@ -5800,7 +5805,11 @@ columnsUIMsg msg model =
                 (\def ->
                     { def
                         | options =
-                            LE.removeAt idx def.options
+                            if List.length def.options < 3 then
+                                def.options
+
+                            else
+                                LE.removeAt idx def.options
                     }
                 )
 
@@ -5812,6 +5821,36 @@ columnsUIMsg msg model =
                         | multiple = not def.multiple
                     }
                 )
+
+        SetDaysHoursMinutes which value ->
+            let
+                postState =
+                    model.postState
+
+                dhm =
+                    postState.daysHoursMinutes
+
+                setter =
+                    case which of
+                        "days" ->
+                            \s -> { dhm | days = s }
+
+                        "hours" ->
+                            \s -> { dhm | hours = s }
+
+                        "minutes" ->
+                            \s -> { dhm | minutes = s }
+
+                        _ ->
+                            \s -> dhm
+            in
+            { model
+                | postState =
+                    { postState
+                        | daysHoursMinutes = setter value
+                    }
+            }
+                |> withNoCmd
 
 
 updatePostDialogPoll : Model -> (PollDefinition -> PollDefinition) -> ( Model, Cmd Msg )
@@ -20021,6 +20060,18 @@ type ReplyType
     | NoReply
 
 
+type alias DaysHoursMinutes =
+    { days : String
+    , hours : String
+    , minutes : String
+    }
+
+
+emptyDaysHoursMinutes : DaysHoursMinutes
+emptyDaysHoursMinutes =
+    DaysHoursMinutes "" "" ""
+
+
 type alias PostState =
     { replyTo : Maybe Status
     , replyType : ReplyType
@@ -20033,6 +20084,7 @@ type alias PostState =
     , fileNames : List String
     , fileUrls : List String
     , pollDefinition : Maybe PollDefinition
+    , daysHoursMinutes : DaysHoursMinutes
     , groupName : String
     , group_id : Maybe String
     , deleteAndRedraft : Bool
@@ -20053,6 +20105,7 @@ initialPostState =
     , fileNames = []
     , fileUrls = []
     , pollDefinition = Nothing
+    , daysHoursMinutes = DaysHoursMinutes "" "" ""
     , groupName = ""
     , group_id = Nothing
     , deleteAndRedraft = False
@@ -20811,7 +20864,7 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                     ( 0, defaultPollDefinition )
 
                 Just def ->
-                    ( List.length def.options + 5, def )
+                    ( List.length def.options + 7, def )
       in
       p []
         [ textarea
@@ -20844,11 +20897,20 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                             , placeholder ph
                             ]
                             []
-                        , text " "
-                        , button (ColumnsUIMsg <| RemovePollDefinitionOption idx)
-                            "X"
+                        , if List.length pollDef.options < 3 then
+                            text ""
+
+                          else
+                            span []
+                                [ text " "
+                                , button (ColumnsUIMsg <| RemovePollDefinitionOption idx)
+                                    "X"
+                                ]
                         , br
                         ]
+
+                { days, hours, minutes } =
+                    postState.daysHoursMinutes
             in
             p [] <|
                 List.concat
@@ -20860,10 +20922,35 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                     , [ -- Need to limit number of options
                         button (ColumnsUIMsg AddPollDefinitionOption)
                             "Add an answer"
-                      , br
+                      , text " "
                       , checkBox (ColumnsUIMsg TogglePollDefinitionMultiple)
                             pollDef.multiple
                             "Multiple"
+                      , br
+                      , b "Expires: "
+                      , input
+                            [ value days
+                            , onInput (ColumnsUIMsg << SetDaysHoursMinutes "days")
+                            , size 2
+                            ]
+                            []
+                      , text " days"
+                      , text <| special.nbsp ++ special.nbsp
+                      , input
+                            [ value hours
+                            , onInput (ColumnsUIMsg << SetDaysHoursMinutes "hours")
+                            , size 2
+                            ]
+                            []
+                      , text " hours"
+                      , text <| special.nbsp ++ special.nbsp
+                      , input
+                            [ value minutes
+                            , onInput (ColumnsUIMsg << SetDaysHoursMinutes "minutes")
+                            , size 2
+                            ]
+                            []
+                      , text " minutes"
                       ]
                     ]
         , if len > max_toot_chars then
@@ -20875,7 +20962,7 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
         , text " / "
         , text (String.fromInt max_toot_chars)
         , p []
-            [ text "Visibility: "
+            [ b "Visibility: "
             , let
                 visibility =
                     postState.visibility
@@ -20935,7 +21022,7 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
         , case ( renderEnv.loginServer, maybeAccount ) of
             ( Just server, Just { username } ) ->
                 span []
-                    [ text "Posting as: "
+                    [ b "Posting as: "
                     , text <| fullUsernameAtServer True username server renderEnv
                     ]
 
@@ -21004,6 +21091,10 @@ defaultPollDefinition =
     , multiple = False
     , hide_totals = False
     }
+
+
+defaultDaysHoursMinutes =
+    DaysHoursMinutes "1" "" ""
 
 
 postCommand =
@@ -22218,6 +22309,10 @@ encodePostState postState =
                 postState.pollDefinition
                 (ED.encodeMaybe MED.encodePollDefinition)
                 Nothing
+            , encodePropertyAsList "daysHoursMinutes"
+                postState.daysHoursMinutes
+                encodeDaysHoursMinutes
+                emptyDaysHoursMinutes
             , encodePropertyAsList "groupName"
                 postState.groupName
                 JE.string
@@ -22247,6 +22342,7 @@ postStateDecoder =
         |> optional "fileNames" (JD.list JD.string) []
         |> optional "fileUrls" (JD.list JD.string) []
         |> optional "pollDefinition" (JD.nullable MED.pollDefinitionDecoder) Nothing
+        |> optional "daysHoursMinutes" daysHoursMinutesDecoder emptyDaysHoursMinutes
         |> optional "groupName" JD.string ""
         |> optional "group_id" (JD.nullable JD.string) Nothing
         |> optional "deleteAndRedraft" JD.bool False
@@ -22271,6 +22367,23 @@ fixDecodedPostState postState =
         , fileNames = List.take len fileNames
         , fileUrls = List.take len fileUrls
     }
+
+
+encodeDaysHoursMinutes : DaysHoursMinutes -> Value
+encodeDaysHoursMinutes { days, hours, minutes } =
+    JE.object
+        [ ( "d", JE.string days )
+        , ( "h", JE.string hours )
+        , ( "m", JE.string minutes )
+        ]
+
+
+daysHoursMinutesDecoder : Decoder DaysHoursMinutes
+daysHoursMinutesDecoder =
+    JD.succeed DaysHoursMinutes
+        |> required "d" JD.string
+        |> required "h" JD.string
+        |> required "m" JD.string
 
 
 encodeScrollPillState : ScrollPillState -> Value
