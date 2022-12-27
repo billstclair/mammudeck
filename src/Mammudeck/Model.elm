@@ -1887,6 +1887,12 @@ encodeSavedModel savedModel =
                 savedModel.showLeftColumn
                 JE.bool
                 True
+            , encodePropertyAsList "prettify" savedModel.prettify JE.bool True
+            , encodePropertyAsList "selectedRequest"
+                savedModel.selectedRequest
+                encodeSelectedRequest
+                LoginSelected
+            , encodePropertyAsList "username" savedModel.username JE.string ""
             , encodePropertyAsList "accountId"
                 savedModel.accountId
                 JE.string
