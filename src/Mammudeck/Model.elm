@@ -61,6 +61,8 @@ module Mammudeck.Model exposing
     , TokenApi
     , VerticalDirection(..)
     , WhichJson(..)
+    , daysHoursMinutesToSeconds
+    , defaultDaysHoursMinutes
     , emptyAttachmentView
     , emptyDaysHoursMinutes
     , emptyFeedBodyEnv
@@ -71,9 +73,17 @@ module Mammudeck.Model exposing
     , emptyRenderEnv
     , emptyThreadExplorerState
     , emptyTokenApi
+    , encodeSavedModel
     , initialPostState
     , initialScrollPillState
     , makeFeedEnv
+    , modelToSavedModel
+    , savedModelDecoder
+    , savedModelToModel
+    , selectedRequestFromUrlDict
+    , selectedRequestToString
+    , selectedRequestToUrlValue
+    , stringToPage
     )
 
 import Browser exposing (Document, UrlRequest(..))
@@ -87,10 +97,14 @@ import DynamoDB.AppState as AppState exposing (AppState, Updates)
 import DynamoDB.Types
 import File exposing (File)
 import Http
+import Iso8601
 import Json.Decode as JD exposing (Decoder)
+import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, required)
 import Json.Encode as JE exposing (Value)
 import JsonTree exposing (TaggedValue(..))
+import List.Extra as LE
 import Mammudeck.EmojiChar as EmojiChar exposing (EmojiChar)
+import Mammudeck.EncodeDecode as MED exposing (encodePropertyAsList)
 import Mammudeck.Types as Types
     exposing
         ( AccountId
@@ -109,6 +123,7 @@ import Mammudeck.Types as Types
         , UserFeedFlags
         , UserFeedParams
         )
+import Mastodon.EncodeDecode as ED
 import Mastodon.Entity as Entity
     exposing
         ( Account
@@ -155,6 +170,9 @@ import PortFunnels exposing (State)
 import Set exposing (Set)
 import Svg.Button as Button
 import Time exposing (Posix, Zone)
+import Time.Extra as TE exposing (Interval(..))
+import Time.Format as Format
+import Time.Format.Config.Configs as Configs
 import Url exposing (Url)
 
 
@@ -223,6 +241,47 @@ type alias DaysHoursMinutes =
 emptyDaysHoursMinutes : DaysHoursMinutes
 emptyDaysHoursMinutes =
     DaysHoursMinutes "" "" ""
+
+
+defaultDaysHoursMinutes =
+    DaysHoursMinutes "1" "" ""
+
+
+daysHoursMinutesToSeconds : DaysHoursMinutes -> Maybe Int
+daysHoursMinutesToSeconds dhm =
+    let
+        toInt x =
+            if x == "" then
+                Just 0
+
+            else
+                String.toInt x
+    in
+    case toInt dhm.days of
+        Nothing ->
+            Nothing
+
+        Just days ->
+            case toInt dhm.hours of
+                Nothing ->
+                    Nothing
+
+                Just hours ->
+                    case toInt dhm.minutes of
+                        Nothing ->
+                            Nothing
+
+                        Just minutes ->
+                            if days < 0 || hours < 0 || minutes < 0 then
+                                Nothing
+
+                            else
+                                case 60 * (minutes + 60 * (hours + 24 * days)) of
+                                    0 ->
+                                        Nothing
+
+                                    seconds ->
+                                        Just seconds
 
 
 type alias PostState =
@@ -1260,3 +1319,955 @@ type ExplorerSendMsg
     | ReceiveResponse Request (Result Error Response)
       -- Except posting from the Post dialog
     | ReceivePostResponse Request (Result Error Response)
+
+
+
+--- Persistence
+
+
+modelToSavedModel : Model -> SavedModel
+modelToSavedModel model =
+    { renderEnv = model.renderEnv
+    , page = model.page
+    , token = model.token
+    , streaming_api = model.streaming_api
+    , max_toot_chars = model.max_toot_chars
+    , server = model.server
+    , feedSetDefinition = model.feedSetDefinition
+    , supportsAccountByUsername = model.supportsAccountByUsername
+    , postState = model.postState
+    , features = model.features
+    , scrollPillState = model.scrollPillState
+    , showLeftColumn = model.showLeftColumn
+    , prettify = model.prettify
+    , selectedRequest = model.selectedRequest
+    , username = model.username
+    , accountId = model.accountId
+    , accountIds = model.accountIds
+    , showMetadata = model.showMetadata
+    , q = model.q
+    , resolve = model.resolve
+    , following = model.following
+    , groupId = model.groupId
+    , showReceived = model.showReceived
+    , showEntity = model.showEntity
+    , whichGroups = model.whichGroups
+    , followReblogs = model.followReblogs
+    , onlyMedia = model.onlyMedia
+    , pinned = model.pinned
+    , excludeReplies = model.excludeReplies
+    , excludeReblogs = model.excludeReblogs
+    , pagingInput = model.pagingInput
+    , local = model.local
+    , hashtag = model.hashtag
+    , listId = model.listId
+    , smartPaging = model.smartPaging
+    , showJsonTree = model.showJsonTree
+    , showUpdateCredentials = model.showUpdateCredentials
+    , statusId = model.statusId
+    , useElmButtonNames = model.useElmButtonNames
+    , showPostStatus = model.showPostStatus
+    , excludedNotificationTypes = model.excludedNotificationTypes
+    , notificationsAccountId = model.notificationsAccountId
+    , notificationId = model.notificationId
+    , muteNotifications = model.muteNotifications
+    , groupIds = model.groupIds
+    , offset = model.offset
+    , listTitle = model.listTitle
+    , filterId = model.filterId
+    , filterInput = model.filterInput
+    , scheduledStatusId = model.scheduledStatusId
+    , userNameInput = model.userNameInput
+    , accountInput = model.accountInput
+    , groupNameInput = model.groupNameInput
+    , groupInput = model.groupInput
+    , hashtagInput = model.hashtagInput
+    , accountDialogFlags = model.accountDialogFlags
+    }
+
+
+savedModelToModel : SavedModel -> Model -> Model
+savedModelToModel savedModel model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        savedRenderEnv =
+            savedModel.renderEnv
+    in
+    { model
+        | renderEnv =
+            { renderEnv
+                | loginServer = savedRenderEnv.loginServer
+                , style = savedRenderEnv.style
+                , fontSize = savedRenderEnv.fontSize
+                , columnWidth = savedRenderEnv.columnWidth
+                , showIds = savedRenderEnv.showIds
+            }
+        , page = savedModel.page
+        , token = savedModel.token
+        , streaming_api = savedModel.streaming_api
+        , max_toot_chars = savedModel.max_toot_chars
+        , server = savedModel.server
+        , feedSetDefinition = savedModel.feedSetDefinition
+        , supportsAccountByUsername = savedModel.supportsAccountByUsername
+        , postState = savedModel.postState
+        , features = savedModel.features
+        , scrollPillState = savedModel.scrollPillState
+        , showLeftColumn = savedModel.showLeftColumn
+        , prettify = savedModel.prettify
+        , selectedRequest = savedModel.selectedRequest
+        , username = savedModel.username
+        , accountId = savedModel.accountId
+        , accountIds = savedModel.accountIds
+        , showMetadata = savedModel.showMetadata
+        , q = savedModel.q
+        , resolve = savedModel.resolve
+        , following = savedModel.following
+        , groupId = savedModel.groupId
+        , showReceived = savedModel.showReceived
+        , showEntity = savedModel.showEntity
+        , whichGroups = savedModel.whichGroups
+        , followReblogs = savedModel.followReblogs
+        , onlyMedia = savedModel.onlyMedia
+        , pinned = savedModel.pinned
+        , excludeReplies = savedModel.excludeReplies
+        , excludeReblogs = savedModel.excludeReblogs
+        , pagingInput = savedModel.pagingInput
+        , local = savedModel.local
+        , hashtag = savedModel.hashtag
+        , listId = savedModel.listId
+        , smartPaging = savedModel.smartPaging
+        , showJsonTree = savedModel.showJsonTree
+        , showUpdateCredentials = savedModel.showUpdateCredentials
+        , statusId = savedModel.statusId
+        , useElmButtonNames = savedModel.useElmButtonNames
+        , showPostStatus = savedModel.showPostStatus
+        , excludedNotificationTypes = savedModel.excludedNotificationTypes
+        , notificationsAccountId = savedModel.notificationsAccountId
+        , notificationId = savedModel.notificationId
+        , muteNotifications = model.muteNotifications
+        , groupIds = savedModel.groupIds
+        , offset = savedModel.offset
+        , listTitle = savedModel.listTitle
+        , filterId = savedModel.filterId
+        , filterInput = savedModel.filterInput
+        , scheduledStatusId = savedModel.scheduledStatusId
+        , userNameInput = savedModel.userNameInput
+        , accountInput = savedModel.accountInput
+        , groupNameInput = savedModel.groupNameInput
+        , groupInput = savedModel.groupInput
+        , hashtagInput = savedModel.hashtagInput
+        , accountDialogFlags = savedModel.accountDialogFlags
+    }
+
+
+encodeWhichGroups : WhichGroups -> Value
+encodeWhichGroups whichGroups =
+    JE.string <|
+        case whichGroups of
+            Request.MemberGroups ->
+                "MemberGroups"
+
+            Request.FeaturedGroups ->
+                "FeaturedGroups"
+
+            Request.AdminGroups ->
+                "AdminGroups"
+
+
+whichGroupsDecoder : Decoder WhichGroups
+whichGroupsDecoder =
+    JD.string
+        |> JD.andThen
+            (\s ->
+                case s of
+                    "MemberGroups" ->
+                        JD.succeed Request.MemberGroups
+
+                    "FeaturedGroups" ->
+                        JD.succeed Request.FeaturedGroups
+
+                    "AdminGroups" ->
+                        JD.succeed Request.AdminGroups
+
+                    _ ->
+                        JD.fail <| "Unknown WhichGroups value: " ++ s
+            )
+
+
+{-| Encode `Paging` into `Value`
+-}
+encodePagingInput : PagingInput -> Value
+encodePagingInput { max_id, since_id, min_id, limit } =
+    JE.object
+        [ ( "max_id", JE.string max_id )
+        , ( "since_id", JE.string since_id )
+        , ( "min_id", JE.string min_id )
+        , ( "limit", JE.string limit )
+        ]
+
+
+{-| Decode `PagingInput`
+-}
+pagingInputDecoder : Decoder PagingInput
+pagingInputDecoder =
+    JD.succeed PagingInput
+        |> required "max_id" JD.string
+        |> required "since_id" JD.string
+        |> required "min_id" JD.string
+        |> required "limit" JD.string
+
+
+encodePage : Page -> Value
+encodePage page =
+    JE.string <|
+        case page of
+            HomePage ->
+                "HomePage"
+
+            ColumnsPage ->
+                "ColumnsPage"
+
+            ExplorerPage ->
+                "ExplorerPage"
+
+
+stringToPage : String -> Page
+stringToPage string =
+    case string of
+        "ColumnsPage" ->
+            ColumnsPage
+
+        "ExplorerPage" ->
+            ExplorerPage
+
+        _ ->
+            HomePage
+
+
+pageDecoder : Decoder Page
+pageDecoder =
+    JD.string
+        |> JD.andThen
+            (\p ->
+                JD.succeed <| stringToPage p
+            )
+
+
+encodeStyle : Style -> Value
+encodeStyle style =
+    case style of
+        DarkStyle ->
+            JE.string "DarkStyle"
+
+        LightStyle ->
+            JE.string "LightStyle"
+
+        SystemStyle ->
+            JE.string "SystemStyle"
+
+
+styleDecoder : Decoder Style
+styleDecoder =
+    JD.string
+        |> JD.andThen
+            (\s ->
+                case s of
+                    "DarkStyle" ->
+                        JD.succeed DarkStyle
+
+                    "LightStyle" ->
+                        JD.succeed LightStyle
+
+                    "SystemStyle" ->
+                        JD.succeed SystemStyle
+
+                    _ ->
+                        JD.fail <| "Unknown Style: " ++ s
+            )
+
+
+encodeRenderEnv : RenderEnv -> Value
+encodeRenderEnv env =
+    JE.object
+        [ ( "loginServer", ED.encodeMaybe JE.string env.loginServer )
+        , ( "accountId", JE.string env.accountId )
+        , ( "style", encodeStyle env.style )
+        , ( "colorScheme"
+          , ED.encodeMaybe WatchColorScheme.encodeColorScheme env.colorScheme
+          )
+        , ( "fontSizePct", JE.int env.fontSizePct )
+        , ( "fontSize", JE.string env.fontSize )
+        , ( "columnWidth", JE.int env.columnWidth )
+        , ( "showIds", JE.bool env.showIds )
+        ]
+
+
+renderEnvDecoder : Decoder RenderEnv
+renderEnvDecoder =
+    JD.succeed
+        (\loginServer accountId style colorScheme fontSizePct_ fontSize_ columnWidth showIds ->
+            let
+                ( fontSizePct, fontSize ) =
+                    if fontSizePct_ == 0 then
+                        case String.toInt fontSize_ of
+                            Just int ->
+                                ( int, fontSize_ )
+
+                            Nothing ->
+                                ( 100, "100" )
+
+                    else
+                        ( fontSizePct_, String.fromInt fontSizePct_ )
+            in
+            { emptyRenderEnv
+                | loginServer = loginServer
+                , accountId = accountId
+                , style = style
+                , colorScheme = colorScheme
+                , fontSizePct = fontSizePct
+                , fontSize = fontSize
+                , columnWidth = columnWidth
+                , showIds = showIds
+            }
+        )
+        |> required "loginServer" (JD.nullable JD.string)
+        |> optional "accountId" JD.string ""
+        |> required "style" styleDecoder
+        |> optional "colorScheme"
+            (JD.map Just <| WatchColorScheme.colorSchemeDecoder)
+            Nothing
+        |> optional "fontSizePct" JD.int 0
+        |> optional "fontSize" JD.string "100"
+        |> optional "columnWidth" JD.int 300
+        |> optional "showIds" JD.bool False
+
+
+encodeFeatures : Features -> Value
+encodeFeatures features =
+    JE.dict identity (JE.dict identity JE.bool) features
+
+
+featuresDecoder : Decoder Features
+featuresDecoder =
+    JD.dict <| JD.dict JD.bool
+
+
+encodeReplyType : ReplyType -> Value
+encodeReplyType replyType =
+    case replyType of
+        ReplyToPost ->
+            JE.string "ReplyToPost"
+
+        QuotePost ->
+            JE.string "QuotePost"
+
+        NoReply ->
+            JE.string "NoReply"
+
+
+replyTypeDecoder : Decoder ReplyType
+replyTypeDecoder =
+    JD.string
+        |> JD.andThen
+            (\s ->
+                if s == "ReplyToPost" then
+                    JD.succeed ReplyToPost
+
+                else if s == "QuotePost" then
+                    JD.succeed QuotePost
+
+                else
+                    JD.succeed NoReply
+            )
+
+
+encodePostState : PostState -> Value
+encodePostState postState =
+    JE.object <|
+        List.concat
+            [ encodePropertyAsList "replyTo"
+                postState.replyTo
+                (ED.encodeMaybe ED.encodeStatus)
+                Nothing
+            , encodePropertyAsList "replyType"
+                postState.replyType
+                encodeReplyType
+                NoReply
+            , [ ( "text", JE.string postState.text ) ]
+            , encodePropertyAsList "mentionsString"
+                postState.mentionsString
+                JE.string
+                ""
+            , encodePropertyAsList "sensitive"
+                postState.sensitive
+                JE.bool
+                False
+            , encodePropertyAsList "visibility"
+                postState.visibility
+                ED.encodeVisibility
+                PublicVisibility
+            , encodePropertyAsList "setVisibility"
+                postState.setVisibility
+                ED.encodeVisibility
+                PublicVisibility
+            , encodePropertyAsList "media_ids"
+                postState.media_ids
+                (JE.list JE.string)
+                []
+            , encodePropertyAsList "fileNames"
+                postState.fileNames
+                (JE.list JE.string)
+                []
+            , encodePropertyAsList "fileUrls"
+                postState.fileUrls
+                (JE.list JE.string)
+                []
+            , encodePropertyAsList "pollDefinition"
+                postState.pollDefinition
+                (ED.encodeMaybe MED.encodePollDefinition)
+                Nothing
+            , encodePropertyAsList "daysHoursMinutes"
+                postState.daysHoursMinutes
+                encodeDaysHoursMinutes
+                emptyDaysHoursMinutes
+            , encodePropertyAsList "groupName"
+                postState.groupName
+                JE.string
+                ""
+            , encodePropertyAsList "group_id"
+                postState.group_id
+                (ED.encodeMaybe JE.string)
+                Nothing
+            , encodePropertyAsList "deleteAndRedraft"
+                postState.deleteAndRedraft
+                JE.bool
+                False
+            ]
+
+
+postStateDecoder : Decoder PostState
+postStateDecoder =
+    JD.succeed PostState
+        |> optional "replyTo" (JD.nullable ED.statusDecoder) Nothing
+        |> optional "replyType" replyTypeDecoder NoReply
+        |> required "text" JD.string
+        |> optional "mentionsString" JD.string ""
+        |> optional "sensitive" JD.bool False
+        |> optional "visibility" ED.visibilityDecoder PublicVisibility
+        |> optional "setVisibility" ED.visibilityDecoder PublicVisibility
+        |> optional "media_ids" (JD.list JD.string) []
+        |> optional "fileNames" (JD.list JD.string) []
+        |> optional "fileUrls" (JD.list JD.string) []
+        |> optional "pollDefinition" (JD.nullable MED.pollDefinitionDecoder) Nothing
+        |> optional "daysHoursMinutes" daysHoursMinutesDecoder emptyDaysHoursMinutes
+        |> optional "groupName" JD.string ""
+        |> optional "group_id" (JD.nullable JD.string) Nothing
+        |> optional "deleteAndRedraft" JD.bool False
+        -- "posting"
+        |> custom (JD.succeed False)
+        |> JD.andThen
+            (fixDecodedPostState >> JD.succeed)
+
+
+fixDecodedPostState : PostState -> PostState
+fixDecodedPostState postState =
+    let
+        { media_ids, fileNames, fileUrls } =
+            postState
+
+        len =
+            min (List.length media_ids) <|
+                min (List.length fileNames) (List.length fileUrls)
+    in
+    { postState
+        | media_ids = List.take len media_ids
+        , fileNames = List.take len fileNames
+        , fileUrls = List.take len fileUrls
+    }
+
+
+encodeDaysHoursMinutes : DaysHoursMinutes -> Value
+encodeDaysHoursMinutes { days, hours, minutes } =
+    JE.object
+        [ ( "d", JE.string days )
+        , ( "h", JE.string hours )
+        , ( "m", JE.string minutes )
+        ]
+
+
+daysHoursMinutesDecoder : Decoder DaysHoursMinutes
+daysHoursMinutesDecoder =
+    JD.succeed DaysHoursMinutes
+        |> required "d" JD.string
+        |> required "h" JD.string
+        |> required "m" JD.string
+
+
+encodeScrollPillState : ScrollPillState -> Value
+encodeScrollPillState scrollPillState =
+    JE.object
+        [ ( "showScrollPill", JE.bool scrollPillState.showScrollPill )
+        , ( "showServer", JE.bool scrollPillState.showServer )
+        ]
+
+
+scrollPillStateDecoder : Decoder ScrollPillState
+scrollPillStateDecoder =
+    JD.succeed ScrollPillState
+        |> optional "showScrollPill" JD.bool True
+        |> required "showServer" JD.bool
+
+
+encodeFilterInput : FilterInput -> Value
+encodeFilterInput { phrase, context, irreversible, whole_word, expires_in } =
+    JE.object
+        [ ( "phrase", JE.string phrase )
+        , ( "context", JE.list ED.encodeFilterContext context )
+        , ( "irreversible", JE.bool irreversible )
+        , ( "whole_word", JE.bool whole_word )
+        , ( "expires_in", JE.string expires_in )
+        ]
+
+
+filterInputDecoder : Decoder FilterInput
+filterInputDecoder =
+    JD.succeed FilterInput
+        |> required "phrase" JD.string
+        |> required "context" (JD.list ED.filterContextDecoder)
+        |> required "irreversible" JD.bool
+        |> required "whole_word" JD.bool
+        |> required "expires_in" JD.string
+
+
+encodeSavedModel : SavedModel -> Value
+encodeSavedModel savedModel =
+    JE.object <|
+        List.concat
+            [ encodePropertyAsList "renderEnv"
+                savedModel.renderEnv
+                encodeRenderEnv
+                emptyRenderEnv
+            , [ ( "page", encodePage savedModel.page ) ]
+            , encodePropertyAsList "token"
+                savedModel.token
+                (ED.encodeMaybe JE.string)
+                Nothing
+            , encodePropertyAsList "streaming_api"
+                savedModel.streaming_api
+                (ED.encodeMaybe JE.string)
+                Nothing
+            , encodePropertyAsList "max_toot_chars"
+                savedModel.max_toot_chars
+                JE.int
+                300
+            , [ ( "server", JE.string savedModel.server ) ]
+            , encodePropertyAsList "feedSetDefinition"
+                savedModel.feedSetDefinition
+                MED.encodeFeedSetDefinition
+                Types.emptyFeedSetDefinition
+            , encodePropertyAsList "supportsAccountByUsername"
+                savedModel.supportsAccountByUsername
+                (JE.dict identity JE.bool)
+                Dict.empty
+            , encodePropertyAsList "postState"
+                savedModel.postState
+                encodePostState
+                initialPostState
+            , encodePropertyAsList "features"
+                savedModel.features
+                encodeFeatures
+                Dict.empty
+            , encodePropertyAsList "scrollPillState"
+                savedModel.scrollPillState
+                encodeScrollPillState
+                initialScrollPillState
+            , encodePropertyAsList "showLeftColumn"
+                savedModel.showLeftColumn
+                JE.bool
+                True
+            , encodePropertyAsList "accountId"
+                savedModel.accountId
+                JE.string
+                ""
+            , encodePropertyAsList "accountIds"
+                savedModel.accountIds
+                JE.string
+                ""
+            , encodePropertyAsList "showMetadata"
+                savedModel.showMetadata
+                JE.bool
+                False
+            , encodePropertyAsList "q"
+                savedModel.q
+                JE.string
+                ""
+            , encodePropertyAsList "resolve"
+                savedModel.resolve
+                JE.bool
+                False
+            , encodePropertyAsList "following"
+                savedModel.following
+                JE.bool
+                False
+            , encodePropertyAsList "groupId"
+                savedModel.groupId
+                JE.string
+                ""
+            , encodePropertyAsList "showReceived"
+                savedModel.showReceived
+                JE.bool
+                True
+            , encodePropertyAsList "showEntity"
+                savedModel.showEntity
+                JE.bool
+                False
+            , encodePropertyAsList "whichGroups"
+                savedModel.whichGroups
+                encodeWhichGroups
+                Request.MemberGroups
+            , encodePropertyAsList "followReblogs"
+                savedModel.followReblogs
+                JE.bool
+                True
+            , encodePropertyAsList "onlyMedia"
+                savedModel.onlyMedia
+                JE.bool
+                False
+            , encodePropertyAsList "pinned"
+                savedModel.pinned
+                JE.bool
+                False
+            , encodePropertyAsList "excludeReplies"
+                savedModel.excludeReplies
+                JE.bool
+                False
+            , encodePropertyAsList "excludeReblogs"
+                savedModel.excludeReblogs
+                JE.bool
+                False
+            , encodePropertyAsList "pagingInput"
+                savedModel.pagingInput
+                encodePagingInput
+                emptyPagingInput
+            , encodePropertyAsList "local"
+                savedModel.local
+                JE.bool
+                False
+            , encodePropertyAsList "hashtag"
+                savedModel.hashtag
+                JE.string
+                ""
+            , encodePropertyAsList "listId"
+                savedModel.listId
+                JE.string
+                ""
+            , encodePropertyAsList "smartPaging"
+                savedModel.smartPaging
+                JE.bool
+                False
+            , encodePropertyAsList "showJsonTree"
+                savedModel.showJsonTree
+                JE.bool
+                True
+            , encodePropertyAsList "showUpdateCredentials"
+                savedModel.showUpdateCredentials
+                JE.bool
+                False
+            , encodePropertyAsList "statusId"
+                savedModel.statusId
+                JE.string
+                ""
+            , encodePropertyAsList "useElmButtonNames"
+                savedModel.useElmButtonNames
+                JE.bool
+                False
+            , encodePropertyAsList "showPostStatus"
+                savedModel.showPostStatus
+                JE.bool
+                False
+            , encodePropertyAsList "excludedNotificationTypes"
+                savedModel.excludedNotificationTypes
+                (JE.list ED.encodeNotificationType)
+                []
+            , encodePropertyAsList "notificationsAccountId"
+                savedModel.notificationsAccountId
+                JE.string
+                ""
+            , encodePropertyAsList "notificationId"
+                savedModel.notificationId
+                JE.string
+                ""
+            , encodePropertyAsList "muteNotifications"
+                savedModel.muteNotifications
+                JE.bool
+                True
+            , encodePropertyAsList "groupIds"
+                savedModel.groupIds
+                JE.string
+                ""
+            , encodePropertyAsList "offset"
+                savedModel.offset
+                JE.string
+                ""
+            , encodePropertyAsList "listTitle"
+                savedModel.listTitle
+                JE.string
+                ""
+            , encodePropertyAsList "filterId"
+                savedModel.filterId
+                JE.string
+                ""
+            , encodePropertyAsList "filterInput"
+                savedModel.filterInput
+                encodeFilterInput
+                emptyFilterInput
+            , encodePropertyAsList "scheduledStatusId"
+                savedModel.scheduledStatusId
+                JE.string
+                ""
+            , encodePropertyAsList "userNameInput"
+                savedModel.userNameInput
+                JE.string
+                ""
+            , encodePropertyAsList "accountInput"
+                savedModel.accountInput
+                (ED.encodeMaybe ED.encodeAccount)
+                Nothing
+            , encodePropertyAsList "groupNameInput"
+                savedModel.groupNameInput
+                JE.string
+                ""
+            , encodePropertyAsList "groupInput"
+                savedModel.groupInput
+                (ED.encodeMaybe ED.encodeGroup)
+                Nothing
+            , encodePropertyAsList "hashtagInput"
+                savedModel.hashtagInput
+                JE.string
+                ""
+            , encodePropertyAsList "accountDialogFlags"
+                savedModel.accountDialogFlags
+                MED.encodeUserFeedFlags
+                Types.defaultUserFeedFlags
+            ]
+
+
+selectedRequestFromStringDict : Dict String SelectedRequest
+selectedRequestFromStringDict =
+    Dict.fromList
+        [ ( "Instance Information", InstanceSelected )
+        , ( "AccountsRequest", AccountsSelected )
+        , ( "BlocksRequest", BlocksSelected )
+        , ( "CustomEmojisRequest", CustomEmojisSelected )
+        , ( "EndorsementsRequest", EndorsementsSelected )
+        , ( "FavouritesRequest", FavouritesSelected )
+        , ( "FiltersRequest", FiltersSelected )
+        , ( "FollowRequestsRequest", FollowRequestsSelected )
+        , ( "FollowSuggestionsRequest", FollowSuggestionsSelected )
+        , ( "GroupsRequest", GroupsSelected )
+        , ( "ListsRequest", ListsSelected )
+        , ( "MutesRequest", MutesSelected )
+        , ( "SearchRequest", SearchSelected )
+        , ( "ScheduledStatusRequest", ScheduledStatusesSelected )
+        , ( "NotificationsRequest", NotificationsSelected )
+        , ( "ReportsRequest", ReportsSelected )
+        , ( "StatusesRequest", StatusesSelected )
+        , ( "TimelinesRequest", TimelinesSelected )
+        , ( "TrendsRequest", TrendsSelected )
+        , ( "Login", LoginSelected )
+        ]
+
+
+selectedRequestFromUrlDict : Dict String SelectedRequest
+selectedRequestFromUrlDict =
+    Dict.fromList selectedRequestUrlDictPairs
+
+
+selectedRequestFromString : String -> SelectedRequest
+selectedRequestFromString s =
+    case Dict.get s selectedRequestFromStringDict of
+        Nothing ->
+            LoginSelected
+
+        Just request ->
+            request
+
+
+selectedRequestToString : SelectedRequest -> String
+selectedRequestToString selectedRequest =
+    case selectedRequest of
+        LoginSelected ->
+            "login"
+
+        InstanceSelected ->
+            "Instance Information"
+
+        AccountsSelected ->
+            "AccountsRequest"
+
+        BlocksSelected ->
+            "BlocksRequest"
+
+        CustomEmojisSelected ->
+            "CustomEmojisRequest"
+
+        EndorsementsSelected ->
+            "EndorsementsRequest"
+
+        FavouritesSelected ->
+            "FavouritesRequest"
+
+        FiltersSelected ->
+            "FiltersRequest"
+
+        FollowRequestsSelected ->
+            "FollowRequestsRequest"
+
+        FollowSuggestionsSelected ->
+            "FollowSuggestionsRequest"
+
+        GroupsSelected ->
+            "GroupsRequest"
+
+        ListsSelected ->
+            "ListsRequest"
+
+        MutesSelected ->
+            "MutesRequest"
+
+        SearchSelected ->
+            "SearchRequest"
+
+        ScheduledStatusesSelected ->
+            "ScheduledStatusRequest"
+
+        NotificationsSelected ->
+            "NotificationsRequest"
+
+        ReportsSelected ->
+            "ReportsRequest"
+
+        StatusesSelected ->
+            "StatusesRequest"
+
+        TimelinesSelected ->
+            "TimelinesRequest"
+
+        TrendsSelected ->
+            "TrendsRequest"
+
+
+selectedRequestUrlDictPairs : List ( String, SelectedRequest )
+selectedRequestUrlDictPairs =
+    [ ( "instance", InstanceSelected )
+    , ( "accounts", AccountsSelected )
+    , ( "blocks", BlocksSelected )
+    , ( "customemojis", CustomEmojisSelected )
+    , ( "endorsements", EndorsementsSelected )
+    , ( "favourites", FavouritesSelected )
+    , ( "filters", FiltersSelected )
+    , ( "followrequests", FollowRequestsSelected )
+    , ( "followsuggestions", FollowSuggestionsSelected )
+    , ( "groups", GroupsSelected )
+    , ( "lists", ListsSelected )
+    , ( "mutes", MutesSelected )
+    , ( "search", SearchSelected )
+    , ( "scheduledstatus", ScheduledStatusesSelected )
+    , ( "notifications", NotificationsSelected )
+    , ( "reports", ReportsSelected )
+    , ( "statuses", StatusesSelected )
+    , ( "timelines", TimelinesSelected )
+    , ( "trends", TrendsSelected )
+    , ( "login", LoginSelected )
+    ]
+
+
+selectedRequestToUrlValue : SelectedRequest -> String
+selectedRequestToUrlValue request =
+    case LE.find (\( _, req ) -> req == request) selectedRequestUrlDictPairs of
+        Nothing ->
+            -- Can't happen
+            "login"
+
+        Just ( str, _ ) ->
+            str
+
+
+encodeSelectedRequest : SelectedRequest -> Value
+encodeSelectedRequest selectedRequest =
+    JE.string <| selectedRequestToString selectedRequest
+
+
+selectedRequestDecoder : Decoder SelectedRequest
+selectedRequestDecoder =
+    JD.string
+        |> JD.andThen
+            (\s ->
+                JD.succeed <|
+                    selectedRequestFromString s
+            )
+
+
+savedModelDecoder : Decoder SavedModel
+savedModelDecoder =
+    JD.succeed SavedModel
+        |> optional "renderEnv" renderEnvDecoder emptyRenderEnv
+        |> required "page" pageDecoder
+        |> optional "token" (JD.nullable JD.string) Nothing
+        |> optional "streaming_api" (JD.nullable JD.string) Nothing
+        |> optional "max_toot_chars" JD.int 300
+        |> required "server" JD.string
+        |> optional "feedSetDefinition"
+            MED.feedSetDefinitionDecoder
+            Types.defaultFeedSetDefinition
+        |> optional "supportsAccountByUsername" (JD.dict JD.bool) Dict.empty
+        |> optional "postState" postStateDecoder initialPostState
+        |> optional "features" featuresDecoder Dict.empty
+        |> optional "scrollPillState" scrollPillStateDecoder initialScrollPillState
+        |> optional "showLeftColumn" JD.bool True
+        |> optional "prettify" JD.bool True
+        |> optional "selectedRequest" selectedRequestDecoder LoginSelected
+        |> optional "username" JD.string ""
+        |> optional "accountId" JD.string ""
+        |> optional "accountIds" JD.string ""
+        |> optional "showMetadata" JD.bool False
+        |> optional "q" JD.string ""
+        |> optional "resolve" JD.bool False
+        |> optional "following" JD.bool False
+        |> optional "groupId" JD.string ""
+        |> optional "showReceived" JD.bool True
+        |> optional "showEntity" JD.bool False
+        |> optional "whichGroups" whichGroupsDecoder Request.MemberGroups
+        |> optional "followReblogs" JD.bool True
+        |> optional "onlyMedia" JD.bool False
+        |> optional "pinned" JD.bool False
+        |> optional "excludeReplies" JD.bool False
+        |> optional "excludeReblogs" JD.bool False
+        |> optional "pagingInput" pagingInputDecoder emptyPagingInput
+        |> optional "local" JD.bool False
+        |> optional "hashtag" JD.string ""
+        |> optional "listId" JD.string ""
+        |> optional "smartPaging" JD.bool False
+        |> optional "showJsonTree" JD.bool True
+        |> optional "showUpdateCredentials" JD.bool False
+        |> optional "statusId" JD.string ""
+        |> optional "useElmButtonNames" JD.bool False
+        |> optional "showPostStatus" JD.bool False
+        |> optional "excludedNotificationTypes" (JD.list ED.notificationTypeDecoder) []
+        |> optional "notificationsAccountId" JD.string ""
+        |> optional "notificationId" JD.string ""
+        |> optional "muteNotifications" JD.bool True
+        |> optional "groupIds" JD.string ""
+        |> optional "offset" JD.string ""
+        |> optional "listTitle" JD.string ""
+        |> optional "filterId" JD.string ""
+        |> optional "filterInput" filterInputDecoder emptyFilterInput
+        |> optional "scheduledStatusId" JD.string ""
+        |> optional "userNameInput" JD.string ""
+        |> optional "accountInput" (JD.nullable ED.accountDecoder) Nothing
+        |> optional "groupNameInput" JD.string ""
+        |> optional "groupInput" (JD.nullable ED.groupDecoder) Nothing
+        |> optional "hashtagInput" JD.string ""
+        |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags

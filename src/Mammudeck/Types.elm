@@ -50,6 +50,7 @@ module Mammudeck.Types exposing
     , feedSetDefinitionToFeedSet
     , feedSetToDefinition
     , feedTypeToElements
+    , makeUserFeed
     )
 
 import Html exposing (Html)
@@ -188,6 +189,33 @@ type FeedType
         { q : String
         , resolve : Bool
         , following : Bool
+        }
+
+
+splitUserAtServer : String -> ( String, String )
+splitUserAtServer userAtServer =
+    case String.split "@" userAtServer of
+        [] ->
+            -- Can't happen
+            ( "", "" )
+
+        [ name ] ->
+            ( name, "" )
+
+        name :: s :: _ ->
+            ( name, s )
+
+
+makeUserFeed : String -> FeedType
+makeUserFeed userAtServer =
+    let
+        ( username, server ) =
+            splitUserAtServer userAtServer
+    in
+    UserFeed
+        { username = username
+        , server = server
+        , flags = Nothing
         }
 
 
