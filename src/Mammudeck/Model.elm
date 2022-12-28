@@ -746,6 +746,7 @@ type alias Model =
     , accountDialogFlags : UserFeedFlags
 
     -- Non-persistent below here
+    , awaitingContext : Maybe Context
     , pollSelections : Dict String (List Int)
     , boundingBox : Maybe BoundingBox
     , appState : AppState
@@ -1124,6 +1125,7 @@ type ColumnsSendMsg
     = ColumnsSendNoop
     | ReceiveAccountByUsername (Maybe Paging) FeedType (Result Error Response)
     | ReceiveFeed Request (Maybe Paging) FeedType (Result Error Response)
+    | ReceiveStatusContext Request (Result Error Response)
 
 
 type ExplorerUIMsg
@@ -1297,6 +1299,8 @@ type ExplorerSendMsg
     | SendPostReports
     | SendGetStatus
     | SendGetStatusContext
+    | SendGetStatusAncestors
+    | SendGetStatusDescendants
     | SendGetStatusCard
     | SendGetStatusRebloggedBy
     | SendGetStatusFavouritedBy

@@ -346,6 +346,7 @@ import Mastodon.Request as Request
         ( Error(..)
         , FieldUpdate
         , Paging
+        , PartialContext(..)
         , PollDefinition
         , RawRequest
         , Request(..)
@@ -717,6 +718,7 @@ init value url key =
     , accountDialogFlags = Types.defaultUserFeedFlags
 
     -- Non-persistent below here
+    , awaitingContext = Nothing
     , pollSelections = Dict.empty
     , boundingBox = Nothing
     , appState = AppState.makeAppState emptyAppStateAccount
@@ -6032,11 +6034,22 @@ newThreadPopupExplorer state model =
                     )
 
                 ( mdl2, cmd2 ) =
-                    sendRequest
-                        (StatusesRequest <|
-                            Request.GetStatusContext { id = status.id }
-                        )
-                        mdl
+                    let
+                        server =
+                            model.renderEnv.loginServer
+                    in
+                    if serverHasFeature server featureNames.partialContext model then
+                        sendGetStatusPartialContext AncestorsContext status.id mdl
+
+                    else
+                        let
+                            request =
+                                StatusesRequest <|
+                                    Request.GetStatusContext { id = status.id }
+                        in
+                        sendGeneralRequest (ColumnsSendMsg << ReceiveStatusContext request)
+                            request
+                            mdl
             in
             mdl2 |> withCmds [ cmd, cmd2 ]
 
@@ -8266,6 +8279,107 @@ columnsSendMsg msg model =
         ReceiveFeed request paging feedType result ->
             receiveFeed request paging feedType result model
 
+        ReceiveStatusContext request result ->
+            receiveStatusContext request result model
+
+
+sendGetStatusPartialContext : PartialContext -> String -> Model -> ( Model, Cmd Msg )
+sendGetStatusPartialContext which statusid model =
+    let
+        request =
+            StatusesRequest <|
+                Request.GetStatusPartialContext
+                    { which = which, id = statusid }
+    in
+    sendGeneralRequest (ColumnsSendMsg << ReceiveStatusContext request)
+        request
+        model
+
+
+receiveStatusContext : Request -> Result Error Response -> Model -> ( Model, Cmd Msg )
+receiveStatusContext request result model =
+    case request of
+        StatusesRequest (Request.GetStatusContext { id }) ->
+            case result of
+                Ok _ ->
+                    receiveResponse request result model
+
+                Err _ ->
+                    sendGetStatusPartialContext AncestorsContext id model
+
+        StatusesRequest (Request.GetStatusPartialContext { which, id }) ->
+            case result of
+                Err _ ->
+                    receiveResponse request
+                        result
+                        { model | awaitingContext = Nothing }
+
+                Ok response ->
+                    case which of
+                        AncestorsContext ->
+                            case response.entity of
+                                StatusListEntity statuses ->
+                                    sendGetStatusPartialContext DescendantsContext
+                                        id
+                                        { model
+                                            | awaitingContext =
+                                                Just
+                                                    { ancestors = statuses
+                                                    , descendants = []
+                                                    }
+                                        }
+
+                                _ ->
+                                    model |> withNoCmd
+
+                        DescendantsContext ->
+                            case response.entity of
+                                StatusListEntity statuses ->
+                                    case model.awaitingContext of
+                                        Nothing ->
+                                            model |> withNoCmd
+
+                                        Just context ->
+                                            let
+                                                server =
+                                                    model.renderEnv.loginServer
+
+                                                featureName =
+                                                    featureNames.partialContext
+
+                                                mdl =
+                                                    if
+                                                        serverHasFeature server
+                                                            featureName
+                                                            model
+                                                    then
+                                                        model
+
+                                                    else
+                                                        setServerHasFeature
+                                                            (Debug.log "Server does partialContext"
+                                                                server
+                                                            )
+                                                            featureName
+                                                            True
+                                                            model
+                                            in
+                                            updateThreadExplorer id
+                                                (ContextEntity
+                                                    { context
+                                                        | descendants = statuses
+                                                    }
+                                                )
+                                                { mdl | awaitingContext = Nothing }
+                                                |> withNoCmd
+
+                                _ ->
+                                    model |> withNoCmd
+
+        _ ->
+            -- TODO
+            model |> withNoCmd
+
 
 fillinMissingReplyToAccountIds : Model -> Model
 fillinMissingReplyToAccountIds model =
@@ -10304,6 +10418,26 @@ explorerSendMsg msg model =
         SendGetStatusContext ->
             sendRequest
                 (StatusesRequest <| Request.GetStatusContext { id = model.statusId })
+                model
+
+        SendGetStatusAncestors ->
+            sendRequest
+                (StatusesRequest <|
+                    Request.GetStatusPartialContext
+                        { which = Request.AncestorsContext
+                        , id = model.statusId
+                        }
+                )
+                model
+
+        SendGetStatusDescendants ->
+            sendRequest
+                (StatusesRequest <|
+                    Request.GetStatusPartialContext
+                        { which = Request.DescendantsContext
+                        , id = model.statusId
+                        }
+                )
                 model
 
         SendGetStatusCard ->

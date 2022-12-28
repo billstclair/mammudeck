@@ -4777,9 +4777,13 @@ statusesSelectedUI model =
         , br
         , sendButton SendGetStatus model
         , text " "
-        , sendButton SendGetStatusContext model
-        , text " "
         , sendButton SendGetStatusCard model
+        , text " "
+        , sendButton SendGetStatusContext model
+        , br
+        , sendButton SendGetStatusAncestors model
+        , text " "
+        , sendButton SendGetStatusDescendants model
         , br
         , textInput "limit: "
             10
@@ -5924,7 +5928,7 @@ renderThreadExplorer state model =
             px left
 
         headerHeight =
-            case Debug.log "render headerHeight" state.headerHeight of
+            case state.headerHeight of
                 Nothing ->
                     25
 
@@ -6489,6 +6493,7 @@ featureNames =
     { groups = "groups"
     , quote = "quote"
     , proFeed = "proFeed"
+    , partialContext = "partialContext"
     }
 
 
@@ -8775,8 +8780,10 @@ dollarButtonNameDict =
         , ( "GetSearch", SendGetSearch )
         , ( "PostReports", SendPostReports )
         , ( "GetStatus", SendGetStatus )
-        , ( "GetStatusContext", SendGetStatusContext )
         , ( "GetStatusCard", SendGetStatusCard )
+        , ( "GetStatusContext", SendGetStatusContext )
+        , ( "GetStatusAncestors", SendGetStatusAncestors )
+        , ( "GetStatusDescendants", SendGetStatusDescendants )
         , ( "GetStatusRebloggedBy", SendGetStatusRebloggedBy )
         , ( "GetStatusFavouritedBy", SendGetStatusFavouritedBy )
         , ( "DeleteStatus", SendDeleteStatus )
@@ -8878,8 +8885,10 @@ buttonNameAlist =
     , ( SendGetSearch, ( "GetSearch", "GET search" ) )
     , ( SendPostReports, ( "PostReports", "POST reports" ) )
     , ( SendGetStatus, ( "GetStatus", "GET statuses/:id" ) )
-    , ( SendGetStatusContext, ( "GetStatusContext", "GET statuses/:id/context" ) )
     , ( SendGetStatusCard, ( "GetStatusCard", "GET statuses/:id/card" ) )
+    , ( SendGetStatusContext, ( "GetStatusContext", "GET statuses/:id/context" ) )
+    , ( SendGetStatusAncestors, ( "GetStatusAncestors", "GET statuses/:id/context/ancestors" ) )
+    , ( SendGetStatusDescendants, ( "GetStatusDecendants", "GET statuses/:id/context/descendants" ) )
     , ( SendGetStatusRebloggedBy, ( "GetStatusRebloggedBy", "GET statuses/:id/reblogged_by" ) )
     , ( SendGetStatusFavouritedBy, ( "GetStatusFavouritedBy", "GET statuses/:id/favourited_by" ) )
     , ( SendDeleteStatus, ( "DeleteStatus", "DELETE statuses/:id" ) )
