@@ -8289,7 +8289,7 @@ sendGetStatusPartialContext which statusid model =
         request =
             StatusesRequest <|
                 Request.GetStatusPartialContext
-                    { which = which, id = statusid }
+                    { which = which, id = statusid, offset = Nothing }
     in
     sendGeneralRequest (ColumnsSendMsg << ReceiveStatusContext request)
         request
@@ -10426,6 +10426,7 @@ explorerSendMsg msg model =
                     Request.GetStatusPartialContext
                         { which = Request.AncestorsContext
                         , id = model.statusId
+                        , offset = Nothing
                         }
                 )
                 model
@@ -10436,6 +10437,7 @@ explorerSendMsg msg model =
                     Request.GetStatusPartialContext
                         { which = Request.DescendantsContext
                         , id = model.statusId
+                        , offset = Nothing
                         }
                 )
                 model
