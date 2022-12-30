@@ -30,6 +30,7 @@ module Mammudeck.Types exposing
     , UserFeedParams
     , accountToAccountId
     , allButMentionNotificationExclusions
+    , defaultAccountDialogFlags
     , defaultFeedSet
     , defaultFeedSetDefinition
     , defaultGroupFeedType
@@ -79,6 +80,15 @@ type alias UserFeedFlags =
 
 defaultUserFeedFlags : UserFeedFlags
 defaultUserFeedFlags =
+    { only_media = False
+    , pinned = False
+    , replies = False
+    , reblogs = False
+    }
+
+
+defaultAccountDialogFlags : UserFeedFlags
+defaultAccountDialogFlags =
     { only_media = False
     , pinned = False
     , replies = True
@@ -206,8 +216,8 @@ splitUserAtServer userAtServer =
             ( name, s )
 
 
-makeUserFeed : String -> FeedType
-makeUserFeed userAtServer =
+makeUserFeed : String -> UserFeedFlags -> FeedType
+makeUserFeed userAtServer flags =
     let
         ( username, server ) =
             splitUserAtServer userAtServer
@@ -215,7 +225,12 @@ makeUserFeed userAtServer =
     UserFeed
         { username = username
         , server = server
-        , flags = Nothing
+        , flags =
+            if flags == defaultUserFeedFlags then
+                Nothing
+
+            else
+                Just flags
         }
 
 

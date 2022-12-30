@@ -6612,6 +6612,10 @@ editColumnsDialogRows model =
                                 ++ Maybe.withDefault "server" renderEnv.loginServer
                         ]
                         []
+                    , br
+                    , renderUserFeedFlags
+                        (ColumnsUIMsg << SetUserColumnFlags)
+                        model.userColumnFlags
                     ]
                     (ColumnsUIMsg <| AddFeedColumn Types.defaultUserFeedType)
               ]
@@ -7026,9 +7030,24 @@ formatInteger int =
     FormatNumber.format integerFormat <| toFloat int
 
 
+feedTypeEqual : FeedType -> FeedType -> Bool
+feedTypeEqual ft1 ft2 =
+    case ft1 of
+        UserFeed { username, server } ->
+            case ft2 of
+                UserFeed params ->
+                    params.username == username && params.server == server
+
+                _ ->
+                    False
+
+        _ ->
+            ft1 == ft2
+
+
 findFeed : FeedType -> FeedSet -> Maybe Feed
 findFeed feedType feedSet =
-    LE.find (\feed -> feedType == feed.feedType) feedSet.feeds
+    LE.find (\feed -> feedTypeEqual feedType feed.feedType) feedSet.feeds
 
 
 accountDialogContent : Account -> Maybe AccountDialogContent -> Model -> List (Html Msg)
@@ -7063,7 +7082,7 @@ accountDialogContent account maybeContent model =
                     ( False, emptyRelationship )
 
         feedType =
-            makeUserFeed userAtServer
+            makeUserFeed userAtServer model.userColumnFlags
 
         ( acName, acMsg ) =
             case findFeed feedType model.feedSet of

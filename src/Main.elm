@@ -715,7 +715,8 @@ init value url key =
     , groupNameInput = ""
     , groupInput = Nothing
     , hashtagInput = ""
-    , accountDialogFlags = Types.defaultUserFeedFlags
+    , accountDialogFlags = Types.defaultAccountDialogFlags
+    , userColumnFlags = Types.defaultUserFeedFlags
 
     -- Non-persistent below here
     , awaitingContext = Nothing
@@ -4136,6 +4137,10 @@ columnsUIMsg msg model =
 
         DeleteFeedType feedType ->
             deleteFeedType feedType model
+
+        SetUserColumnFlags flags ->
+            { model | userColumnFlags = flags }
+                |> withNoCmd
 
         AddFeedColumn feedType ->
             addFeedType (fillinFeedType feedType model) model
@@ -7677,7 +7682,7 @@ fillinFeedType : FeedType -> Model -> FeedType
 fillinFeedType feedType model =
     case feedType of
         UserFeed _ ->
-            makeUserFeed model.userNameInput
+            makeUserFeed model.userNameInput model.userColumnFlags
 
         GroupFeed _ ->
             GroupFeed <|
@@ -8071,11 +8076,7 @@ getStatusesRequest id paging params =
         userFeedFlags =
             case params.flags of
                 Nothing ->
-                    { only_media = False
-                    , pinned = False
-                    , replies = False
-                    , reblogs = False
-                    }
+                    Types.defaultUserFeedFlags
 
                 Just flags ->
                     flags

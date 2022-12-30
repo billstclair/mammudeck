@@ -744,6 +744,7 @@ type alias Model =
     , groupInput : Maybe Group
     , hashtagInput : String
     , accountDialogFlags : UserFeedFlags
+    , userColumnFlags : UserFeedFlags
 
     -- Non-persistent below here
     , awaitingContext : Maybe Context
@@ -915,6 +916,7 @@ type alias SavedModel =
     , groupInput : Maybe Group
     , hashtagInput : String
     , accountDialogFlags : UserFeedFlags
+    , userColumnFlags : UserFeedFlags
     }
 
 
@@ -1045,6 +1047,7 @@ type ColumnsUIMsg
     | DismissAttachmentView
     | AddFeedType FeedType
     | DeleteFeedType FeedType
+    | SetUserColumnFlags UserFeedFlags
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType
@@ -1387,6 +1390,7 @@ modelToSavedModel model =
     , groupInput = model.groupInput
     , hashtagInput = model.hashtagInput
     , accountDialogFlags = model.accountDialogFlags
+    , userColumnFlags = model.userColumnFlags
     }
 
 
@@ -1463,6 +1467,7 @@ savedModelToModel savedModel model =
         , groupInput = savedModel.groupInput
         , hashtagInput = savedModel.hashtagInput
         , accountDialogFlags = savedModel.accountDialogFlags
+        , userColumnFlags = savedModel.userColumnFlags
     }
 
 
@@ -2060,6 +2065,10 @@ encodeSavedModel savedModel =
             , encodePropertyAsList "accountDialogFlags"
                 savedModel.accountDialogFlags
                 MED.encodeUserFeedFlags
+                Types.defaultAccountDialogFlags
+            , encodePropertyAsList "userColumnFlags"
+                savedModel.userColumnFlags
+                MED.encodeUserFeedFlags
                 Types.defaultUserFeedFlags
             ]
 
@@ -2280,4 +2289,5 @@ savedModelDecoder =
         |> optional "groupNameInput" JD.string ""
         |> optional "groupInput" (JD.nullable ED.groupDecoder) Nothing
         |> optional "hashtagInput" JD.string ""
-        |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags
+        |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultAccountDialogFlags
+        |> optional "userColumnFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags
