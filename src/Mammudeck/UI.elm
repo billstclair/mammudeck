@@ -12,9 +12,12 @@
 
 module Mammudeck.UI exposing
     ( NodeId(..)
+    , ScrollInfo
+    , columnScrollInfo
     , defaultPollDefinition
     , docSections
     , featureNames
+    , feedTypeEqual
     , findFeed
     , focusId
     , getFeedEnv
@@ -1194,6 +1197,16 @@ postToFeedMsg feedType renderEnv =
             Nothing
 
 
+changeFeedTypeParamsMsg : FeedType -> Maybe Msg
+changeFeedTypeParamsMsg feedType =
+    case feedType of
+        UserFeed _ ->
+            Just (ColumnsUIMsg <| ShowFeedTypePopup feedType)
+
+        _ ->
+            Nothing
+
+
 headerFeedId : String -> String
 headerFeedId feedId =
     feedId ++ " [header]"
@@ -1223,7 +1236,7 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
             --Debug.log "  innerHeight" <|
             case feedEnv.headerHeight of
                 Nothing ->
-                    "calc(100% - 1.4em)"
+                    "calc(100% - " ++ defaultColumnHeaderHeight ++ ")"
 
                 Just headerHeight ->
                     String.fromFloat (toFloat h - 20 - headerHeight) ++ "px"
@@ -1329,6 +1342,21 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
                             ]
             , text " "
             , title
+            , case changeFeedTypeParamsMsg feedType of
+                Nothing ->
+                    text ""
+
+                Just msg ->
+                    span []
+                        [ text " "
+                        , Html.i
+                            [ onClick msg
+                            , style "cursor" "pointer"
+                            , style "font-size" smallTextFontSize
+                            , class "icon-down-open"
+                            ]
+                            []
+                        ]
             , case postToFeedMsg feedType renderEnv of
                 Nothing ->
                     text ""
@@ -6130,6 +6158,9 @@ renderDialog model =
         AccountDialog account content ->
             accountDialog account content model
 
+        FeedTypeDialog feedType ->
+            feedTypeDialog feedType model
+
         AreYouSureDialog reason status ->
             areYouSureDialog reason status model
 
@@ -7050,6 +7081,11 @@ findFeed feedType feedSet =
     LE.find (\feed -> feedTypeEqual feedType feed.feedType) feedSet.feeds
 
 
+feedIndex : FeedType -> FeedSet -> Maybe Int
+feedIndex feedType feedSet =
+    LE.findIndex (\feed -> feedTypeEqual feedType feed.feedType) feedSet.feeds
+
+
 accountDialogContent : Account -> Maybe AccountDialogContent -> Model -> List (Html Msg)
 accountDialogContent account maybeContent model =
     let
@@ -7518,6 +7554,147 @@ renderUserFeedFlags wrapper flags =
             flags.only_media
             "only media"
         ]
+
+
+type alias ScrollInfo =
+    { scrollLeft : Int
+    , col0Left : Int
+    , columnWidth : Int
+    , maxColumn : Int
+    , windowWidth : Int
+    }
+
+
+columnScrollInfo : Model -> ScrollInfo
+columnScrollInfo model =
+    let
+        scrollLeft =
+            model.bodyScroll.scrollLeft
+                |> round
+
+        col0Left =
+            if model.showLeftColumn then
+                leftColumnWidth + 2
+
+            else
+                2
+
+        columnWidth =
+            model.renderEnv.columnWidth
+                + 2
+    in
+    { scrollLeft = scrollLeft
+    , col0Left = col0Left
+    , columnWidth = columnWidth
+    , maxColumn = List.length model.feedSet.feeds - 1
+    , windowWidth = (model.renderEnv.windowSize |> Tuple.first) - 8
+    }
+
+
+type alias ColumnInfo =
+    { left : Int
+    , width : Int
+    , headerHeight : Int
+    , windowWidth : Int
+    }
+
+
+defaultColumnHeaderHeight : String
+defaultColumnHeaderHeight =
+    "1.4em"
+
+
+getFeedColumnInfo : FeedType -> Model -> ColumnInfo
+getFeedColumnInfo feedType model =
+    let
+        { columnWidth, windowWidth, col0Left, scrollLeft } =
+            columnScrollInfo model
+
+        feedId =
+            Types.feedID feedType
+
+        headerHeight =
+            case Dict.get feedId model.feedEnvs of
+                Nothing ->
+                    0
+
+                Just feedEnv ->
+                    case feedEnv.headerHeight of
+                        Nothing ->
+                            0
+
+                        Just h ->
+                            round h
+
+        res =
+            { left = 0
+            , width = columnWidth
+            , headerHeight = headerHeight
+            , windowWidth = windowWidth
+            }
+    in
+    case feedIndex feedType model.feedSet of
+        Nothing ->
+            res
+
+        Just index ->
+            { res
+                | left = col0Left + index * columnWidth - scrollLeft
+            }
+
+
+feedTypeDialog : FeedType -> Model -> Html Msg
+feedTypeDialog feedType model =
+    let
+        { left, headerHeight } =
+            getFeedColumnInfo feedType model
+
+        topS =
+            if headerHeight == 0 then
+                "calc(5px + " ++ defaultColumnHeaderHeight ++ ")"
+
+            else
+                String.fromInt (headerHeight + 5) ++ "px"
+
+        leftS =
+            String.fromInt (max (left + 10) 0) ++ "px"
+
+        { color, backgroundColor } =
+            getStyle model.renderEnv
+
+        content =
+            case feedType of
+                UserFeed params ->
+                    let
+                        flags =
+                            case params.flags of
+                                Nothing ->
+                                    Types.defaultUserFeedFlags
+
+                                Just fs ->
+                                    fs
+
+                        updater newFlags =
+                            ColumnsUIMsg
+                                (UpdateFeedColumn <|
+                                    UserFeed { params | flags = Just newFlags }
+                                )
+                    in
+                    renderUserFeedFlags updater flags
+
+                _ ->
+                    text ""
+    in
+    div
+        [ style "position" "fixed"
+        , style "left" leftS
+        , style "top" topS
+        , style "z-index" dialogZIndex
+        , style "border" <| "1px solid " ++ color
+        , style "background-color" backgroundColor
+        , style "padding" "5px"
+        ]
+        [ content ]
 
 
 postDialog : Model -> Html Msg
@@ -8078,6 +8255,11 @@ dollarButtonNameToSendName useElmButtonNames dollarButtonName =
         name
 
 
+dialogZIndex : String
+dialogZIndex =
+    "20"
+
+
 attachmentDialog : AttachmentView -> Model -> Html Msg
 attachmentDialog attachmentView model =
     let
@@ -8099,7 +8281,7 @@ attachmentDialog attachmentView model =
                 , style "top" "0"
                 , style "bottom" "0"
                 , style "inset" "0px"
-                , style "z-index" "20"
+                , style "z-index" dialogZIndex
                 , style "justify-content" "center"
                 , style "align-items" "center"
                 , style "display" "flex"

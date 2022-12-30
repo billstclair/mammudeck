@@ -514,6 +514,7 @@ type Dialog
     | AreYouSureDialog AreYouSureReason Status
     | DocsDialog
     | AccountDialog Account (Maybe AccountDialogContent)
+    | FeedTypeDialog FeedType
 
 
 type alias AttachmentView =
@@ -1051,6 +1052,7 @@ type ColumnsUIMsg
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType
+    | UpdateFeedColumn FeedType
     | UserNameInput String
     | GroupNameInput String
     | HashtagInput String
@@ -1074,6 +1076,7 @@ type ColumnsUIMsg
     | ToggleStatusRepeat Status
     | ToggleStatusFavorite Status
     | StatusEllipsisPopup String Status
+    | ShowFeedTypePopup FeedType
     | ClearFeedsText
     | ClearModelText
     | SetFeedsText String

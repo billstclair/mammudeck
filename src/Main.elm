@@ -283,9 +283,12 @@ import Mammudeck.Types as Types
 import Mammudeck.UI
     exposing
         ( NodeId(..)
+        , ScrollInfo
+        , columnScrollInfo
         , defaultPollDefinition
         , docSections
         , featureNames
+        , feedTypeEqual
         , findFeed
         , focusId
         , getFeedEnv
@@ -4160,6 +4163,27 @@ columnsUIMsg msg model =
                 Just movingFeedType ->
                     moveFeedType movingFeedType feedType model
 
+        UpdateFeedColumn feedType ->
+            let
+                feeds =
+                    LE.updateIf
+                        (\feed ->
+                            feedTypeEqual feedType feed.feedType
+                        )
+                        (\feed ->
+                            { feed | feedType = feedType }
+                        )
+                        model.feedSet.feeds
+
+                feedSet =
+                    model.feedSet
+            in
+            { model
+                | feedSet =
+                    { feedSet | feeds = feeds }
+            }
+                |> withNoCmd
+
         UserNameInput userNameInput ->
             { model
                 | userNameInput = userNameInput
@@ -4395,6 +4419,10 @@ columnsUIMsg msg model =
 
         StatusEllipsisPopup ellipsisId status ->
             showEllipsisPopup ellipsisId status model
+
+        ShowFeedTypePopup feedType ->
+            { model | dialog = FeedTypeDialog feedType }
+                |> withNoCmd
 
         ClearFeedsText ->
             { model | feedsText = Nothing }
@@ -7348,41 +7376,6 @@ computeScrollColumns { scrollLeft, col0Left, columnWidth, maxColumn, windowWidth
 
         else
             min maxColumn <| truncate right
-    }
-
-
-type alias ScrollInfo =
-    { scrollLeft : Int
-    , col0Left : Int
-    , columnWidth : Int
-    , maxColumn : Int
-    , windowWidth : Int
-    }
-
-
-columnScrollInfo : Model -> ScrollInfo
-columnScrollInfo model =
-    let
-        scrollLeft =
-            model.bodyScroll.scrollLeft
-                |> round
-
-        col0Left =
-            if model.showLeftColumn then
-                leftColumnWidth + 2
-
-            else
-                2
-
-        columnWidth =
-            model.renderEnv.columnWidth
-                + 2
-    in
-    { scrollLeft = scrollLeft
-    , col0Left = col0Left
-    , columnWidth = columnWidth
-    , maxColumn = List.length model.feedSet.feeds - 1
-    , windowWidth = (model.renderEnv.windowSize |> Tuple.first) - 8
     }
 
 
