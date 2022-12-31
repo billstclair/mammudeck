@@ -16,11 +16,15 @@ module Mammudeck.EncodeDecode exposing
     , encodeFeedSetDefinition
     , encodeFeedType
     , encodePollDefinition
+    , encodeProFeedFlags
     , encodePropertyAsList
+    , encodePublicFeedFlags
     , encodeUserFeedFlags
     , feedSetDefinitionDecoder
     , feedTypeDecoder
     , pollDefinitionDecoder
+    , proFeedFlagsDecoder
+    , publicFeedFlagsDecoder
     , userFeedFlagsDecoder
     )
 

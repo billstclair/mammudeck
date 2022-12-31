@@ -720,6 +720,7 @@ init value url key =
     , hashtagInput = ""
     , accountDialogFlags = Types.defaultAccountDialogFlags
     , userColumnFlags = Types.defaultUserFeedFlags
+    , publicColumnFlags = Types.defaultPublicFeedFlags
 
     -- Non-persistent below here
     , awaitingContext = Nothing
@@ -4143,6 +4144,10 @@ columnsUIMsg msg model =
 
         SetUserColumnFlags flags ->
             { model | userColumnFlags = flags }
+                |> withNoCmd
+
+        SetPublicColumnFlags flags ->
+            { model | publicColumnFlags = flags }
                 |> withNoCmd
 
         AddFeedColumn feedType ->
@@ -7717,6 +7722,17 @@ fillinFeedType feedType model =
         UserFeed _ ->
             makeUserFeed model.userNameInput model.userColumnFlags
 
+        PublicFeed _ ->
+            let
+                flags =
+                    if model.publicColumnFlags == Types.defaultPublicFeedFlags then
+                        Nothing
+
+                    else
+                        Just model.publicColumnFlags
+            in
+            PublicFeed { flags = flags }
+
         GroupFeed _ ->
             GroupFeed <|
                 case model.groupInput of
@@ -8185,8 +8201,12 @@ reloadFeedPaging paging feed model =
                             Request.GetPublicTimeline <|
                                 case flags of
                                     Nothing ->
-                                        { local = True
-                                        , only_media = False
+                                        let
+                                            { local, only_media } =
+                                                Types.defaultPublicFeedFlags
+                                        in
+                                        { local = local
+                                        , only_media = only_media
                                         , paging = paging
                                         }
 

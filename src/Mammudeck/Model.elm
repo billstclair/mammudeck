@@ -746,6 +746,7 @@ type alias Model =
     , hashtagInput : String
     , accountDialogFlags : UserFeedFlags
     , userColumnFlags : UserFeedFlags
+    , publicColumnFlags : PublicFeedFlags
 
     -- Non-persistent below here
     , awaitingContext : Maybe Context
@@ -918,6 +919,7 @@ type alias SavedModel =
     , hashtagInput : String
     , accountDialogFlags : UserFeedFlags
     , userColumnFlags : UserFeedFlags
+    , publicColumnFlags : PublicFeedFlags
     }
 
 
@@ -1049,6 +1051,7 @@ type ColumnsUIMsg
     | AddFeedType FeedType
     | DeleteFeedType FeedType
     | SetUserColumnFlags UserFeedFlags
+    | SetPublicColumnFlags PublicFeedFlags
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType
@@ -1394,6 +1397,7 @@ modelToSavedModel model =
     , hashtagInput = model.hashtagInput
     , accountDialogFlags = model.accountDialogFlags
     , userColumnFlags = model.userColumnFlags
+    , publicColumnFlags = model.publicColumnFlags
     }
 
 
@@ -1471,6 +1475,7 @@ savedModelToModel savedModel model =
         , hashtagInput = savedModel.hashtagInput
         , accountDialogFlags = savedModel.accountDialogFlags
         , userColumnFlags = savedModel.userColumnFlags
+        , publicColumnFlags = savedModel.publicColumnFlags
     }
 
 
@@ -2073,6 +2078,10 @@ encodeSavedModel savedModel =
                 savedModel.userColumnFlags
                 MED.encodeUserFeedFlags
                 Types.defaultUserFeedFlags
+            , encodePropertyAsList "publicColumnFlags"
+                savedModel.publicColumnFlags
+                MED.encodePublicFeedFlags
+                Types.defaultPublicFeedFlags
             ]
 
 
@@ -2294,3 +2303,4 @@ savedModelDecoder =
         |> optional "hashtagInput" JD.string ""
         |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultAccountDialogFlags
         |> optional "userColumnFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags
+        |> optional "publicColumnFlags" MED.publicFeedFlagsDecoder Types.defaultPublicFeedFlags

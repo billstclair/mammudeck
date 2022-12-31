@@ -1204,6 +1204,9 @@ changeFeedTypeParamsMsg feedType =
         UserFeed _ ->
             Just (ColumnsUIMsg <| ShowFeedTypePopup feedType)
 
+        PublicFeed _ ->
+            Just (ColumnsUIMsg <| ShowFeedTypePopup feedType)
+
         _ ->
             Nothing
 
@@ -6530,6 +6533,19 @@ featureNames =
     }
 
 
+
+{- Feed parameters to add
+
+   | PublicFeed PublicFeedParams
+       PublicFeedParams = { flags: Maybe PublicFeedFlags }
+       PublicFeedFlags = { local : Bool, only_media : Bool }
+   | NotificationFeed NotificationFeedParams
+       NotificationFeedParams =
+         { accountId : Maybe String, exclusions: List NotificationType }
+
+-}
+
+
 editColumnsDialogRows : Model -> List (Html Msg)
 editColumnsDialogRows model =
     let
@@ -6569,68 +6585,66 @@ editColumnsDialogRows model =
 
               else
                 [ row [ b "Home" ] (ColumnsUIMsg <| AddFeedColumn HomeFeed) ]
-            , case
-                LE.find
-                    (\feedType ->
-                        case feedType of
-                            NotificationFeed _ ->
-                                True
-
-                            _ ->
-                                False
-                    )
-                    feedTypes
-              of
+            , let
+                feedType =
+                    NotificationFeed
+                        { accountId = Nothing
+                        , exclusions = []
+                        }
+              in
+              case LE.find (feedTypeEqual feedType) feedTypes of
                 Just _ ->
                     []
 
                 Nothing ->
                     [ row [ b "Notifications" ]
                         (ColumnsUIMsg <|
-                            AddFeedColumn
-                                (NotificationFeed
-                                    { accountId = Nothing
-                                    , exclusions = []
-                                    }
-                                )
+                            AddFeedColumn feedType
                         )
                     ]
-            , case
-                LE.find
-                    (\feedType ->
-                        case feedType of
-                            PublicFeed _ ->
-                                True
-
-                            ProFeed _ ->
-                                True
-
-                            _ ->
-                                False
-                    )
-                    feedTypes
-              of
+            , let
+                feedType =
+                    PublicFeed { flags = Nothing }
+              in
+              case LE.find (feedTypeEqual feedType) feedTypes of
                 Just _ ->
                     []
 
                 Nothing ->
-                    let
-                        ( feedType, name ) =
-                            if
-                                serverHasFeature renderEnv.loginServer
-                                    featureNames.proFeed
-                                    model
-                            then
-                                ( ProFeed { flags = Nothing }, "Pro" )
-
-                            else
-                                ( PublicFeed { flags = Nothing }, "Public" )
-                    in
-                    [ row [ b name ]
+                    [ row
+                        [ b "Public"
+                        , br
+                        , renderPublicFeedFlags
+                            (ColumnsUIMsg << SetPublicColumnFlags)
+                            model.publicColumnFlags
+                        ]
                         (ColumnsUIMsg <|
                             AddFeedColumn feedType
                         )
                     ]
+            , if
+                not <|
+                    serverHasFeature renderEnv.loginServer
+                        featureNames.proFeed
+                        model
+              then
+                []
+
+              else
+                let
+                    feedType =
+                        ProFeed { flags = Nothing }
+                in
+                case LE.find (feedTypeEqual feedType) feedTypes of
+                    Just _ ->
+                        []
+
+                    Nothing ->
+                        [ row [ b "Pro" ]
+                            (ColumnsUIMsg <|
+                                AddFeedColumn feedType
+                            )
+                        ]
             , [ row
                     [ b "User: "
                     , input
@@ -7070,6 +7084,14 @@ feedTypeEqual ft1 ft2 =
             case ft2 of
                 UserFeed params ->
                     params.username == username && params.server == server
+
+                _ ->
+                    False
+
+        PublicFeed _ ->
+            case ft2 of
+                PublicFeed _ ->
+                    True
 
                 _ ->
                     False
@@ -7532,6 +7554,24 @@ renderAccountDialogStatuses renderEnv feedBodyEnv statuses =
         |> div []
 
 
+renderPublicFeedFlags : (PublicFeedFlags -> Msg) -> PublicFeedFlags -> Html Msg
+renderPublicFeedFlags wrapper flags =
+    let
+        makeMsg : (PublicFeedFlags -> Bool) -> (Bool -> PublicFeedFlags) -> Msg
+        makeMsg reader writer =
+            wrapper <| writer (not <| reader flags)
+    in
+    span []
+        [ checkBox (makeMsg .local (\bool -> { flags | local = bool }))
+            flags.local
+            "local"
+        , text " "
+        , checkBox (makeMsg .only_media (\bool -> { flags | only_media = bool }))
+            flags.only_media
+            "only media"
+        ]
+
+
 renderUserFeedFlags : (UserFeedFlags -> Msg) -> UserFeedFlags -> Html Msg
 renderUserFeedFlags wrapper flags =
     let
@@ -7554,7 +7594,7 @@ renderUserFeedFlags wrapper flags =
         , text " "
         , checkBox (makeMsg .only_media (\bool -> { flags | only_media = bool }))
             flags.only_media
-            ("only" ++ special.nbsp ++ "media")
+            "only media"
         ]
 
 
@@ -7683,6 +7723,24 @@ feedTypeDialog feedType model =
                                 )
                     in
                     renderUserFeedFlags updater flags
+
+                PublicFeed params ->
+                    let
+                        flags =
+                            case params.flags of
+                                Nothing ->
+                                    Types.defaultPublicFeedFlags
+
+                                Just fs ->
+                                    fs
+
+                        updater newFlags =
+                            ColumnsUIMsg
+                                (UpdateFeedColumn <|
+                                    PublicFeed { params | flags = Just newFlags }
+                                )
+                    in
+                    renderPublicFeedFlags updater flags
 
                 _ ->
                     text ""

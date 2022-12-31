@@ -131,6 +131,11 @@ allButMentionNotificationExclusions =
     , ReblogNotification
     , FavouriteNotification
     , PollNotification
+    , FollowRequestNotification
+    , UpdateNotification
+    , Admin_SignupNotification
+    , Admin_ReportNotification
+    , Pleroma_EmojiReactionNotification
     ]
 
 
