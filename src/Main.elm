@@ -4402,7 +4402,16 @@ columnsUIMsg msg model =
             showEllipsisPopup ellipsisId status model
 
         ShowFeedTypePopup feedType ->
-            { model | dialog = FeedTypeDialog feedType }
+            let
+                dialog =
+                    case model.dialog of
+                        FeedTypeDialog ft ->
+                            NoDialog
+
+                        _ ->
+                            FeedTypeDialog feedType
+            in
+            { model | dialog = dialog }
                 |> withNoCmd
 
         ClearFeedsText ->
