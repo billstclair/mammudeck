@@ -4142,7 +4142,7 @@ columnsUIMsg msg model =
 
         SetNotificationColumnParams params ->
             { model | notificationColumnParams = params }
-                |> withNoCmd
+                |> withCmd (resetSelectOption nodeIds.notificationTypeSelect)
 
         AddFeedColumn feedType ->
             addFeedType (fillinFeedType feedType model) model
@@ -5034,11 +5034,20 @@ updateFeedColumn feedType model =
             let
                 ( mdl2, cmd2 ) =
                     reloadFeed feed mdl
+
+                cmd3 =
+                    case feed.feedType of
+                        NotificationFeed _ ->
+                            resetSelectOption nodeIds.notificationTypeSelect
+
+                        _ ->
+                            Cmd.none
             in
             mdl2
                 |> withCmds
                     [ maybePutFeedSetDefinition mdl mdl.feedSetDefinition
                     , cmd2
+                    , cmd3
                     ]
 
 

@@ -5570,6 +5570,7 @@ nodeIds =
     , accountDialogSelect = "accountDialogSelect"
     , accountDialogStatus = "accountDialogStatus"
     , accountDialog = "accountDialog"
+    , notificationTypeSelect = "notificationTypeSelect"
     }
 
 
@@ -7613,18 +7614,24 @@ renderNotificationFeedParams wrapper params =
         { exclusions } =
             params
 
+        sortedExclusions =
+            sortNotificationTypes exclusions
+
+        namedExclusions =
+            List.map (\n -> ( n, notificationTypeName n )) sortedExclusions
+
         inclusions =
             LE.filterNot (\exclusion -> List.member exclusion exclusions)
                 Types.allNotificationExclusions
                 |> sortNotificationTypes
+                |> List.map (\n -> ( n, notificationTypeName n ))
 
         isMentions =
-            sortNotificationTypes exclusions
+            sortedExclusions
                 == sortNotificationTypes Types.allButMentionNotificationExclusions
 
         isAll =
-            sortNotificationTypes exclusions
-                == sortNotificationTypes Types.allNotificationExclusions
+            exclusions == []
 
         makeMentionsMsg =
             let
@@ -7636,9 +7643,75 @@ renderNotificationFeedParams wrapper params =
                         Types.allButMentionNotificationExclusions
             in
             wrapper { params | exclusions = excls }
+
+        removeExclusion name =
+            case LE.find (\( _, nam ) -> nam == name) namedExclusions of
+                Nothing ->
+                    Noop
+
+                Just ( not, _ ) ->
+                    wrapper { params | exclusions = LE.remove not exclusions }
+
+        exclusionOption ( _, nam ) =
+            option [ value nam ]
+                [ text nam ]
+
+        addExclusion not =
+            let
+                excls =
+                    not :: exclusions
+
+                excls2 =
+                    if
+                        sortNotificationTypes excls
+                            == sortNotificationTypes Types.allNotificationExclusions
+                    then
+                        []
+
+                    else
+                        excls
+            in
+            wrapper { params | exclusions = excls2 }
+
+        inclusionItem ( not, nam ) =
+            span []
+                [ text nam
+                , titledButton "Exclude this type"
+                    True
+                    (addExclusion not)
+                    "x"
+                , text " "
+                ]
     in
     span []
-        [ checkBox makeMentionsMsg isMentions "mentions"
+        [ checkBox makeMentionsMsg
+            isMentions
+            "mentions"
+        , text " "
+        , if namedExclusions == [] then
+            text ""
+
+          else
+            select
+                [ onInput removeExclusion
+                , id nodeIds.notificationTypeSelect
+                ]
+            <|
+                (option
+                    [ value ""
+                    , selected True
+                    ]
+                    [ text "-- include notification type --" ]
+                    :: List.map exclusionOption namedExclusions
+                )
+        , if isAll then
+            text ""
+
+          else
+            span [] <|
+                List.append
+                    [ br ]
+                    (List.map inclusionItem inclusions)
         ]
 
 
