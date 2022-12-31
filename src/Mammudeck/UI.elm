@@ -208,6 +208,7 @@ import Mammudeck.Types as Types
         , FetchType(..)
         , Fetcher
         , GangedNotification
+        , NotificationFeedParams
         , PublicFeedFlags
           --, Renderer
         , ScrollNotification
@@ -1200,12 +1201,19 @@ postToFeedMsg feedType renderEnv =
 
 changeFeedTypeParamsMsg : FeedType -> Maybe Msg
 changeFeedTypeParamsMsg feedType =
+    let
+        msg =
+            Just (ColumnsUIMsg <| ShowFeedTypePopup feedType)
+    in
     case feedType of
         UserFeed _ ->
-            Just (ColumnsUIMsg <| ShowFeedTypePopup feedType)
+            msg
 
         PublicFeed _ ->
-            Just (ColumnsUIMsg <| ShowFeedTypePopup feedType)
+            msg
+
+        NotificationFeed _ ->
+            msg
 
         _ ->
             Nothing
@@ -6533,19 +6541,6 @@ featureNames =
     }
 
 
-
-{- Feed parameters to add
-
-   | PublicFeed PublicFeedParams
-       PublicFeedParams = { flags: Maybe PublicFeedFlags }
-       PublicFeedFlags = { local : Bool, only_media : Bool }
-   | NotificationFeed NotificationFeedParams
-       NotificationFeedParams =
-         { accountId : Maybe String, exclusions: List NotificationType }
-
--}
-
-
 editColumnsDialogRows : Model -> List (Html Msg)
 editColumnsDialogRows model =
     let
@@ -6597,7 +6592,13 @@ editColumnsDialogRows model =
                     []
 
                 Nothing ->
-                    [ row [ b "Notifications" ]
+                    [ row
+                        [ b "Notifications"
+                        , br
+                        , renderNotificationFeedParams
+                            (ColumnsUIMsg << SetNotificationColumnParams)
+                            model.notificationColumnParams
+                        ]
                         (ColumnsUIMsg <|
                             AddFeedColumn feedType
                         )
@@ -7096,6 +7097,14 @@ feedTypeEqual ft1 ft2 =
                 _ ->
                     False
 
+        NotificationFeed _ ->
+            case ft2 of
+                NotificationFeed _ ->
+                    True
+
+                _ ->
+                    False
+
         _ ->
             ft1 == ft2
 
@@ -7554,6 +7563,85 @@ renderAccountDialogStatuses renderEnv feedBodyEnv statuses =
         |> div []
 
 
+notificationTypeName : NotificationType -> String
+notificationTypeName notificationType =
+    case notificationType of
+        FollowNotification ->
+            "follow"
+
+        MentionNotification ->
+            "mention"
+
+        ReblogNotification ->
+            "reblog"
+
+        FavouriteNotification ->
+            "favorite"
+
+        PollNotification ->
+            "poll"
+
+        FollowRequestNotification ->
+            "follow request"
+
+        UpdateNotification ->
+            "update"
+
+        Admin_SignupNotification ->
+            "admin signup"
+
+        Admin_ReportNotification ->
+            "admin report"
+
+        Pleroma_EmojiReactionNotification ->
+            "emoji reaction"
+
+        UnknownNotification s ->
+            s
+
+
+sortNotificationTypes : List NotificationType -> List NotificationType
+sortNotificationTypes types =
+    List.map (\nt -> ( nt, notificationTypeName nt )) types
+        |> List.sortBy Tuple.second
+        |> List.map Tuple.first
+
+
+renderNotificationFeedParams : (NotificationFeedParams -> Msg) -> NotificationFeedParams -> Html Msg
+renderNotificationFeedParams wrapper params =
+    let
+        { exclusions } =
+            params
+
+        inclusions =
+            LE.filterNot (\exclusion -> List.member exclusion exclusions)
+                Types.allNotificationExclusions
+                |> sortNotificationTypes
+
+        isMentions =
+            sortNotificationTypes exclusions
+                == sortNotificationTypes Types.allButMentionNotificationExclusions
+
+        isAll =
+            sortNotificationTypes exclusions
+                == sortNotificationTypes Types.allNotificationExclusions
+
+        makeMentionsMsg =
+            let
+                excls =
+                    if isMentions then
+                        []
+
+                    else
+                        Types.allButMentionNotificationExclusions
+            in
+            wrapper { params | exclusions = excls }
+    in
+    span []
+        [ checkBox makeMentionsMsg isMentions "mentions"
+        ]
+
+
 renderPublicFeedFlags : (PublicFeedFlags -> Msg) -> PublicFeedFlags -> Html Msg
 renderPublicFeedFlags wrapper flags =
     let
@@ -7741,6 +7829,16 @@ feedTypeDialog feedType model =
                                 )
                     in
                     renderPublicFeedFlags updater flags
+
+                NotificationFeed params ->
+                    let
+                        updater newParams =
+                            ColumnsUIMsg
+                                (UpdateFeedColumn <|
+                                    NotificationFeed newParams
+                                )
+                    in
+                    renderNotificationFeedParams updater params
 
                 _ ->
                     text ""

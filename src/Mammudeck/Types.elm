@@ -30,6 +30,7 @@ module Mammudeck.Types exposing
     , UserFeedParams
     , accountToAccountId
     , allButMentionNotificationExclusions
+    , allNotificationExclusions
     , defaultAccountDialogFlags
     , defaultFeedSet
     , defaultFeedSetDefinition
@@ -37,6 +38,7 @@ module Mammudeck.Types exposing
     , defaultHashtagFeedType
     , defaultListFeedType
     , defaultNotificationExclusions
+    , defaultNotificationFeedParams
     , defaultNotificationFeedType
     , defaultProFeedFlags
     , defaultPublicFeedFlags
@@ -139,10 +141,15 @@ allButMentionNotificationExclusions =
     ]
 
 
+allNotificationExclusions : List NotificationType
+allNotificationExclusions =
+    MentionNotification :: allButMentionNotificationExclusions
+
+
 defaultNotificationFeedType : FeedType
 defaultNotificationFeedType =
     NotificationFeed
-        { accountId = Nothing, exclusions = [] }
+        defaultNotificationFeedParams
 
 
 type alias UserFeedParams =
@@ -187,6 +194,13 @@ type alias ProFeedParams =
 type alias NotificationFeedParams =
     { accountId : Maybe String
     , exclusions : List NotificationType
+    }
+
+
+defaultNotificationFeedParams : NotificationFeedParams
+defaultNotificationFeedParams =
+    { accountId = Nothing
+    , exclusions = []
     }
 
 

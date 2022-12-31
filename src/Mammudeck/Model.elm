@@ -116,6 +116,7 @@ import Mammudeck.Types as Types
         , FetchType(..)
         , Fetcher
         , GangedNotification
+        , NotificationFeedParams
         , PublicFeedFlags
           --, Renderer
         , ScrollNotification
@@ -747,6 +748,7 @@ type alias Model =
     , accountDialogFlags : UserFeedFlags
     , userColumnFlags : UserFeedFlags
     , publicColumnFlags : PublicFeedFlags
+    , notificationColumnParams : NotificationFeedParams
 
     -- Non-persistent below here
     , awaitingContext : Maybe Context
@@ -920,6 +922,7 @@ type alias SavedModel =
     , accountDialogFlags : UserFeedFlags
     , userColumnFlags : UserFeedFlags
     , publicColumnFlags : PublicFeedFlags
+    , notificationColumnParams : NotificationFeedParams
     }
 
 
@@ -1052,6 +1055,7 @@ type ColumnsUIMsg
     | DeleteFeedType FeedType
     | SetUserColumnFlags UserFeedFlags
     | SetPublicColumnFlags PublicFeedFlags
+    | SetNotificationColumnParams NotificationFeedParams
     | AddFeedColumn FeedType
     | DeleteFeedColumn FeedType
     | MoveFeedColumn FeedType
@@ -1398,6 +1402,7 @@ modelToSavedModel model =
     , accountDialogFlags = model.accountDialogFlags
     , userColumnFlags = model.userColumnFlags
     , publicColumnFlags = model.publicColumnFlags
+    , notificationColumnParams = model.notificationColumnParams
     }
 
 
@@ -1476,6 +1481,7 @@ savedModelToModel savedModel model =
         , accountDialogFlags = savedModel.accountDialogFlags
         , userColumnFlags = savedModel.userColumnFlags
         , publicColumnFlags = savedModel.publicColumnFlags
+        , notificationColumnParams = savedModel.notificationColumnParams
     }
 
 
@@ -2082,6 +2088,10 @@ encodeSavedModel savedModel =
                 savedModel.publicColumnFlags
                 MED.encodePublicFeedFlags
                 Types.defaultPublicFeedFlags
+            , encodePropertyAsList "notificationColumnParams"
+                savedModel.notificationColumnParams
+                MED.encodeNotificationFeedParams
+                Types.defaultNotificationFeedParams
             ]
 
 
@@ -2304,3 +2314,4 @@ savedModelDecoder =
         |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultAccountDialogFlags
         |> optional "userColumnFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags
         |> optional "publicColumnFlags" MED.publicFeedFlagsDecoder Types.defaultPublicFeedFlags
+        |> optional "publicColumnFlags" MED.notificationFeedParamsDecoder Types.defaultNotificationFeedParams

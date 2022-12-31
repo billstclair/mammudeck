@@ -30,19 +30,8 @@ See ../TODO.md for the full list.
   state with the new address.
   Example, Gleasonator.com notification id: 729894
 
-* truthsocial.com's web client sends:
-  /api/v1/statuses/<id>/context/ancestors &
-  /api/v1/statuses/<id>/context/descendents,
-  receiving a list of Status entities from each, rather than
-  /api/v1/statuses/<id>/context, and expecting:
-  { ancestors : [<status>,...],
-    descendents : [<status>,...]
-  }
-  It gets a CORS error on /context.
-  See if we'll do better with /context/ancestors and /context/descendents
-  https://docs.joinmastodon.org/methods/statuses/ does NOT document
-  those two endpoints.
-  
+* Add included NotificationType select to UI.renderNotificationFeedParams
+  Add accountId picker to UI.renderNotificationFeedParams
 
 * account.is_verified came from Gab. Pleroma represents this as
   account.pleroma.is_admin, .is_confirmed, .is_moderator, and .is_suggested
@@ -721,6 +710,7 @@ init value url key =
     , accountDialogFlags = Types.defaultAccountDialogFlags
     , userColumnFlags = Types.defaultUserFeedFlags
     , publicColumnFlags = Types.defaultPublicFeedFlags
+    , notificationColumnParams = Types.defaultNotificationFeedParams
 
     -- Non-persistent below here
     , awaitingContext = Nothing
@@ -4148,6 +4138,10 @@ columnsUIMsg msg model =
 
         SetPublicColumnFlags flags ->
             { model | publicColumnFlags = flags }
+                |> withNoCmd
+
+        SetNotificationColumnParams params ->
+            { model | notificationColumnParams = params }
                 |> withNoCmd
 
         AddFeedColumn feedType ->
@@ -7732,6 +7726,9 @@ fillinFeedType feedType model =
                         Just model.publicColumnFlags
             in
             PublicFeed { flags = flags }
+
+        NotificationFeed _ ->
+            NotificationFeed model.notificationColumnParams
 
         GroupFeed _ ->
             GroupFeed <|

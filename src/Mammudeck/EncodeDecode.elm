@@ -15,6 +15,7 @@ module Mammudeck.EncodeDecode exposing
     , encodeAccountIds
     , encodeFeedSetDefinition
     , encodeFeedType
+    , encodeNotificationFeedParams
     , encodePollDefinition
     , encodeProFeedFlags
     , encodePropertyAsList
@@ -22,6 +23,7 @@ module Mammudeck.EncodeDecode exposing
     , encodeUserFeedFlags
     , feedSetDefinitionDecoder
     , feedTypeDecoder
+    , notificationFeedParamsDecoder
     , pollDefinitionDecoder
     , proFeedFlagsDecoder
     , publicFeedFlagsDecoder
@@ -36,9 +38,11 @@ import Mammudeck.Types as Types
         ( AccountId
         , FeedSetDefinition
         , FeedType(..)
+        , NotificationFeedParams
         , ProFeedFlags
         , PublicFeedFlags
         , UserFeedFlags
+        , defaultNotificationFeedParams
         , defaultUserFeedType
         )
 import Mastodon.EncodeDecode as ED
@@ -284,6 +288,31 @@ feedTypeDecoder =
                             JD.fail <| "Unknown feedType: " ++ feedType
                 )
         ]
+
+
+encodeNotificationFeedParams : NotificationFeedParams -> Value
+encodeNotificationFeedParams { accountId, exclusions } =
+    JE.object <|
+        List.concat
+            [ encodePropertyAsList "accountId"
+                accountId
+                (ED.encodeMaybe JE.string)
+                Nothing
+            , encodePropertyAsList "exclusions"
+                exclusions
+                (JE.list ED.encodeNotificationType)
+                Types.defaultNotificationExclusions
+            ]
+
+
+notificationFeedParamsDecoder : Decoder NotificationFeedParams
+notificationFeedParamsDecoder =
+    JD.succeed
+        NotificationFeedParams
+        |> optional "accountId" (JD.nullable JD.string) Nothing
+        |> optional "exclusions"
+            (JD.list ED.notificationTypeDecoder)
+            Types.defaultNotificationExclusions
 
 
 encodeFeedSetDefinition : FeedSetDefinition -> Value
