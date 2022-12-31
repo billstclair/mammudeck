@@ -4164,25 +4164,7 @@ columnsUIMsg msg model =
                     moveFeedType movingFeedType feedType model
 
         UpdateFeedColumn feedType ->
-            let
-                feeds =
-                    LE.updateIf
-                        (\feed ->
-                            feedTypeEqual feedType feed.feedType
-                        )
-                        (\feed ->
-                            { feed | feedType = feedType }
-                        )
-                        model.feedSet.feeds
-
-                feedSet =
-                    model.feedSet
-            in
-            { model
-                | feedSet =
-                    { feedSet | feeds = feeds }
-            }
-                |> withNoCmd
+            updateFeedColumn feedType model
 
         UserNameInput userNameInput ->
             { model
@@ -5001,6 +4983,64 @@ columnsUIMsg msg model =
                     }
             }
                 |> withNoCmd
+
+
+updateFeedColumn : FeedType -> Model -> ( Model, Cmd Msg )
+updateFeedColumn feedType model =
+    let
+        feeds =
+            LE.updateIf
+                (\feed ->
+                    feedTypeEqual feedType feed.feedType
+                )
+                (\feed ->
+                    { feed | feedType = feedType }
+                )
+                model.feedSet.feeds
+
+        dialog =
+            case model.dialog of
+                FeedTypeDialog ft ->
+                    if feedTypeEqual feedType ft then
+                        FeedTypeDialog feedType
+
+                    else
+                        model.dialog
+
+                _ ->
+                    model.dialog
+
+        feedSet =
+            model.feedSet
+
+        feedSetDefinition =
+            model.feedSetDefinition
+
+        mdl =
+            { model
+                | feedSet =
+                    { feedSet | feeds = feeds }
+                , feedSetDefinition =
+                    { feedSetDefinition
+                        | feedTypes = List.map .feedType feeds
+                    }
+                , dialog = dialog
+            }
+    in
+    case findFeed feedType mdl.feedSet of
+        Nothing ->
+            mdl |> withNoCmd
+
+        Just feed ->
+            let
+                ( mdl2, cmd2 ) =
+                    reloadFeed feed mdl
+            in
+            mdl2
+                |> withCmds
+                    [ maybePutFeedSetDefinition mdl mdl.feedSetDefinition
+                    , cmd2
+                    ]
 
 
 foldStatuses : (a -> Feed -> Status -> ( a, Bool )) -> a -> List Feed -> a

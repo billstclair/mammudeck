@@ -67,6 +67,7 @@ import Html
         , h3
         , img
         , input
+        , label
         , option
         , p
         , pre
@@ -4303,6 +4304,7 @@ titledCheckBox theTitle msg isChecked label =
         [ onClick msg
         , style "cursor" "default"
         , title theTitle
+        , style "white-space" "nowrap"
         ]
         [ input
             [ type_ "checkbox"
@@ -7552,7 +7554,7 @@ renderUserFeedFlags wrapper flags =
         , text " "
         , checkBox (makeMsg .only_media (\bool -> { flags | only_media = bool }))
             flags.only_media
-            "only media"
+            ("only" ++ special.nbsp ++ "media")
         ]
 
 
@@ -7657,7 +7659,7 @@ feedTypeDialog feedType model =
                 String.fromInt (headerHeight + 5) ++ "px"
 
         leftS =
-            String.fromInt (max (left + 10) 0) ++ "px"
+            String.fromInt (max (left + 4) 0) ++ "px"
 
         { color, backgroundColor } =
             getStyle model.renderEnv
@@ -7694,7 +7696,12 @@ feedTypeDialog feedType model =
         , style "background-color" backgroundColor
         , style "padding" "5px"
         ]
-        [ content ]
+        [ content
+        , br
+        , div
+            [ style "float" "right" ]
+            [ button (ColumnsUIMsg DismissDialog) "Hide" ]
+        ]
 
 
 postDialog : Model -> Html Msg
