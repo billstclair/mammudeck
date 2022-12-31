@@ -7689,7 +7689,10 @@ renderNotificationFeedParams wrapper params =
             "mentions"
         , text " "
         , if namedExclusions == [] then
-            text ""
+            select []
+                [ option []
+                    [ text "-- all notifications shown --" ]
+                ]
 
           else
             select
