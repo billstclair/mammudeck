@@ -6542,6 +6542,26 @@ featureNames =
     }
 
 
+userNameInput : Model -> Html Msg
+userNameInput model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
+    input
+        [ id nodeIds.userNameInput
+        , autocapitalize "off"
+        , autocomplete False
+        , size 30
+        , onInput (ColumnsUIMsg << UserNameInput)
+        , value model.userNameInput
+        , placeholder <|
+            "username@"
+                ++ Maybe.withDefault "server" renderEnv.loginServer
+        ]
+        []
+
+
 editColumnsDialogRows : Model -> List (Html Msg)
 editColumnsDialogRows model =
     let
@@ -6599,6 +6619,7 @@ editColumnsDialogRows model =
                         , renderNotificationFeedParams
                             (ColumnsUIMsg << SetNotificationColumnParams)
                             model.notificationColumnParams
+                            model
                         ]
                         (ColumnsUIMsg <|
                             AddFeedColumn feedType
@@ -6649,18 +6670,7 @@ editColumnsDialogRows model =
                         ]
             , [ row
                     [ b "User: "
-                    , input
-                        [ id nodeIds.userNameInput
-                        , autocapitalize "off"
-                        , autocomplete False
-                        , size 30
-                        , onInput (ColumnsUIMsg << UserNameInput)
-                        , value model.userNameInput
-                        , placeholder <|
-                            "username@"
-                                ++ Maybe.withDefault "server" renderEnv.loginServer
-                        ]
-                        []
+                    , userNameInput model
                     , br
                     , renderUserFeedFlags
                         (ColumnsUIMsg << SetUserColumnFlags)
@@ -7608,8 +7618,8 @@ sortNotificationTypes types =
         |> List.map Tuple.first
 
 
-renderNotificationFeedParams : (NotificationFeedParams -> Msg) -> NotificationFeedParams -> Html Msg
-renderNotificationFeedParams wrapper params =
+renderNotificationFeedParams : (NotificationFeedParams -> Msg) -> NotificationFeedParams -> Model -> Html Msg
+renderNotificationFeedParams wrapper params model =
     let
         { exclusions } =
             params
@@ -7715,6 +7725,12 @@ renderNotificationFeedParams wrapper params =
                 List.append
                     [ br ]
                     (List.map inclusionItem inclusions)
+
+        -- accountId doesn't work reliably in NotificationFeed
+        -- All the support for it is done, but I'm removing the
+        -- UI.
+        --, br
+        --, userNameInput model
         ]
 
 
@@ -7914,7 +7930,7 @@ feedTypeDialog feedType model =
                                     NotificationFeed newParams
                                 )
                     in
-                    renderNotificationFeedParams updater params
+                    renderNotificationFeedParams updater params model
 
                 _ ->
                     text ""

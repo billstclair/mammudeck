@@ -6617,7 +6617,32 @@ popupChoose choice model =
                             ( mdl2, [] )
     in
     if addTheFeed then
-        addFeedType (fillinFeedType feedType mdl3) mdl3
+        case mdl3.dialog of
+            EditColumnsDialog ->
+                addFeedType (fillinFeedType feedType mdl3) mdl3
+
+            FeedTypeDialog ftdType ->
+                case ftdType of
+                    NotificationFeed params ->
+                        case mdl3.accountInput of
+                            Just { id } ->
+                                let
+                                    newFeedType =
+                                        NotificationFeed
+                                            { params
+                                                | accountId = Just id
+                                            }
+                                in
+                                updateFeedColumn newFeedType mdl3
+
+                            _ ->
+                                mdl3 |> withNoCmd
+
+                    _ ->
+                        mdl3 |> withNoCmd
+
+            _ ->
+                mdl3 |> withNoCmd
 
     else
         mdl3 |> withCmds cmds
@@ -7081,11 +7106,27 @@ searchPostPopupColon search model =
 initializePopup : Popup -> String -> Model -> ( Model, Cmd Msg )
 initializePopup popup input model =
     if input == "" then
-        { model
-            | popup = NoPopup
-            , popupElement = Nothing
-        }
-            |> withNoCmd
+        let
+            mdl =
+                { model
+                    | popup = NoPopup
+                    , popupElement = Nothing
+                }
+        in
+        case mdl.dialog of
+            FeedTypeDialog (NotificationFeed params) ->
+                if params.accountId == Nothing then
+                    mdl |> withNoCmd
+
+                else
+                    let
+                        newFeedType =
+                            NotificationFeed { params | accountId = Nothing }
+                    in
+                    updateFeedColumn newFeedType mdl
+
+            _ ->
+                mdl |> withNoCmd
 
     else
         let
