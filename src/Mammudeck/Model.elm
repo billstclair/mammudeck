@@ -116,6 +116,7 @@ import Mammudeck.Types as Types
         , FetchType(..)
         , Fetcher
         , GangedNotification
+        , InstanceFeatures
         , NotificationFeedParams
         , PublicFeedFlags
           --, Renderer
@@ -749,6 +750,7 @@ type alias Model =
     , userColumnFlags : UserFeedFlags
     , publicColumnFlags : PublicFeedFlags
     , notificationColumnParams : NotificationFeedParams
+    , instanceFeatures : InstanceFeatures
 
     -- Non-persistent below here
     , awaitingContext : Maybe Context
@@ -923,6 +925,7 @@ type alias SavedModel =
     , userColumnFlags : UserFeedFlags
     , publicColumnFlags : PublicFeedFlags
     , notificationColumnParams : NotificationFeedParams
+    , instanceFeatures : InstanceFeatures
     }
 
 
@@ -1325,6 +1328,7 @@ type ExplorerSendMsg
     | SendPostMedia
     | SendPutMedia
     | SendPostStatus
+    | SendPutStatus
     | SendGetHomeTimeline
     | SendGetConversations
     | SendGetProTimeline
@@ -1403,6 +1407,7 @@ modelToSavedModel model =
     , userColumnFlags = model.userColumnFlags
     , publicColumnFlags = model.publicColumnFlags
     , notificationColumnParams = model.notificationColumnParams
+    , instanceFeatures = model.instanceFeatures
     }
 
 
@@ -1482,6 +1487,7 @@ savedModelToModel savedModel model =
         , userColumnFlags = savedModel.userColumnFlags
         , publicColumnFlags = savedModel.publicColumnFlags
         , notificationColumnParams = savedModel.notificationColumnParams
+        , instanceFeatures = savedModel.instanceFeatures
     }
 
 
@@ -2092,6 +2098,10 @@ encodeSavedModel savedModel =
                 savedModel.notificationColumnParams
                 MED.encodeNotificationFeedParams
                 Types.defaultNotificationFeedParams
+            , encodePropertyAsList "instanceFeatures"
+                savedModel.instanceFeatures
+                MED.encodeInstanceFeatures
+                Types.defaultInstanceFeatures
             ]
 
 
@@ -2314,4 +2324,5 @@ savedModelDecoder =
         |> optional "accountDialogFlags" MED.userFeedFlagsDecoder Types.defaultAccountDialogFlags
         |> optional "userColumnFlags" MED.userFeedFlagsDecoder Types.defaultUserFeedFlags
         |> optional "publicColumnFlags" MED.publicFeedFlagsDecoder Types.defaultPublicFeedFlags
-        |> optional "publicColumnFlags" MED.notificationFeedParamsDecoder Types.defaultNotificationFeedParams
+        |> optional "notificationFeedParams" MED.notificationFeedParamsDecoder Types.defaultNotificationFeedParams
+        |> optional "instanceFeatures" MED.instanceFeaturesDecoder Types.defaultInstanceFeatures

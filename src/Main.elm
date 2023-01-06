@@ -261,6 +261,7 @@ import Mammudeck.Types as Types
         , FetchType(..)
         , Fetcher
         , GangedNotification
+        , InstanceFeatures
         , PublicFeedFlags
           --, Renderer
         , ScrollNotification
@@ -340,6 +341,7 @@ import Mastodon.Request as Request
         , Paging
         , PartialContext(..)
         , PollDefinition
+        , PostedStatus
         , RawRequest
         , Request(..)
         , Response
@@ -711,6 +713,7 @@ init value url key =
     , userColumnFlags = Types.defaultUserFeedFlags
     , publicColumnFlags = Types.defaultPublicFeedFlags
     , notificationColumnParams = Types.defaultNotificationFeedParams
+    , instanceFeatures = Types.defaultInstanceFeatures
 
     -- Non-persistent below here
     , awaitingContext = Nothing
@@ -10616,24 +10619,27 @@ explorerSendMsg msg model =
 
         SendPostStatus ->
             sendRequest
-                (StatusesRequest <|
-                    Request.PostStatus
-                        { status = nothingIfBlank model.status
-                        , in_reply_to_id = nothingIfBlank model.in_reply_to_id
-                        , group_id = nothingIfBlank model.groupId
-                        , quote_of_id = nothingIfBlank model.quote_of_id
-                        , media_ids =
-                            splitMediaIds model.media_ids
-                        , poll = pollDefinition model
-                        , sensitive = model.media_sensitive
-                        , spoiler_text = nothingIfBlank model.spoiler_text
-                        , visibility = model.visibility
-                        , scheduled_at = nothingIfBlank model.scheduled_at
-                        , language = nothingIfBlank model.language
-                        , idempotencyKey = nothingIfBlank model.idempotencyKey
-                        }
+                (StatusesRequest
+                    (Request.PostStatus <| postedStatus model)
                 )
                 { model | dialog = NoDialog }
+
+        SendPutStatus ->
+            let
+                statusId =
+                    model.statusId
+            in
+            if statusId == "" then
+                { model | msg = Just "'status id' cannot be blank." }
+                    |> withNoCmd
+
+            else
+                sendRequest
+                    (StatusesRequest <|
+                        Request.PutStatus
+                            { id = statusId, status = postedStatus model }
+                    )
+                    { model | dialog = NoDialog }
 
         SendPostMedia ->
             case ( model.mediaFile, parseFocus model.mediaFocus ) of
@@ -10736,6 +10742,24 @@ explorerSendMsg msg model =
                         }
                 )
                 model
+
+
+postedStatus : Model -> PostedStatus
+postedStatus model =
+    { status = nothingIfBlank model.status
+    , in_reply_to_id = nothingIfBlank model.in_reply_to_id
+    , group_id = nothingIfBlank model.groupId
+    , quote_of_id = nothingIfBlank model.quote_of_id
+    , media_ids =
+        splitMediaIds model.media_ids
+    , poll = pollDefinition model
+    , sensitive = model.media_sensitive
+    , spoiler_text = nothingIfBlank model.spoiler_text
+    , visibility = model.visibility
+    , scheduled_at = nothingIfBlank model.scheduled_at
+    , language = nothingIfBlank model.language
+    , idempotencyKey = nothingIfBlank model.idempotencyKey
+    }
 
 
 pollDefinition : Model -> Maybe PollDefinition
@@ -11510,6 +11534,23 @@ processReceivedAccount account model =
         |> withCmds [ cmd, cmd3 ]
 
 
+decodeInstanceFeatures : Value -> InstanceFeatures
+decodeInstanceFeatures value =
+    case
+        JD.decodeValue
+            (JD.at [ "pleroma", "metadata", "features" ] <| JD.list JD.string)
+            value
+    of
+        Err _ ->
+            Types.defaultInstanceFeatures
+
+        Ok features ->
+            { editing = List.member "editing" features
+            , quote_posting = List.member "quote_posting" features
+            , translation = List.member "translation" features
+            }
+
+
 applyResponseSideEffects : Response -> Model -> Model
 applyResponseSideEffects response model1 =
     let
@@ -11535,6 +11576,22 @@ applyResponseSideEffects response model1 =
                     model1
     in
     case response.request of
+        InstanceRequest Request.GetInstance ->
+            if model.renderEnv.loginServer == Nothing then
+                model
+
+            else
+                case response.entity of
+                    InstanceEntity instance ->
+                        { model
+                            | instanceFeatures =
+                                Debug.log "instanceFeatures" <|
+                                    decodeInstanceFeatures instance.v
+                        }
+
+                    _ ->
+                        model
+
         AccountsRequest Request.GetVerifyCredentials ->
             case response.entity of
                 AccountEntity account ->

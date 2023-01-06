@@ -15,6 +15,7 @@ module Mammudeck.EncodeDecode exposing
     , encodeAccountIds
     , encodeFeedSetDefinition
     , encodeFeedType
+    , encodeInstanceFeatures
     , encodeNotificationFeedParams
     , encodePollDefinition
     , encodeProFeedFlags
@@ -23,6 +24,7 @@ module Mammudeck.EncodeDecode exposing
     , encodeUserFeedFlags
     , feedSetDefinitionDecoder
     , feedTypeDecoder
+    , instanceFeaturesDecoder
     , notificationFeedParamsDecoder
     , pollDefinitionDecoder
     , proFeedFlagsDecoder
@@ -38,6 +40,7 @@ import Mammudeck.Types as Types
         ( AccountId
         , FeedSetDefinition
         , FeedType(..)
+        , InstanceFeatures
         , NotificationFeedParams
         , ProFeedFlags
         , PublicFeedFlags
@@ -386,3 +389,20 @@ pollDefinitionDecoder =
         |> required "expires_in" JD.int
         |> optional "multiple" JD.bool False
         |> optional "hide_totals" JD.bool False
+
+
+encodeInstanceFeatures : InstanceFeatures -> Value
+encodeInstanceFeatures { editing, quote_posting, translation } =
+    JE.object
+        [ ( "editing", JE.bool editing )
+        , ( "quote_posting", JE.bool quote_posting )
+        , ( "transation", JE.bool translation )
+        ]
+
+
+instanceFeaturesDecoder : Decoder InstanceFeatures
+instanceFeaturesDecoder =
+    JD.succeed InstanceFeatures
+        |> required "editing" JD.bool
+        |> required "quote_posting" JD.bool
+        |> required "translation" JD.bool

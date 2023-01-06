@@ -8918,6 +8918,8 @@ Click "$PostUnpinStatus" to unpin "status id".
 
 Click "$PostStatus" to create a new status, using "status", "in reply to id", "group id", "quote of id", "sensitive", "spoiler text", "visibility", "scheduled at", "language", "idempotency key", and "media ids".
 
+Click "$PutStatus" to change "status id", with "status", "in reply to id", "group id", "quote of id", "sensitive", "spoiler text", "visibility", "scheduled at", "language", "idempotency key", and "media ids". Editing statuses is currently supported only by the Rebased backend.
+
 If you want to add media to a status, you can do that in the "-- new media --" section. Click "Choose File" to read a media file. Optionally fill in a "description" and ""focus x" and "y" (each between 0.0 and 1.0). Click "$PostMedia" to send it to the server. The "id" from the received `Attachment` entity will set the "media id" and be added to the comma-separated list of "media ids".
 
 To edit the description or focus of a "media id", fill in one or both of those, and click "$PutMedia".
@@ -9248,9 +9250,9 @@ dollarButtonNameDict =
         , ( "PostPinStatus", SendPostPinStatus )
         , ( "PostUnpinStatus", SendPostUnpinStatus )
         , ( "PostStatus", SendPostStatus )
+        , ( "PuttStatus", SendPutStatus )
         , ( "PostMedia", SendPostMedia )
         , ( "PutMedia", SendPutMedia )
-        , ( "PostStatus", SendPostStatus )
         , ( "GetConversations", SendGetConversations )
         , ( "GetProTimeline", SendGetProTimeline )
         , ( "GetPublicTimeline", SendGetPublicTimeline )
@@ -9353,6 +9355,7 @@ buttonNameAlist =
     , ( SendPostPinStatus, ( "PostPinStatus", "POST statuses/:id/pin" ) )
     , ( SendPostUnpinStatus, ( "PostUnpinStatus", "POST statuses/:id/unpin" ) )
     , ( SendPostStatus, ( "PostStatus", "POST statuses" ) )
+    , ( SendPutStatus, ( "PutStatus", "PUT statuses" ) )
     , ( SendPostMedia, ( "PostMedia", "POST media" ) )
     , ( SendPutMedia, ( "PutMedia", "PUT media" ) )
     , ( SendGetHomeTimeline, ( "GetHomeTimeline", "GET timelines/home" ) )

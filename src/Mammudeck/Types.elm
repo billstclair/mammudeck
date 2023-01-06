@@ -20,6 +20,7 @@ module Mammudeck.Types exposing
     , FetchType(..)
     , Fetcher
     , GangedNotification
+    , InstanceFeatures
     , NotificationFeedParams
     , ProFeedFlags
     , PublicFeedFlags
@@ -36,6 +37,7 @@ module Mammudeck.Types exposing
     , defaultFeedSetDefinition
     , defaultGroupFeedType
     , defaultHashtagFeedType
+    , defaultInstanceFeatures
     , defaultListFeedType
     , defaultNotificationExclusions
     , defaultNotificationFeedParams
@@ -537,4 +539,19 @@ accountToAccountId account =
     , display_name = account.display_name
     , avatar = account.avatar
     , url = account.url
+    }
+
+
+type alias InstanceFeatures =
+    { editing : Bool
+    , quote_posting : Bool
+    , translation : Bool
+    }
+
+
+defaultInstanceFeatures : InstanceFeatures
+defaultInstanceFeatures =
+    { editing = False
+    , quote_posting = False
+    , translation = False
     }
