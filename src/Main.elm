@@ -261,7 +261,6 @@ import Mammudeck.Types as Types
         , FetchType(..)
         , Fetcher
         , GangedNotification
-        , InstanceFeatures
         , PublicFeedFlags
           --, Renderer
         , ScrollNotification
@@ -713,7 +712,6 @@ init value url key =
     , userColumnFlags = Types.defaultUserFeedFlags
     , publicColumnFlags = Types.defaultPublicFeedFlags
     , notificationColumnParams = Types.defaultNotificationFeedParams
-    , instanceFeatures = Types.defaultInstanceFeatures
 
     -- Non-persistent below here
     , awaitingContext = Nothing
@@ -10630,7 +10628,7 @@ explorerSendMsg msg model =
                     model.statusId
             in
             if statusId == "" then
-                { model | msg = Just "'status id' cannot be blank." }
+                { model | msg = Just "'status id' may not be blank." }
                     |> withNoCmd
 
             else
@@ -11534,7 +11532,7 @@ processReceivedAccount account model =
         |> withCmds [ cmd, cmd3 ]
 
 
-decodeInstanceFeatures : Value -> InstanceFeatures
+decodeInstanceFeatures : Value -> Maybe (List ( String, Bool ))
 decodeInstanceFeatures value =
     case
         JD.decodeValue
@@ -11542,13 +11540,20 @@ decodeInstanceFeatures value =
             value
     of
         Err _ ->
-            Types.defaultInstanceFeatures
+            Nothing
 
         Ok features ->
-            { editing = List.member "editing" features
-            , quote_posting = List.member "quote_posting" features
-            , translation = List.member "translation" features
-            }
+            Just
+                [ ( featureNames.editing
+                  , List.member "editing" features
+                  )
+                , ( featureNames.quote_posting
+                  , List.member "quote_posting" features
+                  )
+                , ( featureNames.translation
+                  , List.member "translation" features
+                  )
+                ]
 
 
 applyResponseSideEffects : Response -> Model -> Model
@@ -11583,11 +11588,27 @@ applyResponseSideEffects response model1 =
             else
                 case response.entity of
                     InstanceEntity instance ->
-                        { model
-                            | instanceFeatures =
-                                Debug.log "instanceFeatures" <|
-                                    decodeInstanceFeatures instance.v
-                        }
+                        case
+                            Debug.log "instanceFeatures" <|
+                                decodeInstanceFeatures instance.v
+                        of
+                            Nothing ->
+                                model
+
+                            Just features ->
+                                let
+                                    server =
+                                        model.renderEnv.loginServer
+                                in
+                                List.foldl
+                                    (\( feature, bool ) mdl ->
+                                        setServerHasFeature server
+                                            feature
+                                            bool
+                                            mdl
+                                    )
+                                    model
+                                    features
 
                     _ ->
                         model

@@ -4860,12 +4860,12 @@ statusesSelectedUI model =
         , text " "
         , sendButton SendPostUnpinStatus model
         , br
-        , if not model.showPostStatus then
-            let
-                buttonName =
-                    sendButtonName model.useElmButtonNames
-                        SendPostStatus
-            in
+        , let
+            buttonName =
+                sendButtonName model.useElmButtonNames
+                    SendPostStatus
+          in
+          if not model.showPostStatus then
             button (ExplorerUIMsg ToggleShowPostStatus) <| "Show '" ++ buttonName ++ "'"
 
           else
@@ -4932,9 +4932,30 @@ statusesSelectedUI model =
                     (ExplorerUIMsg << SetMediaIds)
                     model.media_ids
                 , br
-                , button (ExplorerUIMsg ToggleShowPostStatus) "Hide"
-                , text " "
                 , sendButton SendPostStatus model
+                , br
+                , if
+                    serverHasFeature model.renderEnv.loginServer
+                        featureNames.editing
+                        model
+                  then
+                    text ""
+
+                  else
+                    span []
+                        [ text "Editing is not known to work on this instance."
+                        , br
+                        , text "You'll probably get an error."
+                        , br
+                        ]
+                , textInput "status id: "
+                    25
+                    (ExplorerUIMsg << SetStatusId)
+                    model.statusId
+                , text " "
+                , sendButton SendPutStatus model
+                , br
+                , button (ExplorerUIMsg ToggleShowPostStatus) <| "Hide '" ++ buttonName ++ "'"
                 , br
                 , text "-- new media --"
                 , span []
@@ -6539,6 +6560,9 @@ featureNames =
     , quote = "quote"
     , proFeed = "proFeed"
     , partialContext = "partialContext"
+    , editing = "editing"
+    , quote_posting = "quote_posting"
+    , translation = "translation"
     }
 
 
