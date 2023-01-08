@@ -17,7 +17,6 @@ module Mammudeck.EncodeDecode exposing
     , encodeFeedType
     , encodeInstanceFeatures
     , encodeNotificationFeedParams
-    , encodePollDefinition
     , encodeProFeedFlags
     , encodePropertyAsList
     , encodePublicFeedFlags
@@ -26,7 +25,6 @@ module Mammudeck.EncodeDecode exposing
     , feedTypeDecoder
     , instanceFeaturesDecoder
     , notificationFeedParamsDecoder
-    , pollDefinitionDecoder
     , proFeedFlagsDecoder
     , publicFeedFlagsDecoder
     , userFeedFlagsDecoder
@@ -49,7 +47,6 @@ import Mammudeck.Types as Types
         , defaultUserFeedType
         )
 import Mastodon.EncodeDecode as ED
-import Mastodon.Request exposing (PollDefinition)
 
 
 encodeUserFeedFlags : UserFeedFlags -> Value
@@ -362,33 +359,6 @@ encodeAccountIds accountIds =
 accountIdsDecoder : Decoder (List AccountId)
 accountIdsDecoder =
     JD.list accountIdDecoder
-
-
-encodePollDefinition : PollDefinition -> Value
-encodePollDefinition { options, expires_in, multiple, hide_totals } =
-    JE.object <|
-        List.concat
-            [ [ ( "options", JE.list JE.string options )
-              , ( "expires_in", JE.int expires_in )
-              ]
-            , encodePropertyAsList "multiple"
-                multiple
-                JE.bool
-                False
-            , encodePropertyAsList "hide_totals"
-                hide_totals
-                JE.bool
-                False
-            ]
-
-
-pollDefinitionDecoder : Decoder PollDefinition
-pollDefinitionDecoder =
-    JD.succeed PollDefinition
-        |> required "options" (JD.list JD.string)
-        |> required "expires_in" JD.int
-        |> optional "multiple" JD.bool False
-        |> optional "hide_totals" JD.bool False
 
 
 encodeInstanceFeatures : InstanceFeatures -> Value

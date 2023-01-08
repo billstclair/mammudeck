@@ -324,6 +324,7 @@ import Mastodon.Entity as Entity
         , Notification
         , NotificationType(..)
         , Poll
+        , PollDefinition
         , PollOption
         , Privacy(..)
         , Relationship
@@ -335,11 +336,11 @@ import Mastodon.Entity as Entity
 import Mastodon.Login as Login exposing (FetchAccountOrRedirect(..))
 import Mastodon.Request as Request
     exposing
-        ( Error(..)
+        ( EditedStatus
+        , Error(..)
         , FieldUpdate
         , Paging
         , PartialContext(..)
-        , PollDefinition
         , PostedStatus
         , RawRequest
         , Request(..)
@@ -10635,9 +10636,26 @@ explorerSendMsg msg model =
                 sendRequest
                     (StatusesRequest <|
                         Request.PutStatus
-                            { id = statusId, status = postedStatus model }
+                            { id = statusId, status = editedStatus model }
                     )
                     { model | dialog = NoDialog }
+
+        SendGetStatusHistory ->
+            let
+                statusId =
+                    model.statusId
+            in
+            if statusId == "" then
+                { model | msg = Just "'status id' may not be blank." }
+                    |> withNoCmd
+
+            else
+                sendRequest
+                    (StatusesRequest <|
+                        Request.GetStatusHistory
+                            { id = statusId }
+                    )
+                    model
 
         SendPostMedia ->
             case ( model.mediaFile, parseFocus model.mediaFocus ) of
@@ -10757,6 +10775,21 @@ postedStatus model =
     , scheduled_at = nothingIfBlank model.scheduled_at
     , language = nothingIfBlank model.language
     , idempotencyKey = nothingIfBlank model.idempotencyKey
+    }
+
+
+editedStatus : Model -> EditedStatus
+editedStatus model =
+    { status = nothingIfBlank model.status
+    , in_reply_to_id = nothingIfBlank model.in_reply_to_id
+    , quote_of_id = nothingIfBlank model.quote_of_id
+    , media_ids = Just <| splitMediaIds model.media_ids
+    , sensitive = model.media_sensitive
+    , spoiler_text = nothingIfBlank model.spoiler_text
+    , visibility = model.visibility
+    , content_type = Just "text/plain"
+    , poll = pollDefinition model
+    , scheduled_at = nothingIfBlank model.scheduled_at
     }
 
 

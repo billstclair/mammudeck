@@ -241,6 +241,7 @@ import Mastodon.Entity as Entity
         , Notification
         , NotificationType(..)
         , Poll
+        , PollDefinition
         , PollOption
         , Privacy(..)
         , Relationship
@@ -254,7 +255,6 @@ import Mastodon.Request as Request
         ( Error(..)
         , FieldUpdate
         , Paging
-        , PollDefinition
         , RawRequest
         , Request(..)
         , Response
@@ -4954,6 +4954,8 @@ statusesSelectedUI model =
                     model.statusId
                 , text " "
                 , sendButton SendPutStatus model
+                , text " "
+                , sendButton SendGetStatusHistory model
                 , br
                 , button (ExplorerUIMsg ToggleShowPostStatus) <| "Hide '" ++ buttonName ++ "'"
                 , br
@@ -9274,7 +9276,8 @@ dollarButtonNameDict =
         , ( "PostPinStatus", SendPostPinStatus )
         , ( "PostUnpinStatus", SendPostUnpinStatus )
         , ( "PostStatus", SendPostStatus )
-        , ( "PuttStatus", SendPutStatus )
+        , ( "PutStatus", SendPutStatus )
+        , ( "GetStatusHistory", SendGetStatusHistory )
         , ( "PostMedia", SendPostMedia )
         , ( "PutMedia", SendPutMedia )
         , ( "GetConversations", SendGetConversations )
@@ -9379,7 +9382,8 @@ buttonNameAlist =
     , ( SendPostPinStatus, ( "PostPinStatus", "POST statuses/:id/pin" ) )
     , ( SendPostUnpinStatus, ( "PostUnpinStatus", "POST statuses/:id/unpin" ) )
     , ( SendPostStatus, ( "PostStatus", "POST statuses" ) )
-    , ( SendPutStatus, ( "PutStatus", "PUT statuses" ) )
+    , ( SendPutStatus, ( "PutStatus", "PUT statuses/:id" ) )
+    , ( SendGetStatusHistory, ( "GetStatusHistory", "GET statuses/:id/history" ) )
     , ( SendPostMedia, ( "PostMedia", "POST media" ) )
     , ( SendPutMedia, ( "PutMedia", "PUT media" ) )
     , ( SendGetHomeTimeline, ( "GetHomeTimeline", "GET timelines/home" ) )

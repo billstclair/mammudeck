@@ -147,6 +147,7 @@ import Mastodon.Entity as Entity
         , Notification
         , NotificationType(..)
         , Poll
+        , PollDefinition
         , PollOption
         , Privacy(..)
         , Relationship
@@ -160,7 +161,6 @@ import Mastodon.Request as Request
         ( Error(..)
         , FieldUpdate
         , Paging
-        , PollDefinition
         , RawRequest
         , Request(..)
         , Response
@@ -1326,6 +1326,7 @@ type ExplorerSendMsg
     | SendPutMedia
     | SendPostStatus
     | SendPutStatus
+    | SendGetStatusHistory
     | SendGetHomeTimeline
     | SendGetConversations
     | SendGetProTimeline
@@ -1750,7 +1751,7 @@ encodePostState postState =
                 []
             , encodePropertyAsList "pollDefinition"
                 postState.pollDefinition
-                (ED.encodeMaybe MED.encodePollDefinition)
+                (ED.encodeMaybe ED.encodePollDefinition)
                 Nothing
             , encodePropertyAsList "daysHoursMinutes"
                 postState.daysHoursMinutes
@@ -1784,7 +1785,7 @@ postStateDecoder =
         |> optional "media_ids" (JD.list JD.string) []
         |> optional "fileNames" (JD.list JD.string) []
         |> optional "fileUrls" (JD.list JD.string) []
-        |> optional "pollDefinition" (JD.nullable MED.pollDefinitionDecoder) Nothing
+        |> optional "pollDefinition" (JD.nullable ED.pollDefinitionDecoder) Nothing
         |> optional "daysHoursMinutes" daysHoursMinutesDecoder emptyDaysHoursMinutes
         |> optional "groupName" JD.string ""
         |> optional "group_id" (JD.nullable JD.string) Nothing
