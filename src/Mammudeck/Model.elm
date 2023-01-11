@@ -229,6 +229,7 @@ type Page
 type ReplyType
     = ReplyToPost
     | QuotePost
+    | EditPost
     | NoReply
 
 
@@ -301,6 +302,7 @@ type alias PostState =
     , groupName : String
     , group_id : Maybe String
     , deleteAndRedraft : Bool
+    , editingStatus : Maybe Status
     , posting : Bool
     }
 
@@ -322,6 +324,7 @@ initialPostState =
     , groupName = ""
     , group_id = Nothing
     , deleteAndRedraft = False
+    , editingStatus = Nothing
     , posting = False
     }
 
@@ -557,6 +560,7 @@ type Popup
 type Command
     = MuteConversationCommand
     | PinOnProfileCommand
+    | EditStatusCommand
     | DeleteStatusCommand
     | DeleteAndRedraftCommand
       -- other user
@@ -1688,6 +1692,9 @@ encodeReplyType replyType =
         QuotePost ->
             JE.string "QuotePost"
 
+        EditPost ->
+            JE.string "EditPost"
+
         NoReply ->
             JE.string "NoReply"
 
@@ -1702,6 +1709,9 @@ replyTypeDecoder =
 
                 else if s == "QuotePost" then
                     JD.succeed QuotePost
+
+                else if s == "EditPost" then
+                    JD.succeed EditPost
 
                 else
                     JD.succeed NoReply
@@ -1769,6 +1779,10 @@ encodePostState postState =
                 postState.deleteAndRedraft
                 JE.bool
                 False
+            , encodePropertyAsList "editingStatus"
+                postState.editingStatus
+                (ED.encodeMaybe ED.encodeStatus)
+                Nothing
             ]
 
 
@@ -1790,6 +1804,7 @@ postStateDecoder =
         |> optional "groupName" JD.string ""
         |> optional "group_id" (JD.nullable JD.string) Nothing
         |> optional "deleteAndRedraft" JD.bool False
+        |> optional "editingStatus" (JD.nullable ED.statusDecoder) Nothing
         -- "posting"
         |> custom (JD.succeed False)
         |> JD.andThen

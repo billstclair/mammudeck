@@ -1,4 +1,4 @@
-----------------------------------------------------------------
+---------------------------------------------------------------
 --
 -- Main.elm
 -- Mammudeck, a TweetDeck-like columnar interface to Mastodon/Pleroma.
@@ -21,7 +21,6 @@
 {--Immediate TODOs
 
 See ../TODO.md for the full list.
-
 
 
 * Support notification type "move".
@@ -6650,6 +6649,30 @@ popupChoose choice model =
         mdl3 |> withCmds cmds
 
 
+editStatus : Status -> Model -> ( Model, Cmd Msg )
+editStatus status model =
+    let
+        postState =
+            { initialPostState
+                | replyType = EditPost
+                , text =
+                    case status.plain_text of
+                        Nothing ->
+                            status.content
+
+                        Just text ->
+                            text
+                , visibility = status.visibility
+                , editingStatus = Just status
+            }
+    in
+    { model
+        | dialog = PostDialog
+        , postState = postState
+    }
+        |> withNoCmd
+
+
 commandChoice : Command -> Status -> Model -> ( Model, Cmd Msg )
 commandChoice command status model =
     let
@@ -6708,6 +6731,9 @@ commandChoice command status model =
         DeleteStatusCommand ->
             setAreYouSureDialog AreYouSureDeleteStatus
                 |> withNoCmd
+
+        EditStatusCommand ->
+            editStatus status mdl
 
         DeleteAndRedraftCommand ->
             mdl
@@ -7375,16 +7401,28 @@ showEllipsisPopup ellipsisId status model =
 
 myEllipsisChoices : Status -> Model -> List PopupChoice
 myEllipsisChoices status model =
-    List.map (\command -> CommandChoice command status)
-        [ MuteConversationCommand
-        , SeparatorCommand
-        , PinOnProfileCommand
-        , SeparatorCommand
-        , DeleteStatusCommand
-        , DeleteAndRedraftCommand
-        , SeparatorCommand
-        , CancelCommand
-        ]
+    let
+        server =
+            model.renderEnv.loginServer
+    in
+    List.map (\command -> CommandChoice command status) <|
+        List.concat
+            [ [ MuteConversationCommand
+              , SeparatorCommand
+              , PinOnProfileCommand
+              , SeparatorCommand
+              ]
+            , if serverHasFeature server featureNames.editing model then
+                [ EditStatusCommand ]
+
+              else
+                []
+            , [ DeleteStatusCommand
+              , DeleteAndRedraftCommand
+              , SeparatorCommand
+              , CancelCommand
+              ]
+            ]
 
 
 otherGuyEllipsisChoices : Status -> Model -> List PopupChoice

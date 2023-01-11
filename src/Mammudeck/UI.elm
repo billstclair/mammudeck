@@ -1992,17 +1992,24 @@ emojiStringToImg size dict emojiOrText =
                         []
 
 
-replaceEmojiReferences : RenderEnv -> List Html.Parser.Node -> List Html.Parser.Node
-replaceEmojiReferences renderEnv nodes =
+replaceEmojiReferences : RenderEnv -> Maybe Status -> List Html.Parser.Node -> List Html.Parser.Node
+replaceEmojiReferences renderEnv maybeStatus nodes =
     let
-        emojis =
-            renderEnv.emojis
-
         size =
             18 * renderEnv.fontSizePct // 100
 
         sizeStr =
             String.fromInt size ++ "px"
+
+        emojis =
+            case maybeStatus of
+                Nothing ->
+                    renderEnv.emojis
+
+                Just status ->
+                    List.foldl (\e es -> Dict.insert e.shortcode e es)
+                        renderEnv.emojis
+                        status.emojis
 
         updater : Html.Parser.Node -> Html.Parser.Node
         updater node =
@@ -2019,12 +2026,12 @@ replaceEmojiReferences renderEnv nodes =
                             Html.Parser.Element "span"
                                 []
                             <|
-                                List.map (emojiStringToImg sizeStr renderEnv.emojis)
+                                List.map (emojiStringToImg sizeStr emojis)
                                     emojisAndStrings
 
                 Html.Parser.Element tag attrs subnodes ->
                     Html.Parser.Element tag attrs <|
-                        replaceEmojiReferences renderEnv subnodes
+                        List.map updater subnodes
 
                 _ ->
                     node
@@ -2087,7 +2094,7 @@ statusBody : RenderEnv -> Maybe Status -> String -> Maybe String -> List (Html M
 statusBody renderEnv maybeStatus html maybeMarkdown =
     case Html.Parser.run html of
         Ok nodes ->
-            replaceEmojiReferences renderEnv nodes
+            replaceEmojiReferences renderEnv maybeStatus nodes
                 |> replaceMentionLinks renderEnv maybeStatus
                 |> Util.toVirtualDom
 
@@ -5801,6 +5808,9 @@ commandText command status =
             else
                 "Pin on Profile"
 
+        EditStatusCommand ->
+            "Edit"
+
         DeleteStatusCommand ->
             "Delete"
 
@@ -8007,6 +8017,9 @@ postDialog model =
                 QuotePost ->
                     "Quote"
 
+                EditPost ->
+                    "Edit"
+
                 _ ->
                     "Post"
         , content =
@@ -8045,7 +8058,12 @@ postDialog model =
                     )
                     enabled
                     (ColumnsUIMsg Post)
-                    "Post"
+                <|
+                    if postState.replyType == EditPost then
+                        "Modify"
+
+                    else
+                        "Post"
             , if model.showLeftColumn || model.scrollPillState.showScrollPill then
                 text ""
 
@@ -8112,6 +8130,9 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
 
                         QuotePost ->
                             "of "
+
+                        EditPost ->
+                            "to "
 
                         NoReply ->
                             "by "
