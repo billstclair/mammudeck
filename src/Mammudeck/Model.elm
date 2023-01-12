@@ -129,6 +129,7 @@ import Mastodon.Entity as Entity
     exposing
         ( Account
         , App
+        , Application
         , Attachment
         , AttachmentType(..)
         , Authorization
@@ -151,9 +152,11 @@ import Mastodon.Entity as Entity
         , PollOption
         , Privacy(..)
         , Relationship
+        , Source
         , Status
         , UrlString
         , Visibility(..)
+        , WrappedAccount(..)
         , WrappedStatus(..)
         )
 import Mastodon.Request as Request
@@ -229,7 +232,7 @@ type Page
 type ReplyType
     = ReplyToPost
     | QuotePost
-    | EditPost
+    | EditPost Status
     | NoReply
 
 
@@ -302,7 +305,6 @@ type alias PostState =
     , groupName : String
     , group_id : Maybe String
     , deleteAndRedraft : Bool
-    , editingStatus : Maybe Status
     , posting : Bool
     }
 
@@ -324,7 +326,6 @@ initialPostState =
     , groupName = ""
     , group_id = Nothing
     , deleteAndRedraft = False
-    , editingStatus = Nothing
     , posting = False
     }
 
@@ -1348,6 +1349,105 @@ type ExplorerSendMsg
 --- Persistence
 
 
+cleanMaybe : (x -> x) -> Maybe x -> Maybe x
+cleanMaybe cleaner mx =
+    case mx of
+        Nothing ->
+            Nothing
+
+        Just x ->
+            Just <| cleaner x
+
+
+cleanMaybeWrappedStatus : Maybe WrappedStatus -> Maybe WrappedStatus
+cleanMaybeWrappedStatus mws =
+    case mws of
+        Nothing ->
+            Nothing
+
+        Just (WrappedStatus s) ->
+            Just (WrappedStatus <| cleanStatus s)
+
+
+cleanPostState : PostState -> PostState
+cleanPostState postState =
+    { postState
+        | replyTo = cleanMaybe cleanStatus postState.replyTo
+        , replyType = cleanReplyType postState.replyType
+    }
+
+
+cleanReplyType : ReplyType -> ReplyType
+cleanReplyType replyType =
+    case replyType of
+        EditPost status ->
+            EditPost <| cleanStatus status
+
+        _ ->
+            replyType
+
+
+cleanStatus : Status -> Status
+cleanStatus status =
+    { status
+        | account = cleanAccount status.account
+        , reblog = cleanMaybeWrappedStatus status.reblog
+        , media_attachments = List.map cleanAttachment status.media_attachments
+        , poll = cleanMaybe cleanPoll status.poll
+        , application = cleanMaybe cleanApplication status.application
+        , group = cleanMaybe cleanGroup status.group
+        , quote = cleanMaybeWrappedStatus status.quote
+        , v = JE.null
+    }
+
+
+cleanGroup : Group -> Group
+cleanGroup group =
+    { group | v = JE.null }
+
+
+cleanApplication : Application -> Application
+cleanApplication application =
+    { application | v = JE.null }
+
+
+cleanPoll : Poll -> Poll
+cleanPoll poll =
+    { poll | v = JE.null }
+
+
+cleanSource : Source -> Source
+cleanSource source =
+    { source | v = JE.null }
+
+
+cleanAccount : Account -> Account
+cleanAccount account =
+    { account
+        | moved =
+            case account.moved of
+                Nothing ->
+                    Nothing
+
+                Just (WrappedAccount moved) ->
+                    Just (WrappedAccount <| cleanAccount moved)
+        , source = cleanMaybe cleanSource account.source
+        , v = JE.null
+    }
+
+
+cleanAttachment : Attachment -> Attachment
+cleanAttachment attachment =
+    { attachment | v = JE.null }
+
+
+cleanSavedModel : SavedModel -> SavedModel
+cleanSavedModel model =
+    { model
+        | postState = cleanPostState model.postState
+    }
+
+
 modelToSavedModel : Model -> SavedModel
 modelToSavedModel model =
     { renderEnv = model.renderEnv
@@ -1358,7 +1458,7 @@ modelToSavedModel model =
     , server = model.server
     , feedSetDefinition = model.feedSetDefinition
     , supportsAccountByUsername = model.supportsAccountByUsername
-    , postState = model.postState
+    , postState = cleanPostState model.postState
     , features = model.features
     , scrollPillState = model.scrollPillState
     , showLeftColumn = model.showLeftColumn
@@ -1692,8 +1792,8 @@ encodeReplyType replyType =
         QuotePost ->
             JE.string "QuotePost"
 
-        EditPost ->
-            JE.string "EditPost"
+        EditPost status ->
+            JE.object [ ( "EditPost", ED.encodeStatus status ) ]
 
         NoReply ->
             JE.string "NoReply"
@@ -1701,21 +1801,22 @@ encodeReplyType replyType =
 
 replyTypeDecoder : Decoder ReplyType
 replyTypeDecoder =
-    JD.string
-        |> JD.andThen
-            (\s ->
-                if s == "ReplyToPost" then
-                    JD.succeed ReplyToPost
+    JD.oneOf
+        [ JD.string
+            |> JD.andThen
+                (\s ->
+                    if s == "ReplyToPost" then
+                        JD.succeed ReplyToPost
 
-                else if s == "QuotePost" then
-                    JD.succeed QuotePost
+                    else if s == "QuotePost" then
+                        JD.succeed QuotePost
 
-                else if s == "EditPost" then
-                    JD.succeed EditPost
-
-                else
-                    JD.succeed NoReply
-            )
+                    else
+                        JD.succeed NoReply
+                )
+        , JD.field "EditPost" ED.statusDecoder
+            |> JD.andThen (EditPost >> JD.succeed)
+        ]
 
 
 encodePostState : PostState -> Value
@@ -1779,10 +1880,6 @@ encodePostState postState =
                 postState.deleteAndRedraft
                 JE.bool
                 False
-            , encodePropertyAsList "editingStatus"
-                postState.editingStatus
-                (ED.encodeMaybe ED.encodeStatus)
-                Nothing
             ]
 
 
@@ -1804,7 +1901,6 @@ postStateDecoder =
         |> optional "groupName" JD.string ""
         |> optional "group_id" (JD.nullable JD.string) Nothing
         |> optional "deleteAndRedraft" JD.bool False
-        |> optional "editingStatus" (JD.nullable ED.statusDecoder) Nothing
         -- "posting"
         |> custom (JD.succeed False)
         |> JD.andThen
@@ -2270,6 +2366,13 @@ selectedRequestDecoder =
 
 savedModelDecoder : Decoder SavedModel
 savedModelDecoder =
+    savedModelDecoderInternal
+        |> JD.andThen
+            (\sm -> cleanSavedModel sm |> JD.succeed)
+
+
+savedModelDecoderInternal : Decoder SavedModel
+savedModelDecoderInternal =
     JD.succeed SavedModel
         |> optional "renderEnv" renderEnvDecoder emptyRenderEnv
         |> required "page" pageDecoder

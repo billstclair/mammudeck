@@ -8017,7 +8017,7 @@ postDialog model =
                 QuotePost ->
                     "Quote"
 
-                EditPost ->
+                EditPost _ ->
                     "Edit"
 
                 _ ->
@@ -8059,11 +8059,12 @@ postDialog model =
                     enabled
                     (ColumnsUIMsg Post)
                 <|
-                    if postState.replyType == EditPost then
-                        "Modify"
+                    case postState.replyType of
+                        EditPost _ ->
+                            "Put Change"
 
-                    else
-                        "Post"
+                        _ ->
+                            "Post"
             , if model.showLeftColumn || model.scrollPillState.showScrollPill then
                 text ""
 
@@ -8111,71 +8112,85 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                 Just def ->
                     ( List.length def.options + 5, def )
     in
-    [ case postState.replyTo of
-        Nothing ->
+    [ let
+        replyType =
+            postState.replyType
+      in
+      case postState.replyType of
+        NoReply ->
             text ""
 
-        Just replyTo ->
-            let
-                timeString =
-                    formatIso8601 renderEnv.here replyTo.created_at
-
-                replyType =
-                    postState.replyType
-
-                preposition =
-                    case replyType of
-                        ReplyToPost ->
-                            "to "
-
-                        QuotePost ->
-                            "of "
-
-                        EditPost ->
-                            "to "
-
-                        NoReply ->
-                            "by "
-
-                replyRadio val lab =
-                    radioButton
-                        { buttonValue = val
-                        , radioValue = replyType
-                        , radioName = "replyType"
-                        , setter = ColumnsUIMsg <| SetPostReplyType val
-                        , label = lab
-                        }
-            in
+        QuotePost ->
             p []
-                [ text preposition
-                , renderDisplayName replyTo.account.display_name renderEnv
-                , br
-                , case replyTo.url of
-                    Nothing ->
-                        text timeString
+                [ button (ColumnsUIMsg ClearPostStateReplyTo) "Clear Quote" ]
 
-                    Just url ->
-                        link timeString url
-                , br
-                , replyRadio ReplyToPost "Reply"
-                , if hasQuoteFeature then
-                    span []
-                        [ text " "
-                        , replyRadio QuotePost "Quote"
+        EditPost _ ->
+            p []
+                [ button (ColumnsUIMsg ClearPostStateReplyTo) "Clear Edit" ]
+
+        ReplyToPost ->
+            case postState.replyTo of
+                Nothing ->
+                    text ""
+
+                Just replyTo ->
+                    let
+                        timeString =
+                            formatIso8601 renderEnv.here replyTo.created_at
+
+                        preposition =
+                            case replyType of
+                                ReplyToPost ->
+                                    "to "
+
+                                QuotePost ->
+                                    "of "
+
+                                EditPost _ ->
+                                    "to "
+
+                                NoReply ->
+                                    "by "
+
+                        replyRadio val lab =
+                            radioButton
+                                { buttonValue = val
+                                , radioValue = replyType
+                                , radioName = "replyType"
+                                , setter = ColumnsUIMsg <| SetPostReplyType val
+                                , label = lab
+                                }
+                    in
+                    p []
+                        [ text preposition
+                        , renderDisplayName replyTo.account.display_name renderEnv
+                        , br
+                        , case replyTo.url of
+                            Nothing ->
+                                text timeString
+
+                            Just url ->
+                                link timeString url
+                        , br
+                        , replyRadio ReplyToPost "Reply"
+                        , if hasQuoteFeature then
+                            span []
+                                [ text " "
+                                , replyRadio QuotePost "Quote"
+                                , text " "
+                                ]
+
+                          else
+                            text " "
+                        , replyRadio NoReply <|
+                            if hasQuoteFeature then
+                                "Neither"
+
+                            else
+                                "No Reply"
                         , text " "
+                        , button (ColumnsUIMsg ClearPostStateReplyTo) "Clear Reply"
                         ]
-
-                  else
-                    text " "
-                , replyRadio NoReply <|
-                    if hasQuoteFeature then
-                        "Neither"
-
-                    else
-                        "No Reply"
-                , text " "
-                , button (ColumnsUIMsg ClearPostStateReplyTo) "Clear Reply"
-                ]
     , if not hasGroupsFeature then
         text ""
 

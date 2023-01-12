@@ -4726,6 +4726,9 @@ columnsUIMsg msg model =
                                 ReplyToPost ->
                                     ( Just status.id, Nothing )
 
+                                EditPost s ->
+                                    ( Just s.id, Nothing )
+
                                 _ ->
                                     ( Nothing, Just status.id )
 
@@ -4743,30 +4746,61 @@ columnsUIMsg msg model =
                                     ( Just { pollDef | expires_in = seconds }
                                     , True
                                     )
-
-                post =
-                    { status = nothingIfBlank postState.text
-                    , in_reply_to_id = in_reply_to_id
-                    , group_id = postState.group_id
-                    , quote_of_id = quote_id
-                    , media_ids = postState.media_ids
-                    , poll = poll
-                    , sensitive = postState.sensitive
-                    , spoiler_text = Nothing
-                    , visibility = Just postState.visibility
-                    , scheduled_at = Nothing
-                    , language = Nothing
-                    , idempotencyKey = Nothing
-                    }
             in
             if not pollValid then
                 { model | msg = Just "Poll expiration invalid" }
                     |> withNoCmd
 
             else
-                sendPostRequest
-                    (StatusesRequest <| Request.PostStatus post)
-                    { model | postState = { postState | posting = True } }
+                let
+                    mdl =
+                        { model | postState = { postState | posting = True } }
+                in
+                case replyType of
+                    EditPost s ->
+                        let
+                            edited =
+                                { status = nothingIfBlank postState.text
+                                , in_reply_to_id = in_reply_to_id
+                                , quote_of_id = quote_id
+                                , media_ids = Just postState.media_ids
+                                , sensitive = postState.sensitive
+                                , spoiler_text = Nothing
+                                , visibility = Just postState.visibility
+                                , content_type = Just "text/plain"
+                                , poll = poll
+                                , scheduled_at = Nothing
+                                }
+                        in
+                        sendPostRequest
+                            (StatusesRequest <|
+                                Request.PutStatus
+                                    { id = s.id
+                                    , status = edited
+                                    }
+                            )
+                            mdl
+
+                    _ ->
+                        let
+                            post =
+                                { status = nothingIfBlank postState.text
+                                , in_reply_to_id = in_reply_to_id
+                                , group_id = postState.group_id
+                                , quote_of_id = quote_id
+                                , media_ids = postState.media_ids
+                                , poll = poll
+                                , sensitive = postState.sensitive
+                                , spoiler_text = Nothing
+                                , visibility = Just postState.visibility
+                                , scheduled_at = Nothing
+                                , language = Nothing
+                                , idempotencyKey = Nothing
+                                }
+                        in
+                        sendPostRequest
+                            (StatusesRequest <| Request.PostStatus post)
+                            mdl
 
         ClearPostState ->
             { model | postState = initialPostState }
@@ -6654,7 +6688,7 @@ editStatus status model =
     let
         postState =
             { initialPostState
-                | replyType = EditPost
+                | replyType = EditPost status
                 , text =
                     case status.plain_text of
                         Nothing ->
@@ -6663,7 +6697,6 @@ editStatus status model =
                         Just text ->
                             text
                 , visibility = status.visibility
-                , editingStatus = Just status
             }
     in
     { model
