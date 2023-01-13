@@ -234,6 +234,7 @@ import Mastodon.Entity as Entity
         , FilterContext(..)
         , Focus
         , Group
+        , HistoryStatus
         , Instance
         , ListEntity
         , Mention
@@ -1104,6 +1105,64 @@ settingsDialogContent model =
         , br
         , button (GlobalMsg ClearAllDialog) "Clear all persistent state!"
         ]
+    ]
+
+
+statusHistoryDialog : Status -> List HistoryStatus -> Model -> Html Msg
+statusHistoryDialog status history model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
+    dialogRender
+        renderEnv
+        { styles =
+            [ ( "width", "40em" )
+            , ( "max-width", "95%" )
+            , ( "max-height", "90%" )
+            , ( "overflow", "auto" )
+            , ( "font-size", fspct model.renderEnv )
+            ]
+        , title = "Status History"
+        , content =
+            statusHistoryContent status history model
+        , actionBar =
+            [ button (ColumnsUIMsg CommitDynamoDBDialog) "OK"
+            ]
+        }
+        True
+
+
+statusHistoryContent : Status -> List HistoryStatus -> Model -> List (Html Msg)
+statusHistoryContent status history model =
+    let
+        renderEnv =
+            model.renderEnv
+
+        { borderColor } =
+            getStyle renderEnv
+
+        renderHistory : HistoryStatus -> Html Msg
+        renderHistory hs =
+            let
+                dateString =
+                    formatIso8601 renderEnv.here hs.created_at
+            in
+            div
+                [ style "width" "100%"
+                , style "border" <| "2px solid " ++ borderColor
+                , style "padding" "0 3px"
+                ]
+            <|
+                span [ style "font-size" "90%" ]
+                    [ text dateString
+                    , br
+                    ]
+                    :: statusBody renderEnv (Just status) hs.content Nothing
+    in
+    [ div [ id nodeIds.statusHistoryDialog ] <|
+        floatingDismissDialogButton model (Just ( 0, -50 ))
+            :: List.map renderHistory history
     ]
 
 
@@ -2679,7 +2738,8 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
                 p [ style "font-size" "90%" ]
                     [ a
                         [ href "#"
-                        , onClick (ColumnsUIMsg <| ShowHistoryDialog status)
+                        , onClick (ColumnsUIMsg <| ShowStatusHistoryDialog status)
+                        , title "Show status history dialog"
                         ]
                         [ text editedTime ]
                     , br
@@ -5623,6 +5683,7 @@ nodeIds =
     , accountDialogStatus = "accountDialogStatus"
     , accountDialog = "accountDialog"
     , notificationTypeSelect = "notificationTypeSelect"
+    , statusHistoryDialog = "statusHistoryDialog"
     }
 
 
@@ -6211,6 +6272,9 @@ renderDialog model =
 
         DynamoDBDialog ->
             dynamoDBDialog model
+
+        StatusHistoryDialog status history ->
+            statusHistoryDialog status history model
 
         KeyboardShortcutsDialog ->
             keyboardShortcutsDialog model
@@ -7286,24 +7350,7 @@ accountDialogContent account maybeContent model =
         , style "opacity" "0.9"
         , id nodeIds.accountDialog
         ]
-        [ case model.boundingBox of
-            Nothing ->
-                text ""
-
-            Just { top, left, width } ->
-                div
-                    [ style "position" "absolute"
-                    , style "top" <| String.fromInt (top + 10) ++ "px"
-                    , style "left" <| String.fromInt (left + width - 10 - 30) ++ "px"
-                    , onClick <| ColumnsUIMsg DismissDialog
-                    , title "hide dialog"
-                    ]
-                    [ Html.i
-                        [ class "icon-cancel"
-                        , style "font-size" "30px"
-                        ]
-                        []
-                    ]
+        [ floatingDismissDialogButton model Nothing
         , renderAccount renderEnv
             account
             displayNameHtml
@@ -7530,6 +7577,37 @@ accountDialogContent account maybeContent model =
             ]
         ]
     ]
+
+
+floatingDismissDialogButton : Model -> Maybe ( Int, Int ) -> Html Msg
+floatingDismissDialogButton model maybeOffset =
+    case model.boundingBox of
+        Nothing ->
+            text ""
+
+        Just { top, left, width } ->
+            let
+                ( offsetX, offsetY ) =
+                    case maybeOffset of
+                        Nothing ->
+                            ( 0, 0 )
+
+                        Just offset ->
+                            offset
+            in
+            div
+                [ style "position" "absolute"
+                , style "top" <| String.fromInt (top + 10 + offsetY) ++ "px"
+                , style "left" <| String.fromInt (left + width - 10 - 30 + offsetX) ++ "px"
+                , onClick <| ColumnsUIMsg DismissDialog
+                , title "hide dialog"
+                ]
+                [ Html.i
+                    [ class "icon-cancel"
+                    , style "font-size" "30px"
+                    ]
+                    []
+                ]
 
 
 renderAccountDialogAccounts : Model -> List Account -> Maybe Bool -> Html Msg

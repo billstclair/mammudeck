@@ -3379,6 +3379,11 @@ setAccountDialog model dialog =
     setDialog model nodeIds.accountDialog dialog
 
 
+setStatusHistoryDialog : Model -> Dialog -> ( Model, Cmd Msg )
+setStatusHistoryDialog model dialog =
+    setDialog model nodeIds.statusHistoryDialog dialog
+
+
 {-| Process UI messages from the columns page.
 
 These change the Model, but don't send anything over the wire to any instances.
@@ -5027,10 +5032,20 @@ columnsUIMsg msg model =
             }
                 |> withNoCmd
 
-        ShowHistoryDialog status ->
-            -- TODO
-            model
-                |> withCmd (alertDialogCmd "History dialog not yet available.")
+        ShowStatusHistoryDialog status ->
+            let
+                ( mdl, cmd ) =
+                    setStatusHistoryDialog model <| StatusHistoryDialog status []
+
+                ( mdl2, cmd2 ) =
+                    sendRequest
+                        (StatusesRequest <|
+                            Request.GetStatusHistory
+                                { id = status.id }
+                        )
+                        mdl
+            in
+            mdl2 |> withCmds [ cmd, cmd2 ]
 
 
 alertDialogCmd : String -> Cmd Msg
@@ -6787,9 +6802,7 @@ commandChoice command status model =
             in
             sendRequest
                 (StatusesRequest <|
-                    Request.GetStatusSource
-                        { id = mdl2.statusId
-                        }
+                    Request.GetStatusSource { id = stat.id }
                 )
                 mdl2
 
@@ -12245,6 +12258,22 @@ applyResponseSideEffects response model1 =
                             { model
                                 | dialog = PostDialog
                                 , postState = postState
+                            }
+
+                        _ ->
+                            model
+
+                _ ->
+                    model
+
+        StatusesRequest (Request.GetStatusHistory { id }) ->
+            case model.dialog of
+                StatusHistoryDialog status _ ->
+                    case response.entity of
+                        HistoryStatusListEntity history ->
+                            { model
+                                | dialog =
+                                    StatusHistoryDialog status history
                             }
 
                         _ ->

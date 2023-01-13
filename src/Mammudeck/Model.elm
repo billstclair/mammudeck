@@ -141,6 +141,7 @@ import Mastodon.Entity as Entity
         , FilterContext(..)
         , Focus
         , Group
+        , HistoryStatus
         , Instance
         , ListEntity
         , Mention
@@ -520,6 +521,7 @@ type Dialog
     | DocsDialog
     | AccountDialog Account (Maybe AccountDialogContent)
     | FeedTypeDialog FeedType
+    | StatusHistoryDialog Status (List HistoryStatus)
 
 
 type alias AttachmentView =
@@ -1131,7 +1133,7 @@ type ColumnsUIMsg
     | RemovePollDefinitionOption Int
     | TogglePollDefinitionMultiple
     | SetDaysHoursMinutes String String
-    | ShowHistoryDialog Status
+    | ShowStatusHistoryDialog Status
 
 
 type ReceiveFeedType
