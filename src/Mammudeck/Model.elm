@@ -232,7 +232,7 @@ type Page
 type ReplyType
     = ReplyToPost
     | QuotePost
-    | EditPost Status
+    | EditPost String
     | NoReply
 
 
@@ -561,7 +561,7 @@ type Popup
 type Command
     = MuteConversationCommand
     | PinOnProfileCommand
-    | EditStatusCommand
+    | EditStatusCommand Status
     | DeleteStatusCommand
     | DeleteAndRedraftCommand
       -- other user
@@ -1239,7 +1239,7 @@ type ExplorerUIMsg
 
 {-| If you add a message here, it should also be added to the
 `buttonNameAlist` and `dollarButtonNameDict` values near the
-bottom of the file.
+bottom of the UI.elm.
 -}
 type ExplorerSendMsg
     = SendNothing
@@ -1319,6 +1319,7 @@ type ExplorerSendMsg
     | SendGetStatusContext
     | SendGetStatusAncestors
     | SendGetStatusDescendants
+    | SendGetStatusSource
     | SendGetStatusCard
     | SendGetStatusRebloggedBy
     | SendGetStatusFavouritedBy
@@ -1349,6 +1350,15 @@ type ExplorerSendMsg
 --- Persistence
 
 
+{-| All this cleaning is to prevent the Elm equality-checking code from crashing.
+
+It gets `SavedModel`s with a `pleroma` field in the `v` of a property
+and not in the matching field.
+
+The really proper way to do this would be to write a recursive-descent equality
+checker, which ignored the `v` fields. But this works, for now.
+
+-}
 cleanMaybe : (x -> x) -> Maybe x -> Maybe x
 cleanMaybe cleaner mx =
     case mx of
@@ -1373,18 +1383,7 @@ cleanPostState : PostState -> PostState
 cleanPostState postState =
     { postState
         | replyTo = cleanMaybe cleanStatus postState.replyTo
-        , replyType = cleanReplyType postState.replyType
     }
-
-
-cleanReplyType : ReplyType -> ReplyType
-cleanReplyType replyType =
-    case replyType of
-        EditPost status ->
-            EditPost <| cleanStatus status
-
-        _ ->
-            replyType
 
 
 cleanStatus : Status -> Status
@@ -1792,8 +1791,8 @@ encodeReplyType replyType =
         QuotePost ->
             JE.string "QuotePost"
 
-        EditPost status ->
-            JE.object [ ( "EditPost", ED.encodeStatus status ) ]
+        EditPost sid ->
+            JE.object [ ( "EditPost", JE.string sid ) ]
 
         NoReply ->
             JE.string "NoReply"
@@ -1814,7 +1813,7 @@ replyTypeDecoder =
                     else
                         JD.succeed NoReply
                 )
-        , JD.field "EditPost" ED.statusDecoder
+        , JD.field "EditPost" JD.string
             |> JD.andThen (EditPost >> JD.succeed)
         ]
 

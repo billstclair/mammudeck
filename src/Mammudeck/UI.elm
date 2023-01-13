@@ -4833,6 +4833,8 @@ statusesSelectedUI model =
         , text " "
         , sendButton SendGetStatusDescendants model
         , br
+        , sendButton SendGetStatusSource model
+        , br
         , textInput "limit: "
             10
             (ExplorerUIMsg << SetLimit)
@@ -5808,7 +5810,7 @@ commandText command status =
             else
                 "Pin on Profile"
 
-        EditStatusCommand ->
+        EditStatusCommand _ ->
             "Edit"
 
         DeleteStatusCommand ->
@@ -9304,6 +9306,7 @@ dollarButtonNameDict =
         , ( "GetStatusContext", SendGetStatusContext )
         , ( "GetStatusAncestors", SendGetStatusAncestors )
         , ( "GetStatusDescendants", SendGetStatusDescendants )
+        , ( "GetStatusSource", SendGetStatusSource )
         , ( "GetStatusRebloggedBy", SendGetStatusRebloggedBy )
         , ( "GetStatusFavouritedBy", SendGetStatusFavouritedBy )
         , ( "DeleteStatus", SendDeleteStatus )
@@ -9410,6 +9413,7 @@ buttonNameAlist =
     , ( SendGetStatusContext, ( "GetStatusContext", "GET statuses/:id/context" ) )
     , ( SendGetStatusAncestors, ( "GetStatusAncestors", "GET statuses/:id/context/ancestors" ) )
     , ( SendGetStatusDescendants, ( "GetStatusDecendants", "GET statuses/:id/context/descendants" ) )
+    , ( SendGetStatusSource, ( "GetStatusSource", "GET statuses/:id/source" ) )
     , ( SendGetStatusRebloggedBy, ( "GetStatusRebloggedBy", "GET statuses/:id/reblogged_by" ) )
     , ( SendGetStatusFavouritedBy, ( "GetStatusFavouritedBy", "GET statuses/:id/favourited_by" ) )
     , ( SendDeleteStatus, ( "DeleteStatus", "DELETE statuses/:id" ) )

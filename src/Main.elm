@@ -4726,8 +4726,8 @@ columnsUIMsg msg model =
                                 ReplyToPost ->
                                     ( Just status.id, Nothing )
 
-                                EditPost s ->
-                                    ( Just s.id, Nothing )
+                                EditPost sid ->
+                                    ( Just sid, Nothing )
 
                                 _ ->
                                     ( Nothing, Just status.id )
@@ -4757,7 +4757,7 @@ columnsUIMsg msg model =
                         { model | postState = { postState | posting = True } }
                 in
                 case replyType of
-                    EditPost s ->
+                    EditPost sid ->
                         let
                             edited =
                                 { status = nothingIfBlank postState.text
@@ -4775,7 +4775,7 @@ columnsUIMsg msg model =
                         sendPostRequest
                             (StatusesRequest <|
                                 Request.PutStatus
-                                    { id = s.id
+                                    { id = sid
                                     , status = edited
                                     }
                             )
@@ -6683,29 +6683,6 @@ popupChoose choice model =
         mdl3 |> withCmds cmds
 
 
-editStatus : Status -> Model -> ( Model, Cmd Msg )
-editStatus status model =
-    let
-        postState =
-            { initialPostState
-                | replyType = EditPost status
-                , text =
-                    case status.plain_text of
-                        Nothing ->
-                            status.content
-
-                        Just text ->
-                            text
-                , visibility = status.visibility
-            }
-    in
-    { model
-        | dialog = PostDialog
-        , postState = postState
-    }
-        |> withNoCmd
-
-
 commandChoice : Command -> Status -> Model -> ( Model, Cmd Msg )
 commandChoice command status model =
     let
@@ -6765,8 +6742,41 @@ commandChoice command status model =
             setAreYouSureDialog AreYouSureDeleteStatus
                 |> withNoCmd
 
-        EditStatusCommand ->
-            editStatus status mdl
+        EditStatusCommand stat ->
+            let
+                attachments =
+                    stat.media_attachments
+
+                postState =
+                    { initialPostState
+                        | media_ids = List.map .id attachments
+                        , fileNames =
+                            List.map
+                                (\a -> Maybe.withDefault "" a.description)
+                                attachments
+                        , fileUrls =
+                            List.map
+                                (\a ->
+                                    case a.preview_url of
+                                        Nothing ->
+                                            a.url
+
+                                        Just url ->
+                                            url
+                                )
+                                attachments
+                    }
+
+                mdl2 =
+                    { mdl | postState = postState }
+            in
+            sendRequest
+                (StatusesRequest <|
+                    Request.GetStatusSource
+                        { id = mdl2.statusId
+                        }
+                )
+                mdl2
 
         DeleteAndRedraftCommand ->
             mdl
@@ -7446,7 +7456,7 @@ myEllipsisChoices status model =
               , SeparatorCommand
               ]
             , if serverHasFeature server featureNames.editing model then
-                [ EditStatusCommand ]
+                [ EditStatusCommand status ]
 
               else
                 []
@@ -10625,6 +10635,15 @@ explorerSendMsg msg model =
                 )
                 model
 
+        SendGetStatusSource ->
+            sendRequest
+                (StatusesRequest <|
+                    Request.GetStatusSource
+                        { id = model.statusId
+                        }
+                )
+                model
+
         SendGetStatusCard ->
             sendRequest
                 (StatusesRequest <| Request.GetStatusCard { id = model.statusId })
@@ -12201,6 +12220,38 @@ applyResponseSideEffects response model1 =
 
                 _ ->
                     model
+
+        StatusesRequest (Request.GetStatusSource { id }) ->
+            case response.entity of
+                StatusSourceEntity source ->
+                    case model.page of
+                        ColumnsPage ->
+                            let
+                                mdlPostState =
+                                    model.postState
+
+                                postState =
+                                    { mdlPostState
+                                        | replyType = EditPost source.id
+                                        , text = source.text
+
+                                        -- So that text will be cleared
+                                        , mentionsString = source.text
+                                    }
+                            in
+                            { model
+                                | dialog = PostDialog
+                                , postState = postState
+                            }
+
+                        _ ->
+                            model
+
+                _ ->
+                    model
+
+        StatusesRequest (Request.PutStatus _) ->
+            updateColumnsStatus response.entity model
 
         MediaAttachmentsRequest mediaReq ->
             case response.entity of
