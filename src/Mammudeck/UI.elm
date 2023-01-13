@@ -1139,12 +1139,18 @@ statusHistoryContent status history model =
         renderEnv =
             model.renderEnv
 
+        cnt =
+            List.length history
+
         { borderColor } =
             getStyle renderEnv
 
-        renderHistory : HistoryStatus -> Html Msg
-        renderHistory hs =
+        renderHistory : Int -> HistoryStatus -> Html Msg
+        renderHistory index hs =
             let
+                idxString =
+                    String.fromInt (cnt - index) ++ ": "
+
                 dateString =
                     formatIso8601 renderEnv.here hs.created_at
             in
@@ -1155,14 +1161,15 @@ statusHistoryContent status history model =
                 ]
             <|
                 span [ style "font-size" "90%" ]
-                    [ text dateString
+                    [ b idxString
+                    , text dateString
                     , br
                     ]
                     :: statusBody renderEnv (Just status) hs.content Nothing
     in
     [ div [ id nodeIds.statusHistoryDialog ] <|
         floatingDismissDialogButton model (Just ( 0, -50 ))
-            :: List.map renderHistory history
+            :: List.indexedMap renderHistory (List.reverse history)
     ]
 
 
