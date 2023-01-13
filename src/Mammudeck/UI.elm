@@ -2567,6 +2567,14 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
 
         body =
             statusBody renderEnv (Just status) status.content status.plain_markdown
+
+        editedTime =
+            case status.edited_at of
+                Nothing ->
+                    ""
+
+                Just edited_at ->
+                    "Edited " ++ formatIso8601 renderEnv.here edited_at
     in
     div
         (List.append
@@ -2664,6 +2672,18 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
                                 , text <| " (" ++ String.fromInt group.member_count ++ " members)"
                                 ]
             , hr borderColor
+            , if editedTime == "" then
+                text ""
+
+              else
+                p [ style "font-size" "90%" ]
+                    [ a
+                        [ href "#"
+                        , onClick (ColumnsUIMsg <| ShowHistoryDialog status)
+                        ]
+                        [ text editedTime ]
+                    , br
+                    ]
             , div
                 [ class "content"
                 , style "color" color

@@ -1131,6 +1131,7 @@ type ColumnsUIMsg
     | RemovePollDefinitionOption Int
     | TogglePollDefinitionMultiple
     | SetDaysHoursMinutes String String
+    | ShowHistoryDialog Status
 
 
 type ReceiveFeedType

@@ -5027,6 +5027,17 @@ columnsUIMsg msg model =
             }
                 |> withNoCmd
 
+        ShowHistoryDialog status ->
+            -- TODO
+            model
+                |> withCmd (alertDialogCmd "History dialog not yet available.")
+
+
+alertDialogCmd : String -> Cmd Msg
+alertDialogCmd text =
+    Task.perform (GlobalMsg << SetDialog)
+        (Task.succeed <| AlertDialog text)
+
 
 updateFeedColumn : FeedType -> Model -> ( Model, Cmd Msg )
 updateFeedColumn feedType model =
@@ -6748,8 +6759,12 @@ commandChoice command status model =
                     stat.media_attachments
 
                 postState =
+                    -- Ignoring polls for now. I don't think Rebased does the
+                    -- right thing for them, anyway.
                     { initialPostState
-                        | media_ids = List.map .id attachments
+                        | sensitive = status.sensitive
+                        , visibility = status.visibility
+                        , media_ids = List.map .id attachments
                         , fileNames =
                             List.map
                                 (\a -> Maybe.withDefault "" a.description)
@@ -6780,13 +6795,7 @@ commandChoice command status model =
 
         DeleteAndRedraftCommand ->
             mdl
-                |> withCmd
-                    (Task.perform (GlobalMsg << SetDialog) <|
-                        Task.succeed
-                            (AlertDialog
-                                "Delete & Redraft not yet available."
-                            )
-                    )
+                |> withCmd (alertDialogCmd "Delete & Redraft not yet available.")
 
         -- other user's post
         MentionCommand ->
@@ -6828,13 +6837,7 @@ commandChoice command status model =
 
         ReportCommand ->
             mdl
-                |> withCmd
-                    (Task.perform (GlobalMsg << SetDialog) <|
-                        Task.succeed
-                            (AlertDialog
-                                "Reporting not yet available."
-                            )
-                    )
+                |> withCmd (alertDialogCmd "Reporting not yet available.")
 
         _ ->
             mdl |> withNoCmd
