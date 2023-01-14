@@ -38,16 +38,10 @@ See ../TODO.md for the full list.
   Look for Soapbox's icons for the four fields.
   I already have one for account.is_verified. Different colors?
 
-* Post editing and quoting.
+* Post quoting.
   <Instance>.pleroma.metadata.features contains "editing" and "quote_posting"
     on Rebased servers.
   See https://gleasonator.com/@billstclair/posts/AQ4iSUavHlJyNeA9bM
-  If a status has been edited, it has an `edited_at` field, containing
-    date string, same format as `created_at`, e.g. `"2022-11-28T21:34:25.000Z"`.
-  To get history for edits:
-    https://gleasonator.com/api/v1/statuses/AQ4iSUavHlJyNeA9bM/history
-  This returns an array of truncated Status records:
-    Fields: `account`, `content` `created_at`, `emojis`, `media_attachments`, `poll`, `sensitive`, `spoiler_text`.
   If a status quotes another, its `pleroma.quote` field will contain the quoted status.
     It also has a weird `<span class="quote-inline">...</span>` just before
     the `</p>` of the final user paragraph. The `span` contains a link
@@ -151,6 +145,7 @@ See ../TODO.md for the full list.
 
 port module Main exposing (main)
 
+import Array exposing (Array)
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Dom as Dom exposing (Viewport)
 import Browser.Events as Events
@@ -4731,8 +4726,8 @@ columnsUIMsg msg model =
                                 ReplyToPost ->
                                     ( Just status.id, Nothing )
 
-                                EditPost sid ->
-                                    ( Just sid, Nothing )
+                                EditPost s ->
+                                    ( Just s.id, Nothing )
 
                                 _ ->
                                     ( Nothing, Just status.id )
@@ -4762,7 +4757,7 @@ columnsUIMsg msg model =
                         { model | postState = { postState | posting = True } }
                 in
                 case replyType of
-                    EditPost sid ->
+                    EditPost s ->
                         let
                             edited =
                                 { status = nothingIfBlank postState.text
@@ -4780,7 +4775,7 @@ columnsUIMsg msg model =
                         sendPostRequest
                             (StatusesRequest <|
                                 Request.PutStatus
-                                    { id = sid
+                                    { id = s.id
                                     , status = edited
                                     }
                             )
@@ -5047,6 +5042,59 @@ columnsUIMsg msg model =
             in
             mdl2 |> withCmds [ cmd, cmd2 ]
 
+        ReceiveStatusSource status result ->
+            receiveStatusSource status result model
+
+
+receiveStatusSource : Status -> Result Error Response -> Model -> ( Model, Cmd Msg )
+receiveStatusSource status result model =
+    case result of
+        Err err ->
+            { model | msg = Just <| Debug.toString err }
+                |> withNoCmd
+
+        Ok response ->
+            case response.entity of
+                StatusSourceEntity source ->
+                    let
+                        mdlPostState =
+                            model.postState
+
+                        postState =
+                            let
+                                me =
+                                    case model.account of
+                                        Nothing ->
+                                            ""
+
+                                        Just account ->
+                                            account.username
+
+                                text =
+                                    case statusMentionsString me status source.text of
+                                        "" ->
+                                            source.text
+
+                                        mentions ->
+                                            mentions ++ " " ++ source.text
+                            in
+                            { mdlPostState
+                                | replyType = EditPost status
+                                , text = text
+
+                                -- So that text will be cleared
+                                , mentionsString = text
+                            }
+                    in
+                    { model
+                        | dialog = PostDialog
+                        , postState = postState
+                    }
+                        |> withNoCmd
+
+                _ ->
+                    model |> withNoCmd
+
 
 alertDialogCmd : String -> Cmd Msg
 alertDialogCmd text =
@@ -5295,11 +5343,62 @@ simpleButton =
     Button.simpleButton ( 10, 10 ) ()
 
 
-statusMentionsString : String -> Status -> String
-statusMentionsString me status =
+containsAcct : String -> String -> Bool
+containsAcct acct source =
+    if source == "" then
+        False
+
+    else
+        let
+            a =
+                "@" ++ acct
+
+            aLen =
+                String.length a
+        in
+        case String.indexes a source of
+            [] ->
+                False
+
+            indexes ->
+                let
+                    chars =
+                        String.toList source |> Array.fromList
+
+                    isWhiteSpaceChar : Int -> Bool
+                    isWhiteSpaceChar index =
+                        case Array.get (Debug.log "isWhiteSpaceChar" index) chars of
+                            Nothing ->
+                                True
+
+                            Just char ->
+                                isWhiteSpace char
+
+                    loop : List Int -> Bool
+                    loop tail =
+                        case tail of
+                            [] ->
+                                False
+
+                            index :: rest ->
+                                if isWhiteSpaceChar (index - 1) then
+                                    if isWhiteSpaceChar (index + aLen) then
+                                        True
+
+                                    else
+                                        loop rest
+
+                                else
+                                    loop rest
+                in
+                loop indexes
+
+
+statusMentionsString : String -> Status -> String -> String
+statusMentionsString me status source =
     let
         addMention acct res =
-            if acct == me then
+            if acct == me || containsAcct acct source then
                 res
 
             else
@@ -5319,11 +5418,16 @@ addPostStateMentions me postState =
     in
     case postState.replyTo of
         Nothing ->
-            if postText == postState.mentionsString then
-                { postState | text = "" }
+            case postState.replyType of
+                EditPost _ ->
+                    postState
 
-            else
-                postState
+                _ ->
+                    if postText == postState.mentionsString then
+                        { postState | text = "" }
+
+                    else
+                        postState
 
         Just replyTo ->
             if postText /= "" && postText /= postState.mentionsString then
@@ -5332,7 +5436,7 @@ addPostStateMentions me postState =
             else
                 let
                     mentionsString =
-                        statusMentionsString me replyTo
+                        statusMentionsString me replyTo ""
                 in
                 { postState
                     | text = mentionsString
@@ -6800,11 +6904,14 @@ commandChoice command status model =
                 mdl2 =
                     { mdl | postState = postState }
             in
-            sendRequest
-                (StatusesRequest <|
-                    Request.GetStatusSource { id = stat.id }
-                )
-                mdl2
+            mdl2
+                |> withCmd
+                    (serverRequest
+                        (\s r -> ColumnsUIMsg <| ReceiveStatusSource s r)
+                        stat
+                        (StatusesRequest <| Request.GetStatusSource { id = stat.id })
+                        mdl2
+                    )
 
         DeleteAndRedraftCommand ->
             mdl
@@ -12233,35 +12340,6 @@ applyResponseSideEffects response model1 =
             case response.entity of
                 StatusEntity status ->
                     modifyColumnsStatus status.id (\_ -> status) model
-
-                _ ->
-                    model
-
-        StatusesRequest (Request.GetStatusSource { id }) ->
-            case response.entity of
-                StatusSourceEntity source ->
-                    case model.page of
-                        ColumnsPage ->
-                            let
-                                mdlPostState =
-                                    model.postState
-
-                                postState =
-                                    { mdlPostState
-                                        | replyType = EditPost source.id
-                                        , text = source.text
-
-                                        -- So that text will be cleared
-                                        , mentionsString = source.text
-                                    }
-                            in
-                            { model
-                                | dialog = PostDialog
-                                , postState = postState
-                            }
-
-                        _ ->
-                            model
 
                 _ ->
                     model

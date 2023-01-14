@@ -233,7 +233,7 @@ type Page
 type ReplyType
     = ReplyToPost
     | QuotePost
-    | EditPost String
+    | EditPost Status
     | NoReply
 
 
@@ -1134,6 +1134,7 @@ type ColumnsUIMsg
     | TogglePollDefinitionMultiple
     | SetDaysHoursMinutes String String
     | ShowStatusHistoryDialog Status
+    | ReceiveStatusSource Status (Result Error Response)
 
 
 type ReceiveFeedType
@@ -1794,8 +1795,8 @@ encodeReplyType replyType =
         QuotePost ->
             JE.string "QuotePost"
 
-        EditPost sid ->
-            JE.object [ ( "EditPost", JE.string sid ) ]
+        EditPost status ->
+            JE.object [ ( "EditPost", ED.encodeStatus status ) ]
 
         NoReply ->
             JE.string "NoReply"
@@ -1816,7 +1817,7 @@ replyTypeDecoder =
                     else
                         JD.succeed NoReply
                 )
-        , JD.field "EditPost" JD.string
+        , JD.field "EditPost" ED.statusDecoder
             |> JD.andThen (EditPost >> JD.succeed)
         ]
 
