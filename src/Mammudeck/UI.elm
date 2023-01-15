@@ -4931,6 +4931,23 @@ statusesSelectedUI model =
         , text " "
         , sendButton SendGetStatusFavouritedBy model
         , br
+        , if
+            serverHasFeature model.renderEnv.loginServer
+                featureNames.translation
+                model
+          then
+            text "Server supports translation, when <Status>.language is non-blank."
+
+          else
+            text "Server does not support translation."
+        , br
+        , textInput "target language: "
+            2
+            (ExplorerUIMsg << SetTargetLanguage)
+            model.targetLanguage
+        , text " "
+        , sendButton SendPostTranslate model
+        , br
         , text "-- writes below here --"
         , br
         , textInput "status id: "
@@ -9414,6 +9431,7 @@ dollarButtonNameDict =
         , ( "GetStatusSource", SendGetStatusSource )
         , ( "GetStatusRebloggedBy", SendGetStatusRebloggedBy )
         , ( "GetStatusFavouritedBy", SendGetStatusFavouritedBy )
+        , ( "SendPostTranslate", SendPostTranslate )
         , ( "DeleteStatus", SendDeleteStatus )
         , ( "PostReblogStatus", SendPostReblogStatus )
         , ( "PostUnreblogStatus", SendPostUnreblogStatus )
@@ -9521,6 +9539,7 @@ buttonNameAlist =
     , ( SendGetStatusSource, ( "GetStatusSource", "GET statuses/:id/source" ) )
     , ( SendGetStatusRebloggedBy, ( "GetStatusRebloggedBy", "GET statuses/:id/reblogged_by" ) )
     , ( SendGetStatusFavouritedBy, ( "GetStatusFavouritedBy", "GET statuses/:id/favourited_by" ) )
+    , ( SendPostTranslate, ( "SendPostTranslate", "POST statuses/:id/translate" ) )
     , ( SendDeleteStatus, ( "DeleteStatus", "DELETE statuses/:id" ) )
     , ( SendPostReblogStatus, ( "PostReblogStatus", "POST statuses/:id/reblog" ) )
     , ( SendPostUnreblogStatus, ( "PostUnreblogStatus", "POST statuses/:id/unreblog" ) )

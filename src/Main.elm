@@ -687,6 +687,7 @@ init value url key =
     , showUpdateCredentials = False
     , showPostStatus = False
     , statusId = ""
+    , targetLanguage = ""
     , useElmButtonNames = False
     , excludedNotificationTypes = []
     , notificationsAccountId = ""
@@ -9943,6 +9944,10 @@ explorerUIMsg msg model =
             { model | statusId = statusId }
                 |> withNoCmd
 
+        SetTargetLanguage targetLanguage ->
+            { model | targetLanguage = targetLanguage }
+                |> withNoCmd
+
         ToggleMuteNotifications ->
             { model | muteNotifications = not model.muteNotifications }
                 |> withNoCmd
@@ -10788,6 +10793,26 @@ explorerSendMsg msg model =
                     Request.GetStatusFavouritedBy
                         { id = model.statusId
                         , limit = String.toInt model.pagingInput.limit
+                        }
+                )
+                model
+
+        SendPostTranslate ->
+            let
+                targetLanguage =
+                    case model.targetLanguage of
+                        "" ->
+                            -- TODO, get from Account.source
+                            "EN"
+
+                        l ->
+                            l
+            in
+            sendRequest
+                (StatusesRequest <|
+                    Request.PostTranslate
+                        { id = model.statusId
+                        , target_language = targetLanguage
                         }
                 )
                 model

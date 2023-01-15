@@ -735,6 +735,7 @@ type alias Model =
     , showJsonTree : Bool
     , showUpdateCredentials : Bool
     , statusId : String
+    , targetLanguage : String
     , useElmButtonNames : Bool
     , showPostStatus : Bool
     , excludedNotificationTypes : List NotificationType
@@ -909,6 +910,7 @@ type alias SavedModel =
     , showJsonTree : Bool
     , showUpdateCredentials : Bool
     , statusId : String
+    , targetLanguage : String
     , useElmButtonNames : Bool
     , showPostStatus : Bool
     , excludedNotificationTypes : List NotificationType
@@ -1208,6 +1210,7 @@ type ExplorerUIMsg
     | SetScheduledStatusId String
     | SetListTitle String
     | SetStatusId String
+    | SetTargetLanguage String
     | ToggleExcludedNotificationType NotificationType
     | IncludeAllNotifications
     | IncludeOnlyMentionNotifications
@@ -1327,6 +1330,7 @@ type ExplorerSendMsg
     | SendGetStatusCard
     | SendGetStatusRebloggedBy
     | SendGetStatusFavouritedBy
+    | SendPostTranslate
     | SendDeleteStatus
     | SendPostReblogStatus
     | SendPostUnreblogStatus
@@ -1491,6 +1495,7 @@ modelToSavedModel model =
     , showJsonTree = model.showJsonTree
     , showUpdateCredentials = model.showUpdateCredentials
     , statusId = model.statusId
+    , targetLanguage = model.targetLanguage
     , useElmButtonNames = model.useElmButtonNames
     , showPostStatus = model.showPostStatus
     , excludedNotificationTypes = model.excludedNotificationTypes
@@ -1570,6 +1575,7 @@ savedModelToModel savedModel model =
         , showJsonTree = savedModel.showJsonTree
         , showUpdateCredentials = savedModel.showUpdateCredentials
         , statusId = savedModel.statusId
+        , targetLanguage = savedModel.targetLanguage
         , useElmButtonNames = savedModel.useElmButtonNames
         , showPostStatus = savedModel.showPostStatus
         , excludedNotificationTypes = savedModel.excludedNotificationTypes
@@ -2124,6 +2130,10 @@ encodeSavedModel savedModel =
                 savedModel.statusId
                 JE.string
                 ""
+            , encodePropertyAsList "targetLanguage"
+                savedModel.targetLanguage
+                JE.string
+                ""
             , encodePropertyAsList "useElmButtonNames"
                 savedModel.useElmButtonNames
                 JE.bool
@@ -2417,6 +2427,7 @@ savedModelDecoderInternal =
         |> optional "showJsonTree" JD.bool True
         |> optional "showUpdateCredentials" JD.bool False
         |> optional "statusId" JD.string ""
+        |> optional "targetLanguage" JD.string ""
         |> optional "useElmButtonNames" JD.bool False
         |> optional "showPostStatus" JD.bool False
         |> optional "excludedNotificationTypes" (JD.list ED.notificationTypeDecoder) []
