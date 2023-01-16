@@ -12386,7 +12386,23 @@ applyResponseSideEffects response model1 =
                     model
 
         StatusesRequest (Request.PutStatus _) ->
-            updateColumnsStatus response.entity model
+            case response.entity of
+                StatusEntity status ->
+                    { model
+                        | statusId = status.id
+                        , status = ""
+                        , in_reply_to_id = ""
+                        , quote_of_id = ""
+                        , media_sensitive = False
+                        , spoiler_text = ""
+                        , scheduled_at = ""
+                        , pollOptions = [ "", "" ]
+                    }
+                        |> adjustColumnsForPost status
+                        |> updateColumnsStatus response.entity
+
+                _ ->
+                    model
 
         MediaAttachmentsRequest mediaReq ->
             case response.entity of
