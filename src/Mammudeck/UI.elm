@@ -1745,7 +1745,7 @@ renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix index no
                     imageLink
                         { imageUrl = other.avatar
                         , linkUrl = "#"
-                        , altText = "Show avatar for @" ++ other.acct
+                        , altText = "Show account dialog for @" ++ other.acct
                         , borderColor =
                             if other.is_pro then
                                 Just "gold"
@@ -1754,7 +1754,7 @@ renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix index no
                                 Nothing
                         , h = "1.5em"
                         , onClick =
-                            Just <| (ColumnsUIMsg <| ShowImage other.avatar)
+                            Just <| (ColumnsUIMsg <| ShowAccountDialog other)
                         }
                 )
                 (account :: others)
