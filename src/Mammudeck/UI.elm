@@ -1745,7 +1745,7 @@ renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix index no
                     imageLink
                         { imageUrl = other.avatar
                         , linkUrl = "#"
-                        , altText = "Show account dialog for " ++ other.display_name
+                        , altText = "Show avatar for @" ++ other.acct
                         , borderColor =
                             if other.is_pro then
                                 Just "gold"
@@ -1754,7 +1754,7 @@ renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix index no
                                 Nothing
                         , h = "1.5em"
                         , onClick =
-                            Just <| showAccountDialogMsg other
+                            Just <| (ColumnsUIMsg <| ShowImage other.avatar)
                         }
                 )
                 (account :: others)
@@ -2372,8 +2372,8 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
             [ td []
                 [ imageLink
                     { imageUrl = account.avatar
-                    , linkUrl = url
-                    , altText = linkTitle
+                    , linkUrl = "#"
+                    , altText = "Show avatar for @" ++ account.acct
                     , borderColor =
                         if account.is_pro then
                             Just "gold"
@@ -2381,7 +2381,7 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
                         else
                             Nothing
                     , h = "3em"
-                    , onClick = maybeOnClick
+                    , onClick = Just (ColumnsUIMsg <| ShowImage account.avatar)
                     }
                 ]
             , td [ style "color" color ]
@@ -5803,9 +5803,9 @@ renderPopupChoice renderEnv choice =
                 [ title <| "@" ++ account.acct
                 , class (getStyle renderEnv |> .popupChoiceClass)
                 ]
-                [ imageFromSpec
+                [ imageLink
                     { imageUrl = account.avatar
-                    , linkUrl = ""
+                    , linkUrl = "#"
                     , altText = account.acct
                     , borderColor =
                         if account.is_pro then
@@ -5814,7 +5814,7 @@ renderPopupChoice renderEnv choice =
                         else
                             Nothing
                     , h = "1.5em"
-                    , onClick = Nothing
+                    , onClick = Just (ColumnsUIMsg <| ShowImage account.avatar)
                     }
                 , text " "
                 , renderDisplayName account.display_name renderEnv

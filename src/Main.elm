@@ -23,6 +23,8 @@
 See ../TODO.md for the full list.
 
 
+* Chat, compatible with Soapbox/Rebased.
+
 * Support notification type "move".
   It has a "target" field, which is the new Account entity for a moved account.
   Besides displaying the new account, update internal tables and persistent
@@ -3928,41 +3930,10 @@ columnsUIMsg msg model =
                     mdl |> withNoCmd
 
         AccountDialogShowHeader account ->
-            --model |> withCmd (openWindow <| JE.string account.header)
-            case Url.fromString account.header of
-                Nothing ->
-                    model |> withNoCmd
+            showImageUrl account.header model
 
-                Just { path } ->
-                    let
-                        attachmentType =
-                            if String.endsWith (String.toLower path) ".gif" then
-                                GifvAttachment
-
-                            else
-                                ImageAttachment
-
-                        attachment =
-                            { id = "dialogHeader"
-                            , type_ = attachmentType
-                            , url = account.header
-                            , remote_url = Nothing
-                            , preview_url = Nothing
-                            , text_url = Nothing
-                            , description = Nothing
-                            , meta = Nothing
-                            , v = JE.null
-                            }
-
-                        attachmentView =
-                            { attachments = [ attachment ]
-                            , index = 0
-                            }
-                    in
-                    { model
-                        | attachmentView = Just attachmentView
-                    }
-                        |> withNoCmd
+        ShowImage url ->
+            showImageUrl url model
 
         ToggleFollowAccount following account ->
             sendRequest
@@ -5045,6 +5016,44 @@ columnsUIMsg msg model =
 
         ReceiveStatusSource status result ->
             receiveStatusSource status result model
+
+
+showImageUrl : String -> Model -> ( Model, Cmd Msg )
+showImageUrl url model =
+    case Url.fromString url of
+        Nothing ->
+            model |> withNoCmd
+
+        Just { path } ->
+            let
+                attachmentType =
+                    if String.endsWith (String.toLower path) ".gif" then
+                        GifvAttachment
+
+                    else
+                        ImageAttachment
+
+                attachment =
+                    { id = "dialogHeader"
+                    , type_ = attachmentType
+                    , url = url
+                    , remote_url = Nothing
+                    , preview_url = Nothing
+                    , text_url = Nothing
+                    , description = Nothing
+                    , meta = Nothing
+                    , v = JE.null
+                    }
+
+                attachmentView =
+                    { attachments = [ attachment ]
+                    , index = 0
+                    }
+            in
+            { model
+                | attachmentView = Just attachmentView
+            }
+                |> withNoCmd
 
 
 receiveStatusSource : Status -> Result Error Response -> Model -> ( Model, Cmd Msg )

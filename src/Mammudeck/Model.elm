@@ -1044,6 +1044,7 @@ type ColumnsUIMsg
     | AccountDialogShowFollowers
     | AccountDialogSetFlags UserFeedFlags
     | AccountDialogShowHeader Account
+    | ShowImage String
     | ToggleFollowAccount Bool Account
     | FetchRelationships (List Account)
     | MuteAccount Bool Account
