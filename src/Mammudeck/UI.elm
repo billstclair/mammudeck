@@ -177,6 +177,8 @@ import Mammudeck.Model
         , VerticalDirection(..)
         , WhichJson(..)
         , daysHoursMinutesToSeconds
+        , defaultedStatusLanguage
+        , defaultedTargetLanguage
         , emptyAttachmentView
         , emptyDaysHoursMinutes
         , emptyFeedBodyEnv
@@ -2158,6 +2160,24 @@ replaceMentionLinks renderEnv maybeStatus nodes =
 
 statusBody : RenderEnv -> Maybe Status -> String -> Maybe String -> List (Html Msg)
 statusBody renderEnv maybeStatus html maybeMarkdown =
+    case maybeStatus of
+        Nothing ->
+            statusBodyInternal renderEnv maybeStatus html maybeMarkdown
+
+        Just status ->
+            case Dict.get status.id renderEnv.translationDict of
+                Nothing ->
+                    statusBodyInternal renderEnv maybeStatus html maybeMarkdown
+
+                Just translation ->
+                    statusBodyInternal renderEnv
+                        maybeStatus
+                        translation.content
+                        maybeMarkdown
+
+
+statusBodyInternal : RenderEnv -> Maybe Status -> String -> Maybe String -> List (Html Msg)
+statusBodyInternal renderEnv maybeStatus html maybeMarkdown =
     case Html.Parser.run html of
         Ok nodes ->
             replaceEmojiReferences renderEnv maybeStatus nodes
@@ -2751,6 +2771,70 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
                         [ text editedTime ]
                     , br
                     ]
+            , if
+                not <|
+                    serverHasFeature renderEnv.loginServer
+                        featureNames.translation
+                        renderEnv
+              then
+                text ""
+
+              else
+                let
+                    targetLanguage =
+                        defaultedTargetLanguage renderEnv
+
+                    statusLanguage =
+                        defaultedStatusLanguage status renderEnv
+
+                    maybeTranslation =
+                        Dict.get status.id renderEnv.translationDict
+                in
+                case maybeTranslation of
+                    Nothing ->
+                        if targetLanguage == statusLanguage then
+                            text ""
+
+                        else
+                            p []
+                                [ a
+                                    [ href "#"
+                                    , onClick
+                                        (ColumnsUIMsg <|
+                                            TranslateStatus status.id targetLanguage
+                                        )
+                                    ]
+                                    [ text "Tranalate from \""
+                                    , text statusLanguage
+                                    , text "\" to \""
+                                    , text targetLanguage
+                                    , text "\""
+                                    ]
+                                ]
+
+                    Just translation ->
+                        let
+                            comment =
+                                "Translated from "
+                                    ++ translation.detected_source_language
+                                    ++ " by "
+                                    ++ translation.provider
+
+                            html2 =
+                                "<p>" ++ comment ++ "</p>" ++ translation.content
+                        in
+                        p []
+                            [ text "Translated from "
+                            , text translation.detected_source_language
+                            , text " by "
+                            , text translation.provider
+                            , br
+                            , a
+                                [ href "#"
+                                , onClick (ColumnsUIMsg <| UntranslateStatus status.id)
+                                ]
+                                [ text "Remove translation" ]
+                            ]
             , div
                 [ class "content"
                 , style "color" color
@@ -4934,7 +5018,7 @@ statusesSelectedUI model =
         , if
             serverHasFeature model.renderEnv.loginServer
                 featureNames.translation
-                model
+                model.renderEnv
           then
             text "Server supports translation, when <Status>.language is non-blank."
 
@@ -4944,7 +5028,13 @@ statusesSelectedUI model =
         , textInput "target language: "
             2
             (ExplorerUIMsg << SetTargetLanguage)
-            model.targetLanguage
+            (case model.renderEnv.targetLanguage of
+                Nothing ->
+                    ""
+
+                Just language ->
+                    language
+            )
         , text " "
         , sendButton SendPostTranslate model
         , br
@@ -5050,7 +5140,7 @@ statusesSelectedUI model =
                 , if
                     serverHasFeature model.renderEnv.loginServer
                         featureNames.editing
-                        model
+                        model.renderEnv
                   then
                     text ""
 
@@ -6559,6 +6649,10 @@ plus =
 
 setServerHasFeature : Maybe String -> String -> Bool -> Model -> Model
 setServerHasFeature maybeServer featureName hasFeature model =
+    let
+        renderEnv =
+            model.renderEnv
+    in
     case maybeServer of
         Nothing ->
             model
@@ -6566,29 +6660,35 @@ setServerHasFeature maybeServer featureName hasFeature model =
         Just server ->
             let
                 features =
-                    model.features
+                    renderEnv.features
             in
             case Dict.get server features of
                 Nothing ->
                     { model
-                        | features =
-                            Dict.insert server
-                                (Dict.fromList [ ( featureName, hasFeature ) ])
-                                features
+                        | renderEnv =
+                            { renderEnv
+                                | features =
+                                    Dict.insert server
+                                        (Dict.fromList [ ( featureName, hasFeature ) ])
+                                        features
+                            }
                     }
 
                 Just dict ->
                     { model
-                        | features =
-                            Dict.insert server
-                                (Dict.insert featureName hasFeature dict)
-                                features
+                        | renderEnv =
+                            { renderEnv
+                                | features =
+                                    Dict.insert server
+                                        (Dict.insert featureName hasFeature dict)
+                                        features
+                            }
                     }
 
 
-serverHasFeature : Maybe String -> String -> Model -> Bool
-serverHasFeature maybeServer featureName model =
-    case serverKnowsFeature maybeServer featureName model of
+serverHasFeature : Maybe String -> String -> RenderEnv -> Bool
+serverHasFeature maybeServer featureName renderEnv =
+    case serverKnowsFeature maybeServer featureName renderEnv of
         Nothing ->
             False
 
@@ -6596,14 +6696,14 @@ serverHasFeature maybeServer featureName model =
             has
 
 
-serverKnowsFeature : Maybe String -> String -> Model -> Maybe Bool
-serverKnowsFeature maybeServer featureName model =
+serverKnowsFeature : Maybe String -> String -> RenderEnv -> Maybe Bool
+serverKnowsFeature maybeServer featureName renderEnv =
     case maybeServer of
         Nothing ->
             Nothing
 
         Just server ->
-            case Dict.get server model.features of
+            case Dict.get server renderEnv.features of
                 Nothing ->
                     Nothing
 
@@ -6795,7 +6895,7 @@ editColumnsDialogRows model =
                 not <|
                     serverHasFeature renderEnv.loginServer
                         featureNames.proFeed
-                        model
+                        renderEnv
               then
                 []
 
@@ -6824,7 +6924,7 @@ editColumnsDialogRows model =
                     ]
                     (ColumnsUIMsg <| AddFeedColumn Types.defaultUserFeedType)
               ]
-            , [ if not <| serverHasFeature renderEnv.loginServer featureNames.groups model then
+            , [ if not <| serverHasFeature renderEnv.loginServer featureNames.groups renderEnv then
                     text ""
 
                 else
@@ -8122,10 +8222,10 @@ postDialog model =
             model.renderEnv
 
         hasQuoteFeature =
-            serverHasFeature renderEnv.loginServer featureNames.quote model
+            serverHasFeature renderEnv.loginServer featureNames.quote renderEnv
 
         hasGroupsFeature =
-            serverHasFeature renderEnv.loginServer featureNames.groups model
+            serverHasFeature renderEnv.loginServer featureNames.groups renderEnv
     in
     dialogRender
         renderEnv

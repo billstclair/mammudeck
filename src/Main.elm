@@ -23,6 +23,10 @@
 See ../TODO.md for the full list.
 
 
+* model.renderEnv.features are getting clobbered, removing the instance features.
+  Always call Request.GetInstance to fetch them. They can change, and
+  old instances, before those features were parsed, don't get them.
+
 * Chat, compatible with Soapbox/Rebased.
 
 * Support notification type "move".
@@ -225,6 +229,8 @@ import Mammudeck.Model
         , WhichJson(..)
         , daysHoursMinutesToSeconds
         , defaultDaysHoursMinutes
+        , defaultedStatusLanguage
+        , defaultedTargetLanguage
         , emptyAttachmentView
         , emptyDaysHoursMinutes
         , emptyFeedBodyEnv
@@ -658,7 +664,6 @@ init value url key =
     , feedSetDefinition = Types.emptyFeedSetDefinition
     , supportsAccountByUsername = Dict.empty
     , postState = initialPostState
-    , features = Dict.empty
     , scrollPillState = initialScrollPillState
     , showLeftColumn = True
     , prettify = True
@@ -689,7 +694,6 @@ init value url key =
     , showUpdateCredentials = False
     , showPostStatus = False
     , statusId = ""
-    , targetLanguage = ""
     , useElmButtonNames = False
     , excludedNotificationTypes = []
     , notificationsAccountId = ""
@@ -3127,9 +3131,6 @@ checkAccountByUsername server model =
 
 
 {-| Fetch features if we don't know them already.
-
-Currently, the only feature is the existence of groups.
-
 -}
 fetchFeatures : String -> Model -> Cmd Msg
 fetchFeatures server model =
@@ -3138,7 +3139,7 @@ fetchFeatures server model =
             Cmd.none
 
         Nothing ->
-            case serverKnowsFeature (Just server) featureNames.groups model of
+            case serverKnowsFeature (Just server) featureNames.groups model.renderEnv of
                 Just _ ->
                     Cmd.none
 
@@ -3675,7 +3676,11 @@ columnsUIMsg msg model =
             model |> withCmd Navigation.reloadAndSkipCache
 
         ClearFeatures ->
-            { model | features = Dict.empty } |> withNoCmd
+            { model
+                | renderEnv =
+                    { renderEnv | features = Dict.empty }
+            }
+                |> withNoCmd
 
         ShowDocsDialog ->
             { model | dialog = DocsDialog }
@@ -5017,6 +5022,26 @@ columnsUIMsg msg model =
         ReceiveStatusSource status result ->
             receiveStatusSource status result model
 
+        TranslateStatus statusId targetLanguage ->
+            sendRequest
+                (StatusesRequest <|
+                    Request.PostTranslate
+                        { id = statusId
+                        , target_language = targetLanguage
+                        }
+                )
+                model
+
+        UntranslateStatus statusId ->
+            { model
+                | renderEnv =
+                    { renderEnv
+                        | translationDict =
+                            Dict.remove statusId renderEnv.translationDict
+                    }
+            }
+                |> withNoCmd
+
 
 showImageUrl : String -> Model -> ( Model, Cmd Msg )
 showImageUrl url model =
@@ -6303,7 +6328,7 @@ newThreadPopupExplorer state model =
                         server =
                             model.renderEnv.loginServer
                     in
-                    if serverHasFeature server featureNames.partialContext model then
+                    if serverHasFeature server featureNames.partialContext model.renderEnv then
                         sendGetStatusPartialContext AncestorsContext status.id mdl
 
                     else
@@ -7588,7 +7613,7 @@ myEllipsisChoices status model =
               , PinOnProfileCommand
               , SeparatorCommand
               ]
-            , if serverHasFeature server featureNames.editing model then
+            , if serverHasFeature server featureNames.editing model.renderEnv then
                 [ EditStatusCommand status ]
 
               else
@@ -8677,7 +8702,7 @@ receiveStatusContext request result model =
                                                     if
                                                         serverHasFeature server
                                                             featureName
-                                                            model
+                                                            model.renderEnv
                                                     then
                                                         model
 
@@ -9954,7 +9979,21 @@ explorerUIMsg msg model =
                 |> withNoCmd
 
         SetTargetLanguage targetLanguage ->
-            { model | targetLanguage = targetLanguage }
+            let
+                renderEnv =
+                    model.renderEnv
+            in
+            { model
+                | renderEnv =
+                    { renderEnv
+                        | targetLanguage =
+                            if targetLanguage == "" then
+                                Nothing
+
+                            else
+                                Just targetLanguage
+                    }
+            }
                 |> withNoCmd
 
         ToggleMuteNotifications ->
@@ -10809,13 +10848,7 @@ explorerSendMsg msg model =
         SendPostTranslate ->
             let
                 targetLanguage =
-                    case model.targetLanguage of
-                        "" ->
-                            -- TODO, get from Account.source
-                            "EN"
-
-                        l ->
-                            l
+                    defaultedTargetLanguage model.renderEnv
             in
             sendRequest
                 (StatusesRequest <|
@@ -11650,7 +11683,7 @@ applyProTimelineSideEffects response model =
             if
                 serverHasFeature loginServer
                     featureNames.proFeed
-                    model
+                    model.renderEnv
             then
                 model
 
@@ -12413,6 +12446,24 @@ applyResponseSideEffects response model1 =
                 _ ->
                     model
 
+        StatusesRequest (Request.PostTranslate { id }) ->
+            case response.entity of
+                TranslationEntity translation ->
+                    let
+                        renderEnv =
+                            model.renderEnv
+                    in
+                    { model
+                        | renderEnv =
+                            { renderEnv
+                                | translationDict =
+                                    Dict.insert id translation renderEnv.translationDict
+                            }
+                    }
+
+                _ ->
+                    model
+
         MediaAttachmentsRequest mediaReq ->
             case response.entity of
                 AttachmentEntity { id } ->
@@ -12762,7 +12813,7 @@ updateQuoteFeature statuses model =
     in
     case statuses of
         status :: _ ->
-            case serverKnowsFeature maybeServer featureNames.quote model of
+            case serverKnowsFeature maybeServer featureNames.quote model.renderEnv of
                 Just _ ->
                     model
 

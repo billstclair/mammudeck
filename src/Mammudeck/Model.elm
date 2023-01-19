@@ -63,6 +63,8 @@ module Mammudeck.Model exposing
     , WhichJson(..)
     , daysHoursMinutesToSeconds
     , defaultDaysHoursMinutes
+    , defaultedStatusLanguage
+    , defaultedTargetLanguage
     , emptyAttachmentView
     , emptyDaysHoursMinutes
     , emptyFeedBodyEnv
@@ -155,6 +157,7 @@ import Mastodon.Entity as Entity
         , Relationship
         , Source
         , Status
+        , Translation
         , UrlString
         , Visibility(..)
         , WrappedAccount(..)
@@ -187,6 +190,12 @@ type Style
     | SystemStyle
 
 
+{-| server -> (feature -> available-p)
+-}
+type alias Features =
+    Dict String (Dict String Bool)
+
+
 type alias RenderEnv =
     { loginServer : Maybe String
     , accountId : String
@@ -196,8 +205,11 @@ type alias RenderEnv =
     , fontSize : String --percent
     , columnWidth : Int --pixels
     , showIds : Bool
+    , targetLanguage : Maybe String
+    , features : Features
 
     -- not persistent
+    , translationDict : Dict String Translation
     , emojis : Dict String Emoji
     , emojisList : List Emoji
     , windowSize : ( Int, Int )
@@ -215,8 +227,11 @@ emptyRenderEnv =
     , fontSize = "100"
     , columnWidth = 300
     , showIds = False
+    , targetLanguage = Nothing
+    , features = Dict.empty
 
     -- Not persistent
+    , translationDict = Dict.empty
     , emojis = Dict.empty
     , emojisList = []
     , windowSize = ( 1024, 768 )
@@ -329,12 +344,6 @@ initialPostState =
     , deleteAndRedraft = False
     , posting = False
     }
-
-
-{-| server -> (feature -> available-p)
--}
-type alias Features =
-    Dict String (Dict String Bool)
 
 
 type alias ScrollPillState =
@@ -701,7 +710,6 @@ type alias Model =
     , feedSetDefinition : FeedSetDefinition
     , supportsAccountByUsername : Dict String Bool
     , postState : PostState
-    , features : Features
     , scrollPillState : ScrollPillState
     , showLeftColumn : Bool
 
@@ -735,7 +743,6 @@ type alias Model =
     , showJsonTree : Bool
     , showUpdateCredentials : Bool
     , statusId : String
-    , targetLanguage : String
     , useElmButtonNames : Bool
     , showPostStatus : Bool
     , excludedNotificationTypes : List NotificationType
@@ -871,6 +878,32 @@ type alias Model =
     }
 
 
+defaultedStatusLanguage : Status -> RenderEnv -> String
+defaultedStatusLanguage status renderEnv =
+    case status.language of
+        Nothing ->
+            defaultedTargetLanguage renderEnv
+
+        Just "" ->
+            defaultedTargetLanguage renderEnv
+
+        Just language ->
+            language
+
+
+defaultedTargetLanguage : RenderEnv -> String
+defaultedTargetLanguage renderEnv =
+    case renderEnv.targetLanguage of
+        Nothing ->
+            "en"
+
+        Just "" ->
+            "en"
+
+        Just language ->
+            language
+
+
 type alias SavedModel =
     { renderEnv : RenderEnv
     , page : Page
@@ -881,7 +914,6 @@ type alias SavedModel =
     , feedSetDefinition : FeedSetDefinition
     , supportsAccountByUsername : Dict String Bool
     , postState : PostState
-    , features : Features
     , scrollPillState : ScrollPillState
     , showLeftColumn : Bool
     , prettify : Bool
@@ -910,7 +942,6 @@ type alias SavedModel =
     , showJsonTree : Bool
     , showUpdateCredentials : Bool
     , statusId : String
-    , targetLanguage : String
     , useElmButtonNames : Bool
     , showPostStatus : Bool
     , excludedNotificationTypes : List NotificationType
@@ -1138,6 +1169,8 @@ type ColumnsUIMsg
     | SetDaysHoursMinutes String String
     | ShowStatusHistoryDialog Status
     | ReceiveStatusSource Status (Result Error Response)
+    | TranslateStatus String String
+    | UntranslateStatus String
 
 
 type ReceiveFeedType
@@ -1467,7 +1500,6 @@ modelToSavedModel model =
     , feedSetDefinition = model.feedSetDefinition
     , supportsAccountByUsername = model.supportsAccountByUsername
     , postState = cleanPostState model.postState
-    , features = model.features
     , scrollPillState = model.scrollPillState
     , showLeftColumn = model.showLeftColumn
     , prettify = model.prettify
@@ -1496,7 +1528,6 @@ modelToSavedModel model =
     , showJsonTree = model.showJsonTree
     , showUpdateCredentials = model.showUpdateCredentials
     , statusId = model.statusId
-    , targetLanguage = model.targetLanguage
     , useElmButtonNames = model.useElmButtonNames
     , showPostStatus = model.showPostStatus
     , excludedNotificationTypes = model.excludedNotificationTypes
@@ -1547,7 +1578,6 @@ savedModelToModel savedModel model =
         , feedSetDefinition = savedModel.feedSetDefinition
         , supportsAccountByUsername = savedModel.supportsAccountByUsername
         , postState = savedModel.postState
-        , features = savedModel.features
         , scrollPillState = savedModel.scrollPillState
         , showLeftColumn = savedModel.showLeftColumn
         , prettify = savedModel.prettify
@@ -1576,7 +1606,6 @@ savedModelToModel savedModel model =
         , showJsonTree = savedModel.showJsonTree
         , showUpdateCredentials = savedModel.showUpdateCredentials
         , statusId = savedModel.statusId
-        , targetLanguage = savedModel.targetLanguage
         , useElmButtonNames = savedModel.useElmButtonNames
         , showPostStatus = savedModel.showPostStatus
         , excludedNotificationTypes = savedModel.excludedNotificationTypes
@@ -1740,13 +1769,15 @@ encodeRenderEnv env =
         , ( "fontSize", JE.string env.fontSize )
         , ( "columnWidth", JE.int env.columnWidth )
         , ( "showIds", JE.bool env.showIds )
+        , ( "targetLanguage", ED.encodeMaybe JE.string env.targetLanguage )
+        , ( "features", encodeFeatures env.features )
         ]
 
 
 renderEnvDecoder : Decoder RenderEnv
 renderEnvDecoder =
     JD.succeed
-        (\loginServer accountId style colorScheme fontSizePct_ fontSize_ columnWidth showIds ->
+        (\loginServer accountId style colorScheme fontSizePct_ fontSize_ columnWidth showIds targetLanguage features ->
             let
                 ( fontSizePct, fontSize ) =
                     if fontSizePct_ == 0 then
@@ -1769,6 +1800,8 @@ renderEnvDecoder =
                 , fontSize = fontSize
                 , columnWidth = columnWidth
                 , showIds = showIds
+                , targetLanguage = targetLanguage
+                , features = features
             }
         )
         |> required "loginServer" (JD.nullable JD.string)
@@ -1781,6 +1814,8 @@ renderEnvDecoder =
         |> optional "fontSize" JD.string "100"
         |> optional "columnWidth" JD.int 300
         |> optional "showIds" JD.bool False
+        |> optional "targetLanguage" (JD.nullable JD.string) Nothing
+        |> optional "features" featuresDecoder Dict.empty
 
 
 encodeFeatures : Features -> Value
@@ -2021,10 +2056,6 @@ encodeSavedModel savedModel =
                 savedModel.postState
                 encodePostState
                 initialPostState
-            , encodePropertyAsList "features"
-                savedModel.features
-                encodeFeatures
-                Dict.empty
             , encodePropertyAsList "scrollPillState"
                 savedModel.scrollPillState
                 encodeScrollPillState
@@ -2129,10 +2160,6 @@ encodeSavedModel savedModel =
                 False
             , encodePropertyAsList "statusId"
                 savedModel.statusId
-                JE.string
-                ""
-            , encodePropertyAsList "targetLanguage"
-                savedModel.targetLanguage
                 JE.string
                 ""
             , encodePropertyAsList "useElmButtonNames"
@@ -2385,8 +2412,37 @@ savedModelDecoder =
             (\sm -> cleanSavedModel sm |> JD.succeed)
 
 
+{-| Transition from Model.features to RenderEnv.features
+-}
 savedModelDecoderInternal : Decoder SavedModel
 savedModelDecoderInternal =
+    JD.succeed
+        (\savedModel features ->
+            let
+                renderEnv =
+                    savedModel.renderEnv
+
+                feat =
+                    Debug.log "renderEnv features" renderEnv.features
+            in
+            if
+                (features /= Dict.empty)
+                    && (renderEnv.features == Dict.empty)
+            then
+                { savedModel
+                    | renderEnv =
+                        { renderEnv | features = Debug.log "saved features" features }
+                }
+
+            else
+                savedModel
+        )
+        |> custom savedModelDecoderInternal1
+        |> optional "features" featuresDecoder Dict.empty
+
+
+savedModelDecoderInternal1 : Decoder SavedModel
+savedModelDecoderInternal1 =
     JD.succeed SavedModel
         |> optional "renderEnv" renderEnvDecoder emptyRenderEnv
         |> required "page" pageDecoder
@@ -2399,7 +2455,6 @@ savedModelDecoderInternal =
             Types.defaultFeedSetDefinition
         |> optional "supportsAccountByUsername" (JD.dict JD.bool) Dict.empty
         |> optional "postState" postStateDecoder initialPostState
-        |> optional "features" featuresDecoder Dict.empty
         |> optional "scrollPillState" scrollPillStateDecoder initialScrollPillState
         |> optional "showLeftColumn" JD.bool True
         |> optional "prettify" JD.bool True
@@ -2428,7 +2483,6 @@ savedModelDecoderInternal =
         |> optional "showJsonTree" JD.bool True
         |> optional "showUpdateCredentials" JD.bool False
         |> optional "statusId" JD.string ""
-        |> optional "targetLanguage" JD.string ""
         |> optional "useElmButtonNames" JD.bool False
         |> optional "showPostStatus" JD.bool False
         |> optional "excludedNotificationTypes" (JD.list ED.notificationTypeDecoder) []
