@@ -888,7 +888,7 @@ defaultedStatusLanguage status renderEnv =
             defaultedTargetLanguage renderEnv
 
         Just language ->
-            language
+            String.toLower language
 
 
 defaultedTargetLanguage : RenderEnv -> String
@@ -901,7 +901,7 @@ defaultedTargetLanguage renderEnv =
             "en"
 
         Just language ->
-            language
+            String.toLower language
 
 
 type alias SavedModel =

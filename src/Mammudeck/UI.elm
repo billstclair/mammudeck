@@ -2804,7 +2804,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
                                             TranslateStatus status.id targetLanguage
                                         )
                                     ]
-                                    [ text "Tranalate from \""
+                                    [ text "Translate from \""
                                     , text statusLanguage
                                     , text "\" to \""
                                     , text targetLanguage
@@ -2813,20 +2813,11 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
                                 ]
 
                     Just translation ->
-                        let
-                            comment =
-                                "Translated from "
-                                    ++ translation.detected_source_language
-                                    ++ " by "
-                                    ++ translation.provider
-
-                            html2 =
-                                "<p>" ++ comment ++ "</p>" ++ translation.content
-                        in
                         p []
-                            [ text "Translated from "
-                            , text translation.detected_source_language
-                            , text " by "
+                            [ text "Translated from \""
+                            , text <|
+                                String.toLower translation.detected_source_language
+                            , text "\" by "
                             , text translation.provider
                             , br
                             , a

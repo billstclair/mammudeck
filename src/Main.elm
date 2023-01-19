@@ -23,6 +23,9 @@
 See ../TODO.md for the full list.
 
 
+* Where to get "Display Lanauge" as the default 'to' language for translation.
+  Allow input of that field, as well?
+
 * Chat, compatible with Soapbox/Rebased.
 
 * Support notification type "move".
