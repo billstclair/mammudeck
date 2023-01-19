@@ -23,10 +23,6 @@
 See ../TODO.md for the full list.
 
 
-* model.renderEnv.features are getting clobbered, removing the instance features.
-  Always call Request.GetInstance to fetch them. They can change, and
-  old instances, before those features were parsed, don't get them.
-
 * Chat, compatible with Soapbox/Rebased.
 
 * Support notification type "move".
@@ -3134,6 +3130,15 @@ checkAccountByUsername server model =
 -}
 fetchFeatures : String -> Model -> Cmd Msg
 fetchFeatures server model =
+    let
+        cmd1 =
+            if Just server /= model.renderEnv.loginServer then
+                Cmd.none
+
+            else
+                Task.perform ExplorerSendMsg <|
+                    Task.succeed SendGetInstance
+    in
     case LE.find (\( s, _ ) -> s == server) model.featureProbeRequests of
         Just _ ->
             Cmd.none
@@ -3141,14 +3146,16 @@ fetchFeatures server model =
         Nothing ->
             case serverKnowsFeature (Just server) featureNames.groups model.renderEnv of
                 Just _ ->
-                    Cmd.none
+                    cmd1
 
                 Nothing ->
-                    Task.perform ColumnsUIMsg <|
-                        (Task.succeed <|
-                            ProbeGroupsFeature
-                                (Debug.log "ProbeGroupsFeature" server)
-                        )
+                    Cmd.batch
+                        [ cmd1
+                        , Task.perform ColumnsUIMsg
+                            (Task.succeed <|
+                                ProbeGroupsFeature server
+                            )
+                        ]
 
 
 {-| Merge account into server's accountIdDict entry.
@@ -5402,7 +5409,7 @@ containsAcct acct source =
 
                     isWhiteSpaceChar : Int -> Bool
                     isWhiteSpaceChar index =
-                        case Array.get (Debug.log "isWhiteSpaceChar" index) chars of
+                        case Array.get index chars of
                             Nothing ->
                                 True
 
@@ -7511,7 +7518,7 @@ probeGroupsFeature server model =
             in
             { model
                 | featureProbeRequests =
-                    ( Debug.log "probeGroupsFeature" server, request )
+                    ( server, request )
                         :: model.featureProbeRequests
             }
                 |> withCmd cmd
@@ -12198,8 +12205,7 @@ applyResponseSideEffects response model1 =
                 EmojiListEntity emojis ->
                     let
                         names =
-                            Debug.log "emojis" <|
-                                List.map .shortcode (List.take 20 emojis)
+                            List.map .shortcode (List.take 20 emojis)
 
                         renderEnv =
                             model.renderEnv

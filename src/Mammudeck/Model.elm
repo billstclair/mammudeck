@@ -1569,6 +1569,7 @@ savedModelToModel savedModel model =
                 , fontSize = savedRenderEnv.fontSize
                 , columnWidth = savedRenderEnv.columnWidth
                 , showIds = savedRenderEnv.showIds
+                , features = savedRenderEnv.features
             }
         , page = savedModel.page
         , token = savedModel.token
