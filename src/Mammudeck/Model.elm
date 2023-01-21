@@ -766,6 +766,7 @@ type alias Model =
     , notificationColumnParams : NotificationFeedParams
 
     -- Non-persistent below here
+    , postFormats : Dict String (List String) -- server -> [ "text/plain", ... ]
     , awaitingContext : Maybe Context
     , pollSelections : Dict String (List Int)
     , boundingBox : Maybe BoundingBox

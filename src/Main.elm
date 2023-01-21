@@ -724,6 +724,7 @@ init value url key =
     , notificationColumnParams = Types.defaultNotificationFeedParams
 
     -- Non-persistent below here
+    , postFormats = Dict.empty
     , awaitingContext = Nothing
     , pollSelections = Dict.empty
     , boundingBox = Nothing
@@ -11864,6 +11865,20 @@ processReceivedAccount account model =
         |> withCmds [ cmd, cmd3 ]
 
 
+decodeInstancePostFormats : Value -> Maybe (List String)
+decodeInstancePostFormats value =
+    case
+        JD.decodeValue
+            (JD.at [ "pleroma", "metadata", "post_formats" ] <| JD.list JD.string)
+            value
+    of
+        Err _ ->
+            Nothing
+
+        Ok formats ->
+            Just formats
+
+
 decodeInstanceFeatures : Value -> Maybe (List ( String, Bool ))
 decodeInstanceFeatures value =
     case
@@ -11914,36 +11929,61 @@ applyResponseSideEffects response model1 =
     in
     case response.request of
         InstanceRequest Request.GetInstance ->
-            if model.renderEnv.loginServer == Nothing then
-                model
+            case model.renderEnv.loginServer of
+                Nothing ->
+                    model
 
-            else
-                case response.entity of
-                    InstanceEntity instance ->
-                        case
-                            Debug.log "instanceFeatures" <|
-                                decodeInstanceFeatures instance.v
-                        of
-                            Nothing ->
-                                model
+                Just loginServer ->
+                    case response.entity of
+                        InstanceEntity instance ->
+                            let
+                                maybeFormats =
+                                    decodeInstancePostFormats instance.v
 
-                            Just features ->
-                                let
-                                    server =
-                                        model.renderEnv.loginServer
-                                in
-                                List.foldl
-                                    (\( feature, bool ) mdl ->
-                                        setServerHasFeature server
-                                            feature
-                                            bool
-                                            mdl
-                                    )
-                                    model
-                                    features
+                                postFormats =
+                                    model.postFormats
 
-                    _ ->
-                        model
+                                mdl =
+                                    if
+                                        Dict.get loginServer postFormats
+                                            == maybeFormats
+                                    then
+                                        model
+
+                                    else
+                                        { model
+                                            | postFormats =
+                                                Debug.log "model.postFormats" <|
+                                                    case maybeFormats of
+                                                        Nothing ->
+                                                            Dict.remove loginServer postFormats
+
+                                                        Just formats ->
+                                                            Dict.insert loginServer
+                                                                formats
+                                                                postFormats
+                                        }
+                            in
+                            case
+                                Debug.log "instanceFeatures" <|
+                                    decodeInstanceFeatures instance.v
+                            of
+                                Nothing ->
+                                    mdl
+
+                                Just features ->
+                                    List.foldl
+                                        (\( feature, bool ) mdl2 ->
+                                            setServerHasFeature (Just loginServer)
+                                                feature
+                                                bool
+                                                mdl2
+                                        )
+                                        mdl
+                                        features
+
+                        _ ->
+                            model
 
         AccountsRequest Request.GetVerifyCredentials ->
             case response.entity of
