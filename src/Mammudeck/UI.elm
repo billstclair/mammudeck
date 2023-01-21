@@ -7979,8 +7979,9 @@ renderNotificationFeedParams wrapper params model =
                     [ br ]
                     (List.map inclusionItem inclusions)
 
-        -- accountId doesn't work reliably in NotificationFeed
-        -- All the support for it is done, but I'm removing the
+        -- accountId doesn't work reliably in NotificationFeed.
+        -- At least not on impeccable.social or gleasonator.com.
+        -- All the support for it works, but I'm removing the
         -- UI.
         --, br
         --, userNameInput model
