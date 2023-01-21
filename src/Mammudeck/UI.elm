@@ -4991,6 +4991,8 @@ statusesSelectedUI model =
         , text " "
         , sendButton SendGetStatusContext model
         , br
+        , text "ancestors & descendants are only for Truth Social. Use context elsewhere."
+        , br
         , sendButton SendGetStatusAncestors model
         , text " "
         , sendButton SendGetStatusDescendants model

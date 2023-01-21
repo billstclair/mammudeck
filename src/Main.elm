@@ -22,6 +22,15 @@
 
 See ../TODO.md for the full list.
 
+* Markdown
+
+* /api/v1/pleroma/statuses/:id/quotes
+  Returns a list of Status entities, each of which quotes :id.
+
+* Mark followed account avatars in "followed you" notifications.
+
+* When walking all statuses, include those shown in the Account dialog and
+  the thread explorer.
 
 * Where to get "Display Lanauge" as the default 'to' language for translation.
   Allow input of that field, as well?
