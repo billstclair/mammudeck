@@ -808,6 +808,7 @@ init value url key =
     , media_sensitive = False
     , spoiler_text = ""
     , visibility = Nothing
+    , content_type = ""
     , scheduled_at = ""
     , idempotencyKey = ""
     , mediaFile = Nothing
@@ -4788,6 +4789,7 @@ columnsUIMsg msg model =
                                 , media_ids = postState.media_ids
                                 , poll = poll
                                 , sensitive = postState.sensitive
+                                , content_type = Nothing
                                 , spoiler_text = Nothing
                                 , visibility = Just postState.visibility
                                 , scheduled_at = Nothing
@@ -10066,6 +10068,10 @@ explorerUIMsg msg model =
             { model | status = status }
                 |> withNoCmd
 
+        SetContentType content_type ->
+            { model | content_type = content_type }
+                |> withNoCmd
+
         SetInReplyToId in_reply_to_id ->
             { model | in_reply_to_id = in_reply_to_id }
                 |> withNoCmd
@@ -11072,6 +11078,7 @@ postedStatus model =
     , sensitive = model.media_sensitive
     , spoiler_text = nothingIfBlank model.spoiler_text
     , visibility = model.visibility
+    , content_type = nothingIfBlank model.content_type
     , scheduled_at = nothingIfBlank model.scheduled_at
     , language = nothingIfBlank model.language
     , idempotencyKey = nothingIfBlank model.idempotencyKey
@@ -11901,6 +11908,31 @@ decodeInstanceFeatures value =
                   , List.member "translation" features
                   )
                 ]
+
+
+markdownContentType : String
+markdownContentType =
+    "text/markdown"
+
+
+plainTextContentType : String
+plainTextContentType =
+    "text/plain"
+
+
+serverSupportsMarkdown : Model -> Bool
+serverSupportsMarkdown model =
+    case model.renderEnv.loginServer of
+        Nothing ->
+            False
+
+        Just server ->
+            case Dict.get server model.postFormats of
+                Nothing ->
+                    False
+
+                Just formats ->
+                    List.member markdownContentType formats
 
 
 applyResponseSideEffects : Response -> Model -> Model

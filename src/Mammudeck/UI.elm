@@ -5076,6 +5076,11 @@ statusesSelectedUI model =
                     ]
                     []
                 , br
+                , textInput "content_type: "
+                    20
+                    (ExplorerUIMsg << SetContentType)
+                    model.content_type
+                , br
                 , textInput "in reply to id: "
                     25
                     (ExplorerUIMsg << SetInReplyToId)

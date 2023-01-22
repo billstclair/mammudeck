@@ -852,6 +852,7 @@ type alias Model =
     , media_sensitive : Bool
     , spoiler_text : String
     , visibility : Maybe Visibility
+    , content_type : String
     , scheduled_at : String
     , idempotencyKey : String
     , mediaFile : Maybe File
@@ -1253,6 +1254,7 @@ type ExplorerUIMsg
     | SetNotificationId String
     | ToggleShowPostStatus
     | SetStatus String
+    | SetContentType String
     | SetInReplyToId String
     | SetInQuoteOfId String
     | ToggleMediaSensitive
