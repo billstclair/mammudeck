@@ -2591,20 +2591,20 @@ renderStatusWithNewMarker feedType renderEnv bodyEnv newElements index status =
     if newElements > 0 && newElements == index then
         div []
             [ renderNewMarker feedType renderEnv
-            , renderStatus renderEnv bodyEnv feedId index status
+            , renderStatus feedType renderEnv bodyEnv feedId index status
             ]
 
     else
-        renderStatus renderEnv bodyEnv feedId index status
+        renderStatus feedType renderEnv bodyEnv feedId index status
 
 
-renderStatus : RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
+renderStatus : FeedType -> RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
 renderStatus =
     renderStatusWithId Nothing
 
 
-renderStatusWithId : Maybe String -> RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
-renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
+renderStatusWithId : Maybe String -> FeedType -> RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
+renderStatusWithId maybeNodeid feedType renderEnv bodyEnv ellipsisPrefix index statusIn =
     let
         ( status, account, reblogAccount ) =
             case statusIn.reblog of
@@ -2833,7 +2833,7 @@ renderStatusWithId maybeNodeid renderEnv bodyEnv ellipsisPrefix index statusIn =
                 body
             , renderPoll renderEnv bodyEnv index status
             , renderMediaAttachments renderEnv status
-            , renderStatusQuote renderEnv bodyEnv ellipsisPrefix index status
+            , renderStatusQuote feedType renderEnv bodyEnv ellipsisPrefix index status
             , renderStatusCard renderEnv status
             , renderStatusActions renderEnv
                 statusIn.id
@@ -3078,8 +3078,8 @@ renderPoll renderEnv bodyEnv index status =
                 ]
 
 
-renderStatusQuote : RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
-renderStatusQuote renderEnv bodyEnv ellipsisPrefix index status =
+renderStatusQuote : FeedType -> RenderEnv -> FeedBodyEnv -> String -> Int -> Status -> Html Msg
+renderStatusQuote feedType renderEnv bodyEnv ellipsisPrefix index status =
     case status.quote of
         Nothing ->
             text ""
@@ -3095,6 +3095,7 @@ renderStatusQuote renderEnv bodyEnv ellipsisPrefix index status =
                                 [ text "[quote]" ]
                             , br
                             , renderStatus
+                                feedType
                                 { renderEnv
                                     | columnWidth =
                                         renderEnv.columnWidth - 16
@@ -6164,11 +6165,17 @@ isReplyChain statuses =
 renderThreadExplorer : ThreadExplorerState -> Model -> Html Msg
 renderThreadExplorer state model =
     let
+        feedType =
+            ThreadExplorerFeed
+
         renderEnv =
             model.renderEnv
 
         bodyEnv =
-            { emptyFeedBodyEnv | references = model.references }
+            { emptyFeedBodyEnv
+                | references = model.references
+                , now = model.now
+            }
 
         feedEnv =
             { emptyFeedEnv | bodyEnv = bodyEnv }
@@ -6225,6 +6232,7 @@ renderThreadExplorer state model =
                     if s.id == status.id then
                         div [ style "background-color" highlightStatusColor ]
                             [ renderStatusWithId (Just nodeid)
+                                feedType
                                 renderEnv2
                                 bodyEnv
                                 ellipsisId
@@ -6242,6 +6250,7 @@ renderThreadExplorer state model =
                                     repliedToStatusColor
                             ]
                             [ renderStatusWithId (Just nodeid)
+                                feedType
                                 renderEnv2
                                 bodyEnv
                                 ellipsisId
@@ -6251,6 +6260,7 @@ renderThreadExplorer state model =
 
                     else
                         renderStatusWithId (Just nodeid)
+                            feedType
                             renderEnv2
                             bodyEnv
                             ellipsisId
@@ -7679,6 +7689,7 @@ accountDialogContent account maybeContent model =
                             [ renderAccountDialogStatuses renderEnv
                                 { emptyFeedBodyEnv
                                     | references = model.references
+                                    , now = model.now
                                 }
                                 statuses
                             ]
@@ -7812,6 +7823,9 @@ accountDialogStatusId idx =
 renderAccountDialogStatuses : RenderEnv -> FeedBodyEnv -> List Status -> Html Msg
 renderAccountDialogStatuses renderEnv feedBodyEnv statuses =
     let
+        feedType =
+            AccountDialogFeed
+
         renderAStatus : Int -> Status -> Html Msg
         renderAStatus idx s =
             let
@@ -7822,6 +7836,7 @@ renderAccountDialogStatuses renderEnv feedBodyEnv statuses =
                     renderEnv
             in
             renderStatusWithId (Just nodeid)
+                feedType
                 renderEnv2
                 feedBodyEnv
                 nodeid

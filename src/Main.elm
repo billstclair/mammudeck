@@ -5336,10 +5336,17 @@ maybeUpdateBodyEnvNow now model =
         folder : ( Model, Maybe String ) -> Feed -> Status -> ( ( Model, Maybe String ), Bool )
         folder ( mdl, mfid ) feed status =
             let
+                feedType =
+                    feed.feedType
+
                 feedId =
-                    Types.feedID feed.feedType
+                    Types.feedID feedType
             in
-            if mfid == Just feedId then
+            if
+                (mfid == Just feedId)
+                    || (feedType == ThreadExplorerFeed)
+                    || (feedType == AccountDialogFeed)
+            then
                 ( ( mdl, mfid ), False )
 
             else
@@ -12710,6 +12717,31 @@ modifyColumnsStatus id modifier model =
 
                 explorer ->
                     explorer
+
+        dialog =
+            case model.dialog of
+                AccountDialog account maybeContent ->
+                    case maybeContent of
+                        Just (StatusesContent adStatuses) ->
+                            let
+                                ( statuses, changed ) =
+                                    modifyStatuses id modifier adStatuses.statuses
+                            in
+                            if not changed then
+                                model.dialog
+
+                            else
+                                AccountDialog account
+                                    (Just <|
+                                        StatusesContent
+                                            { adStatuses | statuses = statuses }
+                                    )
+
+                        _ ->
+                            model.dialog
+
+                d ->
+                    d
     in
     { model
         | feedSet =
@@ -12718,6 +12750,7 @@ modifyColumnsStatus id modifier model =
                     List.map (modifyFeedStatus id modifier) feedSet.feeds
             }
         , popupExplorer = popupExplorer
+        , dialog = dialog
     }
 
 
