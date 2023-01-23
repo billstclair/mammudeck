@@ -253,7 +253,9 @@ import Mammudeck.Model
         , initialPostState
         , initialScrollPillState
         , makeFeedEnv
+        , markdownContentType
         , modelToSavedModel
+        , plainTextContentType
         , savedModelDecoder
         , savedModelToModel
         , selectedRequestFromUrlDict
@@ -3644,7 +3646,7 @@ columnsUIMsg msg model =
                                 processAppStateSave model res
 
                 mdl2 =
-                    maybeUpdateRenderEnvNow now mdl
+                    maybeUpdateBodyEnvNow now mdl
             in
             { mdl2 | now = now }
                 |> withCmd cmd
@@ -5328,8 +5330,8 @@ foldStatuses folder initialA initialFeeds =
 
 {-| Update bodyEnv.now, if there's a poll in Feed whose time display would change.
 -}
-maybeUpdateRenderEnvNow : Posix -> Model -> Model
-maybeUpdateRenderEnvNow now model =
+maybeUpdateBodyEnvNow : Posix -> Model -> Model
+maybeUpdateBodyEnvNow now model =
     let
         folder : ( Model, Maybe String ) -> Feed -> Status -> ( ( Model, Maybe String ), Bool )
         folder ( mdl, mfid ) feed status =
@@ -11908,16 +11910,6 @@ decodeInstanceFeatures value =
                   , List.member "translation" features
                   )
                 ]
-
-
-markdownContentType : String
-markdownContentType =
-    "text/markdown"
-
-
-plainTextContentType : String
-plainTextContentType =
-    "text/plain"
 
 
 serverSupportsMarkdown : Model -> Bool

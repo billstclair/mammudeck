@@ -198,6 +198,12 @@ encodeFeedType feedType =
                         False
                     ]
 
+        ThreadExplorerFeed ->
+            JE.string "ThreadExplorerFeed"
+
+        AccountDialogFeed ->
+            JE.string "AccountDialogFeed"
+
 
 feedTypeDecoder : Decoder FeedType
 feedTypeDecoder =
@@ -211,6 +217,12 @@ feedTypeDecoder =
 
                         "ConversationsFeed" ->
                             JD.succeed ConversationsFeed
+
+                        "ThreadExplorerFeed" ->
+                            JD.succeed ThreadExplorerFeed
+
+                        "AccountDialogFeed" ->
+                            JD.succeed AccountDialogFeed
 
                         _ ->
                             JD.fail <| "Unknown FeedType: " ++ s

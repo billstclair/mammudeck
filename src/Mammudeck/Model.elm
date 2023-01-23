@@ -79,7 +79,9 @@ module Mammudeck.Model exposing
     , initialPostState
     , initialScrollPillState
     , makeFeedEnv
+    , markdownContentType
     , modelToSavedModel
+    , plainTextContentType
     , savedModelDecoder
     , savedModelToModel
     , selectedRequestFromUrlDict
@@ -305,10 +307,21 @@ daysHoursMinutesToSeconds dhm =
                                         Just seconds
 
 
+markdownContentType : String
+markdownContentType =
+    "text/markdown"
+
+
+plainTextContentType : String
+plainTextContentType =
+    "text/plain"
+
+
 type alias PostState =
     { replyTo : Maybe Status
     , replyType : ReplyType
     , text : String
+    , content_type : String
     , mentionsString : String
     , sensitive : Bool
     , visibility : Visibility
@@ -330,6 +343,7 @@ initialPostState =
     { replyTo = Nothing
     , replyType = NoReply
     , text = ""
+    , content_type = plainTextContentType
     , mentionsString = ""
     , sensitive = False
     , visibility = PublicVisibility
@@ -1881,6 +1895,10 @@ encodePostState postState =
                 encodeReplyType
                 NoReply
             , [ ( "text", JE.string postState.text ) ]
+            , encodePropertyAsList "content_type"
+                postState.content_type
+                JE.string
+                plainTextContentType
             , encodePropertyAsList "mentionsString"
                 postState.mentionsString
                 JE.string
@@ -1938,6 +1956,7 @@ postStateDecoder =
         |> optional "replyTo" (JD.nullable ED.statusDecoder) Nothing
         |> optional "replyType" replyTypeDecoder NoReply
         |> required "text" JD.string
+        |> optional "content_type" JD.string plainTextContentType
         |> optional "mentionsString" JD.string ""
         |> optional "sensitive" JD.bool False
         |> optional "visibility" ED.visibilityDecoder PublicVisibility

@@ -221,6 +221,10 @@ type FeedType
         , resolve : Bool
         , following : Bool
         }
+      -- These two are for `Main.foldStatuses`.
+      -- They will never go in a column feed.
+    | ThreadExplorerFeed
+    | AccountDialogFeed
 
 
 splitUserAtServer : String -> ( String, String )
@@ -298,6 +302,12 @@ feedID feedType =
         SearchFeed { q } ->
             "search: " ++ q
 
+        ThreadExplorerFeed ->
+            "threadExplorer"
+
+        AccountDialogFeed ->
+            "accountDialog"
+
 
 feedIdToType : String -> Maybe FeedType
 feedIdToType id =
@@ -353,6 +363,12 @@ feedIdToType id =
                 , following = False
                 , resolve = False
                 }
+
+    else if "threadExplorer" == id then
+        Just ThreadExplorerFeed
+
+    else if "accountDialog" == id then
+        Just AccountDialogFeed
 
     else
         Nothing

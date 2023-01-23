@@ -17,8 +17,8 @@ import Mammudeck.Types as Types
         , PublicFeedFlags
         , UserFeedFlags
         )
-import Mastodon.Entity exposing (NotificationType(..))
-import Mastodon.Request exposing (PollDefinition)
+import Mastodon.EncodeDecode as ED
+import Mastodon.Entity exposing (NotificationType(..), PollDefinition)
 import Maybe exposing (withDefault)
 import Set exposing (Set)
 import Test exposing (..)
@@ -156,6 +156,12 @@ fsdData =
                 }
             ]
       }
+    , { name = "fsd7"
+      , feedTypes =
+            [ ThreadExplorerFeed
+            , AccountDialogFeed
+            ]
+      }
     ]
 
 
@@ -247,10 +253,10 @@ pollTest pollDefinition name =
         (\_ ->
             let
                 value =
-                    MED.encodePollDefinition pollDefinition
+                    ED.encodePollDefinition pollDefinition
 
                 result =
-                    case JD.decodeValue MED.pollDefinitionDecoder value of
+                    case JD.decodeValue ED.pollDefinitionDecoder value of
                         Err e ->
                             Err e
 
