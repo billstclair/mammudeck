@@ -5539,6 +5539,9 @@ updatePostDialogPoll model updater =
 receivePollVotes : String -> Result Error Response -> Model -> ( Model, Cmd Msg )
 receivePollVotes statusId result model =
     let
+        feeds =
+            allFeeds model
+
         folder : (FeedBodyEnv -> FeedBodyEnv) -> Feed -> Dict String FeedEnv -> Dict String FeedEnv
         folder modifier feed feedEnvs =
             let
@@ -5578,7 +5581,7 @@ receivePollVotes statusId result model =
                             )
                         )
                         model.feedEnvs
-                        model.feedSet.feeds
+                        feeds
             }
     in
     case result of
@@ -5606,7 +5609,7 @@ receivePollVotes statusId result model =
                                             )
                                         )
                                         mdl.feedEnvs
-                                        mdl.feedSet.feeds
+                                        feeds
                             }
                     in
                     modifyColumnsStatus statusId
@@ -5655,6 +5658,72 @@ setPollSubmitted statusId isSubmitted feedType model =
     }
 
 
+allFeedTypes : Model -> List FeedType
+allFeedTypes model =
+    let
+        accountDialogTypes =
+            case model.dialog of
+                AccountDialog _ (Just (StatusesContent _)) ->
+                    [ AccountDialogFeed ]
+
+                _ ->
+                    []
+
+        threadExplorerTypes =
+            case model.popupExplorer of
+                ThreadPopupExplorer _ ->
+                    [ ThreadExplorerFeed ]
+
+                _ ->
+                    []
+    in
+    accountDialogTypes
+        ++ threadExplorerTypes
+        ++ List.map .feedType model.feedSet.feeds
+
+
+allFeeds : Model -> List Feed
+allFeeds model =
+    let
+        emptyFeed =
+            { feedType = AccountDialogFeed
+            , elements = StatusElements []
+            , newElements = 0
+            , undisplayedElements = NoUndisplayed
+            , error = Nothing
+            }
+
+        accountDialogFeeds =
+            case model.dialog of
+                AccountDialog account (Just (StatusesContent content)) ->
+                    [ { emptyFeed
+                        | feedType = AccountDialogFeed
+                        , elements = StatusElements content.statuses
+                      }
+                    ]
+
+                _ ->
+                    []
+
+        threadExplorerFeeds =
+            case model.popupExplorer of
+                ThreadPopupExplorer content ->
+                    [ { emptyFeed
+                        | feedType = ThreadExplorerFeed
+                        , elements =
+                            List.foldl (\ss l -> ss.displayed ++ l)
+                                []
+                                content.ribbon
+                                |> StatusElements
+                      }
+                    ]
+
+                _ ->
+                    []
+    in
+    accountDialogFeeds ++ threadExplorerFeeds ++ model.feedSet.feeds
+
+
 submitPollVotes : String -> String -> Model -> ( Model, Cmd Msg )
 submitPollVotes statusId pollId model =
     case Maybe.withDefault [] <| Dict.get statusId model.pollSelections of
@@ -5675,7 +5744,7 @@ submitPollVotes statusId pollId model =
                         )
 
                 mdl2 =
-                    foldStatuses folder model model.feedSet.feeds
+                    foldStatuses folder model <| allFeeds model
             in
             mdl2
                 |> withCmd
@@ -5759,7 +5828,7 @@ selectPollOption statusId idx isMultiple model =
                     , False
                     )
     in
-    foldStatuses folder mdl2 mdl2.feedSet.feeds
+    foldStatuses folder mdl2 (allFeeds mdl2)
         |> withNoCmd
 
 

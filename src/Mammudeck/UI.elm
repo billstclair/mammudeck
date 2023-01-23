@@ -2902,8 +2902,7 @@ renderPoll renderEnv bodyEnv index status =
                     status.account.id == renderEnv.accountId
 
                 voting =
-                    -- TODO
-                    False
+                    Set.member statusId bodyEnv.pollsSubmitted
 
                 renderOption idx option =
                     tr [] <|
@@ -6171,14 +6170,20 @@ renderThreadExplorer state model =
         renderEnv =
             model.renderEnv
 
+        globalFeedEnv =
+            getFeedEnv ThreadExplorerFeed model
+
+        globalBodyEnv =
+            globalFeedEnv.bodyEnv
+
         bodyEnv =
-            { emptyFeedBodyEnv
+            { globalBodyEnv
                 | references = model.references
                 , now = model.now
             }
 
         feedEnv =
-            { emptyFeedEnv | bodyEnv = bodyEnv }
+            { globalFeedEnv | bodyEnv = bodyEnv }
 
         { backgroundColor, color, highlightStatusColor, repliedToStatusColor, visitedStatusColor } =
             getStyle renderEnv
@@ -7678,6 +7683,13 @@ accountDialogContent account maybeContent model =
                     text ""
 
                 Just (StatusesContent { flags, statuses }) ->
+                    let
+                        globalFeedEnv =
+                            getFeedEnv AccountDialogFeed model
+
+                        globalBodyEnv =
+                            globalFeedEnv.bodyEnv
+                    in
                     div []
                         [ renderUserFeedFlags
                             (ColumnsUIMsg << AccountDialogSetFlags)
@@ -7687,7 +7699,7 @@ accountDialogContent account maybeContent model =
                             , style "text-align" "left"
                             ]
                             [ renderAccountDialogStatuses renderEnv
-                                { emptyFeedBodyEnv
+                                { globalBodyEnv
                                     | references = model.references
                                     , now = model.now
                                 }
