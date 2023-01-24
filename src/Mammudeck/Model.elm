@@ -78,6 +78,7 @@ module Mammudeck.Model exposing
     , encodeSavedModel
     , initialPostState
     , initialScrollPillState
+    , knownContentTypes
     , makeFeedEnv
     , markdownContentType
     , modelToSavedModel
@@ -315,6 +316,11 @@ markdownContentType =
 plainTextContentType : String
 plainTextContentType =
     "text/plain"
+
+
+knownContentTypes : List String
+knownContentTypes =
+    [ markdownContentType, plainTextContentType ]
 
 
 type alias PostState =

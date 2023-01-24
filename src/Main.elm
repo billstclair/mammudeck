@@ -22,7 +22,9 @@
 
 See ../TODO.md for the full list.
 
-* Markdown
+* Better styling of Markdown posts.
+
+* After deleting a post, remove it from all rendering.
 
 * /api/v1/pleroma/statuses/:id/quotes
   Returns a list of Status entities, each of which quotes :id.
@@ -252,6 +254,7 @@ import Mammudeck.Model
         , encodeSavedModel
         , initialPostState
         , initialScrollPillState
+        , knownContentTypes
         , makeFeedEnv
         , markdownContentType
         , modelToSavedModel
@@ -4767,7 +4770,7 @@ columnsUIMsg msg model =
                                 , sensitive = postState.sensitive
                                 , spoiler_text = Nothing
                                 , visibility = Just postState.visibility
-                                , content_type = Just "text/plain"
+                                , content_type = Just postState.content_type
                                 , poll = poll
                                 , scheduled_at = Nothing
                                 }
@@ -4791,7 +4794,7 @@ columnsUIMsg msg model =
                                 , media_ids = postState.media_ids
                                 , poll = poll
                                 , sensitive = postState.sensitive
-                                , content_type = Nothing
+                                , content_type = Just postState.content_type
                                 , spoiler_text = Nothing
                                 , visibility = Just postState.visibility
                                 , scheduled_at = Nothing
@@ -4804,7 +4807,7 @@ columnsUIMsg msg model =
                             mdl
 
         ClearPostState ->
-            { model | postState = initialPostState }
+            clearPostState model
                 |> withNoCmd
 
         ProbeGroupsFeature server ->
@@ -5163,6 +5166,17 @@ receiveStatusSource status result model =
                             { mdlPostState
                                 | replyType = EditPost status
                                 , text = text
+                                , content_type =
+                                    case source.content_type of
+                                        Nothing ->
+                                            plainTextContentType
+
+                                        Just ct ->
+                                            if List.member ct knownContentTypes then
+                                                ct
+
+                                            else
+                                                plainTextContentType
 
                                 -- So that text will be cleared
                                 , mentionsString = text
@@ -7039,7 +7053,8 @@ commandChoice command status model =
                     -- Ignoring polls for now. I don't think Rebased does the
                     -- right thing for them, anyway.
                     { initialPostState
-                        | sensitive = status.sensitive
+                        | content_type = model.postState.content_type
+                        , sensitive = status.sensitive
                         , visibility = status.visibility
                         , media_ids = List.map .id attachments
                         , fileNames =
@@ -7077,7 +7092,7 @@ commandChoice command status model =
 
         -- other user's post
         MentionCommand ->
-            { mdl | postState = initialPostState }
+            clearPostState mdl
                 |> withCmd
                     (Task.perform ColumnsUIMsg <|
                         Task.succeed (PostWithMention status.account.username)
@@ -7119,6 +7134,16 @@ commandChoice command status model =
 
         _ ->
             mdl |> withNoCmd
+
+
+clearPostState : Model -> Model
+clearPostState model =
+    { model
+        | postState =
+            { initialPostState
+                | content_type = model.postState.content_type
+            }
+    }
 
 
 insertPostSearch : String -> PostPopupSearch -> Model -> Model
@@ -8123,7 +8148,11 @@ adjustColumnsForPost status model =
 
                 d ->
                     d
-        , postState = initialPostState
+        , postState =
+            { initialPostState
+                | content_type =
+                    model.postState.content_type
+            }
     }
         |> (if showReceivedPost then
                 updateBodyEnvs

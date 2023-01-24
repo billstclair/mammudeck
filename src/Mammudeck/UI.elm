@@ -6996,7 +6996,7 @@ editColumnsDialogRows model =
             , style "margin-bottom" "0.5em"
             ]
             [ text "Click a "
-            , fontelloChar [] "icon-menu" [] model
+            , fontelloChar [] "icon-menu" []
             , text " to move that column."
             ]
     , hrpct color 100
@@ -7031,7 +7031,6 @@ editColumnsDialogRows model =
                                     ]
                                     "icon-menu"
                                     []
-                                    model
                             ]
                         ]
                 , td
@@ -7249,8 +7248,8 @@ storageReadsText indent model =
         |> JE.encode indent
 
 
-fontelloChar : List (Attribute Msg) -> String -> List (Attribute Msg) -> Model -> Html Msg
-fontelloChar divAttributes iClass iAttributes model =
+fontelloChar : List (Attribute Msg) -> String -> List (Attribute Msg) -> Html Msg
+fontelloChar divAttributes iClass iAttributes =
     div
         (class "status-el" :: divAttributes)
         [ Html.i (class iClass :: iAttributes)
@@ -8512,24 +8511,36 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
             text ""
 
           else
+            let
+                screenHeight =
+                    renderEnv.windowSize |> Tuple.second
+            in
             span []
                 [ br
-                , Markdown.toHtml
+                , div
                     [ style "border" <| "1px solid " ++ color
                     , style "padding" "5px"
                     , style "color" color
                     , style "background-color" inputBackground
-                    , style "overflow" "auto"
-                    , style "width" "100%"
-                    , style "max-height" <| String.fromInt markdownRows ++ "em"
                     ]
-                    postState.text
+                    [ if postState.text == "" then
+                        Html.i []
+                            [ text "(Type Markdown above. Formatted version will appear here)"
+                            ]
+
+                      else
+                        Markdown.toHtml
+                            [ style "overflow" "auto"
+                            , style "width" "100%"
+                            , style "max-height"
+                                (String.fromInt (screenHeight // 2) ++ "px")
+                            ]
+                            postState.text
+                    ]
+                , a [ href "https://www.markdownguide.org/" ]
+                    [ text "Markdown Guide" ]
+                , br
                 ]
-        , br
-        , checkBox (ColumnsUIMsg ToggleMarkdownInput)
-            isMarkdownInput
-            "Markdown"
-        , br
         , if pollRows == 0 then
             text ""
 
@@ -8606,6 +8617,23 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                 , title theTitle
                 ]
                 [ Html.i [ class "icon-chart-bar" ] [] ]
+            , let
+                cmd =
+                    ColumnsUIMsg <| ToggleMarkdownInput
+
+                ( iconColor, theTitle ) =
+                    if isMarkdownInput then
+                        ( darkGrayColor, "Input plain text" )
+
+                    else
+                        ( color, "Input Markdown" )
+              in
+              span
+                [ onClick cmd
+                , style "color" iconColor
+                , title theTitle
+                ]
+                [ Html.i [ class "icon-pencil" ] [] ]
             ]
         , case ( renderEnv.loginServer, maybeAccount ) of
             ( Just server, Just { username } ) ->
