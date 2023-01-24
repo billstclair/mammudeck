@@ -1187,6 +1187,7 @@ type ColumnsUIMsg
     | ReceiveStatusSource Status (Result Error Response)
     | TranslateStatus String String
     | UntranslateStatus String
+    | ToggleMarkdownInput
 
 
 type ReceiveFeedType

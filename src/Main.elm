@@ -5066,6 +5066,29 @@ columnsUIMsg msg model =
             }
                 |> withNoCmd
 
+        ToggleMarkdownInput ->
+            case model.dialog of
+                PostDialog ->
+                    let
+                        postState =
+                            model.postState
+                    in
+                    { model
+                        | postState =
+                            { postState
+                                | content_type =
+                                    if postState.content_type == markdownContentType then
+                                        plainTextContentType
+
+                                    else
+                                        markdownContentType
+                            }
+                    }
+                        |> withNoCmd
+
+                _ ->
+                    model |> withNoCmd
+
 
 showImageUrl : String -> Model -> ( Model, Cmd Msg )
 showImageUrl url model =

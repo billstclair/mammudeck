@@ -193,7 +193,9 @@ import Mammudeck.Model
         , initialPostState
         , initialScrollPillState
         , makeFeedEnv
+        , markdownContentType
         , modelToSavedModel
+        , plainTextContentType
         , savedModelDecoder
         , savedModelToModel
         , selectedRequestToString
@@ -8351,7 +8353,7 @@ maximumPostAttachments =
 postDialogContent : ( Bool, Bool ) -> RenderEnv -> Maybe Account -> DropZone.Model -> Int -> Maybe String -> PostState -> List (Html Msg)
 postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount dropZone max_toot_chars maybeMsg postState =
     let
-        { inputBackground, color, darkGrayColor } =
+        { inputBackground, color, darkGrayColor, borderColor } =
             getStyle renderEnv
 
         ( pollRows, pollDef ) =
@@ -8472,11 +8474,33 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
 
         lenstr =
             String.fromInt len
+
+        isMarkdownInput =
+            postState.content_type == markdownContentType
+
+        markdownRows =
+            if isMarkdownInput then
+                7
+
+            else
+                0
+
+        inputRows =
+            let
+                r =
+                    19 - pollRows
+            in
+            if isMarkdownInput then
+                r - markdownRows
+
+            else
+                r
+                    |> max 5
       in
       p []
         [ textarea
             [ id nodeIds.postDialogText
-            , rows (max 5 <| 19 - pollRows)
+            , rows inputRows
             , style "width" "100%"
             , style "color" color
             , style "background-color" inputBackground
@@ -8484,6 +8508,27 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
             , value postState.text
             ]
             []
+        , if not isMarkdownInput then
+            text ""
+
+          else
+            span []
+                [ br
+                , Markdown.toHtml
+                    [ style "border" <| "1px solid " ++ color
+                    , style "padding" "5px"
+                    , style "color" color
+                    , style "background-color" inputBackground
+                    , style "overflow" "auto"
+                    , style "width" "100%"
+                    , style "max-height" <| String.fromInt markdownRows ++ "em"
+                    ]
+                    postState.text
+                ]
+        , br
+        , checkBox (ColumnsUIMsg ToggleMarkdownInput)
+            isMarkdownInput
+            "Markdown"
         , br
         , if pollRows == 0 then
             text ""
