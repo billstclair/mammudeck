@@ -22,17 +22,10 @@
 
 See ../TODO.md for the full list.
 
-* Better styling of Markdown posts.
-
-* After deleting a post, remove it from all rendering.
-
 * /api/v1/pleroma/statuses/:id/quotes
   Returns a list of Status entities, each of which quotes :id.
 
 * Mark followed account avatars in "followed you" notifications.
-
-* When walking all statuses, include those shown in the Account dialog and
-  the thread explorer.
 
 * Where to get "Display Lanauge" as the default 'to' language for translation.
   Allow input of that field, as well?
@@ -12775,6 +12768,9 @@ applyResponseSideEffects response model1 =
         StatusesRequest (Request.GetStatusContext { id }) ->
             updateThreadExplorer id response.entity model
 
+        StatusesRequest (Request.DeleteStatus { id }) ->
+            deleteColumnsStatus id model
+
         FavouritesRequest (Request.PostFavourite _) ->
             updateColumnsStatus response.entity model
 
@@ -12863,6 +12859,121 @@ modifyColumnsStatus id modifier model =
             { feedSet
                 | feeds =
                     List.map (modifyFeedStatus id modifier) feedSet.feeds
+            }
+        , popupExplorer = popupExplorer
+        , dialog = dialog
+    }
+
+
+deleteColumnsStatus : String -> Model -> Model
+deleteColumnsStatus id model =
+    -- Not quite right. References inside statuses are not removed.
+    -- Let them report it as a bug.
+    let
+        popupExplorer =
+            case model.popupExplorer of
+                ThreadPopupExplorer state ->
+                    let
+                        deleteFromDisplayed scrolledStatus =
+                            { scrolledStatus
+                                | displayed =
+                                    LE.filterNot (.id >> (==) id)
+                                        scrolledStatus.displayed
+                            }
+
+                        ribbon =
+                            LE.filterNot (.status >> .id >> (==) id)
+                                state.ribbon
+                    in
+                    { state
+                        | ribbon =
+                            List.map deleteFromDisplayed ribbon
+                    }
+                        |> ThreadPopupExplorer
+
+                explorer ->
+                    explorer
+
+        dialog =
+            case model.dialog of
+                AccountDialog account maybeContent ->
+                    case maybeContent of
+                        Just (StatusesContent adStatuses) ->
+                            AccountDialog account
+                                (Just <|
+                                    StatusesContent
+                                        { adStatuses
+                                            | statuses =
+                                                LE.filterNot (.id >> (==) id)
+                                                    adStatuses.statuses
+                                        }
+                                )
+
+                        _ ->
+                            model.dialog
+
+                d ->
+                    d
+
+        deleteFromFeedElements : FeedElements -> ( FeedElements, Bool )
+        deleteFromFeedElements feedElements =
+            case feedElements of
+                StatusElements statuses ->
+                    let
+                        newStatuses =
+                            LE.filterNot (.id >> (==) id) statuses
+                    in
+                    if List.length statuses == List.length newStatuses then
+                        ( feedElements, False )
+
+                    else
+                        ( StatusElements newStatuses, True )
+
+                _ ->
+                    ( feedElements, False )
+
+        deleteFromFeed : Feed -> Feed
+        deleteFromFeed feed =
+            let
+                { elements, undisplayedElements } =
+                    feed
+
+                ( newElements, changed ) =
+                    deleteFromFeedElements elements
+
+                ( newUndisplayedElements, udChanged ) =
+                    case undisplayedElements of
+                        Undisplayed udElements ->
+                            let
+                                ( newUdElements, newUdChanged ) =
+                                    deleteFromFeedElements udElements
+                            in
+                            if newUdChanged then
+                                ( Undisplayed newUdElements, True )
+
+                            else
+                                ( undisplayedElements, False )
+
+                        _ ->
+                            ( undisplayedElements, False )
+            in
+            if changed || udChanged then
+                { feed
+                    | elements = newElements
+                    , undisplayedElements = newUndisplayedElements
+                }
+
+            else
+                feed
+
+        feedSet =
+            model.feedSet
+    in
+    { model
+        | feedSet =
+            { feedSet
+                | feeds =
+                    List.map deleteFromFeed feedSet.feeds
             }
         , popupExplorer = popupExplorer
         , dialog = dialog
