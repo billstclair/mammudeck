@@ -190,6 +190,8 @@ import Mammudeck.Model
         , emptyThreadExplorerState
         , emptyTokenApi
         , encodeSavedModel
+        , getPostFormats
+        , hasPostFormat
         , initialPostState
         , initialScrollPillState
         , makeFeedEnv
@@ -8253,6 +8255,9 @@ postDialog model =
 
         hasGroupsFeature =
             serverHasFeature renderEnv.loginServer featureNames.groups renderEnv
+
+        hasMarkdownPosts =
+            hasPostFormat markdownContentType renderEnv.loginServer model
     in
     dialogRender
         renderEnv
@@ -8274,7 +8279,7 @@ postDialog model =
                 _ ->
                     "Post"
         , content =
-            postDialogContent ( hasQuoteFeature, hasGroupsFeature )
+            postDialogContent ( hasQuoteFeature, hasGroupsFeature, hasMarkdownPosts )
                 renderEnv
                 model.account
                 model.dropZone
@@ -8349,8 +8354,8 @@ maximumPostAttachments =
     4
 
 
-postDialogContent : ( Bool, Bool ) -> RenderEnv -> Maybe Account -> DropZone.Model -> Int -> Maybe String -> PostState -> List (Html Msg)
-postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount dropZone max_toot_chars maybeMsg postState =
+postDialogContent : ( Bool, Bool, Bool ) -> RenderEnv -> Maybe Account -> DropZone.Model -> Int -> Maybe String -> PostState -> List (Html Msg)
+postDialogContent ( hasQuoteFeature, hasGroupsFeature, hasMarkdownPosts ) renderEnv maybeAccount dropZone max_toot_chars maybeMsg postState =
     let
         { inputBackground, color, darkGrayColor, borderColor } =
             getStyle renderEnv
@@ -8617,23 +8622,27 @@ postDialogContent ( hasQuoteFeature, hasGroupsFeature ) renderEnv maybeAccount d
                 , title theTitle
                 ]
                 [ Html.i [ class "icon-chart-bar" ] [] ]
-            , let
-                cmd =
-                    ColumnsUIMsg <| ToggleMarkdownInput
+            , if not hasMarkdownPosts then
+                text ""
 
-                ( iconColor, theTitle ) =
-                    if isMarkdownInput then
-                        ( darkGrayColor, "Input plain text" )
+              else
+                let
+                    cmd =
+                        ColumnsUIMsg <| ToggleMarkdownInput
 
-                    else
-                        ( color, "Input Markdown" )
-              in
-              span
-                [ onClick cmd
-                , style "color" iconColor
-                , title theTitle
-                ]
-                [ Html.i [ class "icon-pencil" ] [] ]
+                    ( iconColor, theTitle ) =
+                        if isMarkdownInput then
+                            ( darkGrayColor, "Input plain text" )
+
+                        else
+                            ( color, "Input Markdown" )
+                in
+                span
+                    [ onClick cmd
+                    , style "color" iconColor
+                    , title theTitle
+                    ]
+                    [ Html.i [ class "icon-pencil" ] [] ]
             ]
         , case ( renderEnv.loginServer, maybeAccount ) of
             ( Just server, Just { username } ) ->
