@@ -76,8 +76,6 @@ module Mammudeck.Model exposing
     , emptyThreadExplorerState
     , emptyTokenApi
     , encodeSavedModel
-    , getPostFormats
-    , hasPostFormat
     , initialPostState
     , initialScrollPillState
     , knownContentTypes
@@ -214,6 +212,7 @@ type alias RenderEnv =
     , features : Features
 
     -- not persistent
+    , postFormats : Dict String (List String) -- server -> [ "text/plain", ... ]
     , translationDict : Dict String Translation
     , emojis : Dict String Emoji
     , emojisList : List Emoji
@@ -236,6 +235,7 @@ emptyRenderEnv =
     , features = Dict.empty
 
     -- Not persistent
+    , postFormats = Dict.empty
     , translationDict = Dict.empty
     , emojis = Dict.empty
     , emojisList = []
@@ -323,26 +323,6 @@ plainTextContentType =
 knownContentTypes : List String
 knownContentTypes =
     [ markdownContentType, plainTextContentType ]
-
-
-getPostFormats : Maybe String -> Model -> List String
-getPostFormats maybeServer model =
-    case maybeServer of
-        Nothing ->
-            []
-
-        Just server ->
-            case Dict.get server model.postFormats of
-                Nothing ->
-                    []
-
-                Just postFormats ->
-                    postFormats
-
-
-hasPostFormat : String -> Maybe String -> Model -> Bool
-hasPostFormat postFormat maybeServer model =
-    List.member postFormat <| getPostFormats maybeServer model
 
 
 type alias PostState =
@@ -808,7 +788,6 @@ type alias Model =
     , notificationColumnParams : NotificationFeedParams
 
     -- Non-persistent below here
-    , postFormats : Dict String (List String) -- server -> [ "text/plain", ... ]
     , awaitingContext : Maybe Context
     , pollSelections : Dict String (List Int)
     , boundingBox : Maybe BoundingBox

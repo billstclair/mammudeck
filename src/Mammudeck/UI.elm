@@ -35,7 +35,10 @@ module Mammudeck.UI exposing
     , pollTimeUntil
     , postCommand
     , serverHasFeature
+    , serverHasPostFormat
     , serverKnowsFeature
+    , serverPostFormats
+    , serverSupportsMarkdown
     , setServerHasFeature
     , threadExplorerStatusId
     , usernameAtServer
@@ -190,8 +193,6 @@ import Mammudeck.Model
         , emptyThreadExplorerState
         , emptyTokenApi
         , encodeSavedModel
-        , getPostFormats
-        , hasPostFormat
         , initialPostState
         , initialScrollPillState
         , makeFeedEnv
@@ -6733,6 +6734,31 @@ serverKnowsFeature maybeServer featureName renderEnv =
                             Just hasFeature
 
 
+serverPostFormats : Maybe String -> RenderEnv -> List String
+serverPostFormats maybeServer renderEnv =
+    case maybeServer of
+        Nothing ->
+            []
+
+        Just server ->
+            case Dict.get server renderEnv.postFormats of
+                Nothing ->
+                    []
+
+                Just postFormats ->
+                    postFormats
+
+
+serverHasPostFormat : Maybe String -> String -> RenderEnv -> Bool
+serverHasPostFormat maybeServer postFormat renderEnv =
+    List.member postFormat <| serverPostFormats maybeServer renderEnv
+
+
+serverSupportsMarkdown : Maybe String -> RenderEnv -> Bool
+serverSupportsMarkdown maybeServer renderEnv =
+    serverHasPostFormat maybeServer markdownContentType renderEnv
+
+
 computeListSelector : Model -> Maybe (Html Msg)
 computeListSelector model =
     case model.lists of
@@ -8257,7 +8283,7 @@ postDialog model =
             serverHasFeature renderEnv.loginServer featureNames.groups renderEnv
 
         hasMarkdownPosts =
-            hasPostFormat markdownContentType renderEnv.loginServer model
+            serverSupportsMarkdown renderEnv.loginServer renderEnv
     in
     dialogRender
         renderEnv

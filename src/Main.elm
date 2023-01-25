@@ -310,7 +310,10 @@ import Mammudeck.UI
         , pollTimeUntil
         , postCommand
         , serverHasFeature
+        , serverHasPostFormat
         , serverKnowsFeature
+        , serverPostFormats
+        , serverSupportsMarkdown
         , setServerHasFeature
         , threadExplorerStatusId
         , usernameAtServer
@@ -729,7 +732,6 @@ init value url key =
     , notificationColumnParams = Types.defaultNotificationFeedParams
 
     -- Non-persistent below here
-    , postFormats = Dict.empty
     , awaitingContext = Nothing
     , pollSelections = Dict.empty
     , boundingBox = Nothing
@@ -4006,7 +4008,15 @@ columnsUIMsg msg model =
         ShowPostDialog maybeStatus ->
             let
                 postState =
-                    model.postState
+                    let
+                        ps =
+                            model.postState
+                    in
+                    if serverSupportsMarkdown renderEnv.loginServer renderEnv then
+                        ps
+
+                    else
+                        { ps | content_type = plainTextContentType }
 
                 me =
                     case model.account of
@@ -12040,21 +12050,6 @@ decodeInstanceFeatures value =
                 ]
 
 
-serverSupportsMarkdown : Model -> Bool
-serverSupportsMarkdown model =
-    case model.renderEnv.loginServer of
-        Nothing ->
-            False
-
-        Just server ->
-            case Dict.get server model.postFormats of
-                Nothing ->
-                    False
-
-                Just formats ->
-                    List.member markdownContentType formats
-
-
 applyResponseSideEffects : Response -> Model -> Model
 applyResponseSideEffects response model1 =
     let
@@ -12078,10 +12073,13 @@ applyResponseSideEffects response model1 =
 
                 _ ->
                     model1
+
+        renderEnv =
+            model.renderEnv
     in
     case response.request of
         InstanceRequest Request.GetInstance ->
-            case model.renderEnv.loginServer of
+            case renderEnv.loginServer of
                 Nothing ->
                     model
 
@@ -12093,7 +12091,7 @@ applyResponseSideEffects response model1 =
                                     decodeInstancePostFormats instance.v
 
                                 postFormats =
-                                    model.postFormats
+                                    renderEnv.postFormats
 
                                 mdl =
                                     if
@@ -12104,16 +12102,19 @@ applyResponseSideEffects response model1 =
 
                                     else
                                         { model
-                                            | postFormats =
-                                                Debug.log "model.postFormats" <|
-                                                    case maybeFormats of
-                                                        Nothing ->
-                                                            Dict.remove loginServer postFormats
+                                            | renderEnv =
+                                                { renderEnv
+                                                    | postFormats =
+                                                        Debug.log "model.postFormats" <|
+                                                            case maybeFormats of
+                                                                Nothing ->
+                                                                    Dict.remove loginServer postFormats
 
-                                                        Just formats ->
-                                                            Dict.insert loginServer
-                                                                formats
-                                                                postFormats
+                                                                Just formats ->
+                                                                    Dict.insert loginServer
+                                                                        formats
+                                                                        postFormats
+                                                }
                                         }
                             in
                             case
@@ -12148,7 +12149,7 @@ applyResponseSideEffects response model1 =
         AccountsRequest (Request.GetAccountByUsername _) ->
             let
                 mdl =
-                    case model.renderEnv.loginServer of
+                    case renderEnv.loginServer of
                         Nothing ->
                             model
 
@@ -12411,9 +12412,6 @@ applyResponseSideEffects response model1 =
                         names =
                             List.map .shortcode (List.take 20 emojis)
 
-                        renderEnv =
-                            model.renderEnv
-
                         list =
                             List.map (\emoji -> ( emoji.shortcode, emoji )) emojis
 
@@ -12441,7 +12439,7 @@ applyResponseSideEffects response model1 =
 
         GroupsRequest (Request.GetGroups _) ->
             setServerHasFeature
-                (Debug.log "Server supports groups" model.renderEnv.loginServer)
+                (Debug.log "Server supports groups" renderEnv.loginServer)
                 featureNames.groups
                 True
                 model
@@ -12659,10 +12657,6 @@ applyResponseSideEffects response model1 =
         StatusesRequest (Request.PostTranslate { id }) ->
             case response.entity of
                 TranslationEntity translation ->
-                    let
-                        renderEnv =
-                            model.renderEnv
-                    in
                     { model
                         | renderEnv =
                             { renderEnv
