@@ -66,6 +66,8 @@ import Html
         , a
         , col
         , div
+        , figcaption
+        , figure
         , h2
         , h3
         , img
@@ -1736,6 +1738,9 @@ renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix index no
 
         timeString =
             formatIso8601 renderEnv.here notification.created_at
+
+        relationships =
+            bodyEnv.relationships
     in
     div
         [ style "border" <| "1px solid " ++ borderColor
@@ -1753,12 +1758,7 @@ renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix index no
                         { imageUrl = other.avatar
                         , linkUrl = "#"
                         , altText = "Show account dialog for @" ++ other.acct
-                        , borderColor =
-                            if other.is_pro then
-                                Just "gold"
-
-                            else
-                                Nothing
+                        , borderColor = followsBorderColor other relationships
                         , h = "1.5em"
                         , onClick =
                             Just <| (ColumnsUIMsg <| ShowAccountDialog other)
@@ -1770,6 +1770,27 @@ renderMultiNotification renderEnv bodyEnv account others ellipsisPrefix index no
             ]
         , renderNotificationBody renderEnv bodyEnv notification.id ellipsisPrefix index notification
         ]
+
+
+followsBorderColor : Account -> Dict String Relationship -> Maybe String
+followsBorderColor account relationships =
+    case Dict.get account.id relationships of
+        Nothing ->
+            Nothing
+
+        Just { following, followed_by } ->
+            if following then
+                if followed_by then
+                    Just "gold"
+
+                else
+                    Just "aqua"
+
+            else if followed_by then
+                Just "red"
+
+            else
+                Nothing
 
 
 notificationStatusId : Notification -> String
@@ -1944,12 +1965,16 @@ renderNotification renderEnv bodyEnv ellipsisPrefix index notification =
 
         { color, borderColor } =
             getStyle renderEnv
+
+        account =
+            notification.account
     in
     div [ style "border" <| "1px solid " ++ borderColor ]
         [ div []
             [ div [ headerFontSizeStyle ]
-                [ renderAccount renderEnv
-                    notification.account
+                [ renderAccountWithRelationships bodyEnv.relationships
+                    renderEnv
+                    account
                     description
                     False
                     (Just notification.created_at)
@@ -2374,7 +2399,12 @@ showAccountDialogMsg account =
 
 
 renderAccount : RenderEnv -> Account -> Html Msg -> Bool -> Maybe Datetime -> Maybe Status -> Html Msg
-renderAccount renderEnv account description useLink datetime maybeStatus =
+renderAccount =
+    renderAccountWithRelationships Dict.empty
+
+
+renderAccountWithRelationships : Dict String Relationship -> RenderEnv -> Account -> Html Msg -> Bool -> Maybe Datetime -> Maybe Status -> Html Msg
+renderAccountWithRelationships relationships renderEnv account description useLink datetime maybeStatus =
     let
         { fontSizePct, here } =
             renderEnv
@@ -2399,12 +2429,7 @@ renderAccount renderEnv account description useLink datetime maybeStatus =
                     { imageUrl = account.avatar
                     , linkUrl = "#"
                     , altText = "Show avatar for @" ++ account.acct
-                    , borderColor =
-                        if account.is_pro then
-                            Just "gold"
-
-                        else
-                            Nothing
+                    , borderColor = followsBorderColor account relationships
                     , h = "3em"
                     , onClick = Just (ColumnsUIMsg <| ShowImage account.avatar)
                     }

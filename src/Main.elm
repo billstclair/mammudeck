@@ -8998,27 +8998,30 @@ receiveFeed request paging feedType result model =
 
                 Just e ->
                     let
-                        ( elements, references ) =
+                        ( elements, references, relationshipsCmd ) =
                             case e of
                                 StatusListEntity statuses ->
                                     ( Just <| StatusElements statuses
                                     , addStatusesReferences statuses
                                         model.references
+                                    , Cmd.none
                                     )
 
                                 NotificationListEntity notifications ->
                                     ( Just <| NotificationElements notifications
                                     , addNotificationsReferences notifications
                                         model.references
+                                    , getRelationshipsCmd notifications mdl
                                     )
 
                                 AccountListEntity accounts ->
                                     ( Just <| AccountElements accounts
                                     , model.references
+                                    , Cmd.none
                                     )
 
                                 _ ->
-                                    ( Nothing, model.references )
+                                    ( Nothing, model.references, Cmd.none )
 
                         feedSet =
                             mdl.feedSet
@@ -9129,7 +9132,54 @@ receiveFeed request paging feedType result model =
                         |> withCmds
                             [ cmd
                             , cmd2
+                            , relationshipsCmd
                             ]
+
+
+getRelationshipsCmd : List Notification -> Model -> Cmd Msg
+getRelationshipsCmd notifications model =
+    case findFeed Types.defaultNotificationFeedType model.feedSet of
+        Nothing ->
+            Cmd.none
+
+        Just feed ->
+            case Dict.get (Types.feedID feed.feedType) model.feedEnvs of
+                Nothing ->
+                    Cmd.none
+
+                Just feedEnv ->
+                    let
+                        bodyEnv =
+                            feedEnv.bodyEnv
+
+                        relationships =
+                            bodyEnv.relationships
+
+                        folder : Notification -> Set String -> Set String
+                        folder notification res =
+                            let
+                                nid =
+                                    notification.account.id
+                            in
+                            if Set.member nid res || Dict.member nid relationships then
+                                res
+
+                            else
+                                Set.insert nid res
+
+                        ids =
+                            List.foldl folder Set.empty notifications
+                    in
+                    if Set.isEmpty ids then
+                        Cmd.none
+
+                    else
+                        Task.perform (ExplorerUIMsg << SendRequest) <|
+                            Task.succeed
+                                (AccountsRequest <|
+                                    Request.GetRelationships
+                                        { ids = Set.toList ids }
+                                )
 
 
 
@@ -10328,6 +10378,9 @@ explorerUIMsg msg model =
         SetListId listId ->
             { model | listId = listId }
                 |> withNoCmd
+
+        SendRequest request ->
+            sendRequest request model
 
 
 {-| Process Requests sent from the columns page.
@@ -12221,7 +12274,11 @@ applyResponseSideEffects response model1 =
         AccountsRequest (Request.GetRelationships _) ->
             case response.entity of
                 RelationshipListEntity relationships ->
-                    { model
+                    let
+                        mdl =
+                            updateFeedBodyRelationships relationships model
+                    in
+                    { mdl
                         | popupChoices =
                             case relationships of
                                 [ relationship ] ->
@@ -12779,6 +12836,57 @@ applyResponseSideEffects response model1 =
 
         _ ->
             model
+
+
+updateFeedBodyRelationships : List Relationship -> Model -> Model
+updateFeedBodyRelationships relationships model =
+    case
+        findFeed Types.defaultNotificationFeedType
+            model.feedSet
+    of
+        Nothing ->
+            model
+
+        Just feed ->
+            let
+                feedId =
+                    Types.feedID feed.feedType
+            in
+            case
+                Dict.get feedId
+                    model.feedEnvs
+            of
+                Nothing ->
+                    model
+
+                Just feedEnv ->
+                    let
+                        bodyEnv =
+                            feedEnv.bodyEnv
+
+                        folder : Relationship -> Dict String Relationship -> Dict String Relationship
+                        folder relationship res =
+                            Dict.insert relationship.id
+                                relationship
+                                res
+
+                        newFeedEnv =
+                            { feedEnv
+                                | bodyEnv =
+                                    { bodyEnv
+                                        | relationships =
+                                            List.foldl folder
+                                                bodyEnv.relationships
+                                                relationships
+                                    }
+                            }
+                    in
+                    { model
+                        | feedEnvs =
+                            Dict.insert feedId
+                                newFeedEnv
+                                model.feedEnvs
+                    }
 
 
 {-| Just received an update to a StatusEntity.

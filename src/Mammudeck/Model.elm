@@ -634,6 +634,7 @@ type alias FeedBodyEnv =
     , pollSelections : Dict String (List Int)
     , pollsSubmitted : Set String
     , now : Posix
+    , relationships : Dict String Relationship -- id -> Relationship
     }
 
 
@@ -657,6 +658,7 @@ emptyFeedBodyEnv =
     , pollSelections = Dict.empty
     , pollsSubmitted = Set.empty
     , now = Time.millisToPosix 0
+    , relationships = Dict.empty
     }
 
 
@@ -1301,6 +1303,7 @@ type ExplorerUIMsg
     | SetHashtag String
     | SetListId String
     | ToggleMuteNotifications
+    | SendRequest Request
 
 
 {-| If you add a message here, it should also be added to the
