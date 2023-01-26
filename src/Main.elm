@@ -3188,10 +3188,6 @@ mergeAccountId accountId server model =
             Maybe.withDefault [] <| Dict.get server model.accountIdDict
 
         putNew acctIds =
-            let
-                aids =
-                    Debug.log "mergeAccountId" ( accountId, acctIds )
-            in
             { model
                 | accountIdDict =
                     Dict.insert server acctIds model.accountIdDict
@@ -8493,6 +8489,9 @@ startReloadUserFeed paging params model =
                             usernameAtServer username server model.renderEnv
                     in
                     case LE.find (.username >> (==) nameAtServer) acctIds of
+                        Just acctId ->
+                            getStatusesRequest acctId.id paging params
+
                         Nothing ->
                             let
                                 supportsAccountByUsername =
@@ -8513,9 +8512,6 @@ startReloadUserFeed paging params model =
 
                             else
                                 accountsRequest ()
-
-                        Just acctId ->
-                            getStatusesRequest acctId.id paging params
 
 
 {-| This processes the result of the `GetSearchAccounts` request above.
