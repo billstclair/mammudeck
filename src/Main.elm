@@ -25,21 +25,19 @@ See ../TODO.md for the full list.
 * /api/v1/pleroma/statuses/:id/quotes
   Returns a list of Status entities, each of which quotes :id.
 
-* Mark followed account avatars in "followed you" notifications.
-
 * Where to get "Display Lanauge" as the default 'to' language for translation.
   Allow input of that field, as well?
 
 * Chat, compatible with Soapbox/Rebased.
+
+* https://github.com/nostr-protocol/
+  Log in to nostr-protocol relays
 
 * Support notification type "move".
   It has a "target" field, which is the new Account entity for a moved account.
   Besides displaying the new account, update internal tables and persistent
   state with the new address.
   Example, Gleasonator.com notification id: 729894
-
-* Add included NotificationType select to UI.renderNotificationFeedParams
-  Add accountId picker to UI.renderNotificationFeedParams
 
 * account.is_verified came from Gab. Pleroma represents this as
   account.pleroma.is_admin, .is_confirmed, .is_moderator, and .is_suggested
@@ -5307,7 +5305,7 @@ foldStatuses folder initialA initialFeeds =
                                 ( a4, True )
 
                             else
-                                statusesLoop a2 feed rest
+                                statusesLoop a4 feed rest
 
         notificationsLoop : a -> Feed -> List Notification -> ( a, Bool )
         notificationsLoop a feed notifications =
@@ -9157,7 +9155,10 @@ getRelationshipsCmd notifications model =
                                 nid =
                                     notification.account.id
                             in
-                            if Set.member nid res || Dict.member nid relationships then
+                            if
+                                (notification.type_ /= FollowNotification)
+                                    && Dict.member nid relationships
+                            then
                                 res
 
                             else
