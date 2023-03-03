@@ -12069,6 +12069,43 @@ decodeInstancePostFormats value =
             Just formats
 
 
+type alias Version =
+    { major : Int
+    , minor : Int
+    , patch : Int
+    }
+
+
+stringToVersion : String -> Maybe Version
+stringToVersion s =
+    case String.split " " s of
+        [] ->
+            Nothing
+
+        v :: _ ->
+            case String.split "." v of
+                maj :: (min :: (pat :: _)) ->
+                    case String.toInt maj of
+                        Nothing ->
+                            Nothing
+
+                        Just major ->
+                            case String.toInt min of
+                                Nothing ->
+                                    Nothing
+
+                                Just minor ->
+                                    case String.toInt pat of
+                                        Nothing ->
+                                            Nothing
+
+                                        Just patch ->
+                                            Just <| Version major minor patch
+
+                _ ->
+                    Nothing
+
+
 decodeInstanceFeatures : Value -> Maybe (List ( String, Bool ))
 decodeInstanceFeatures value =
     case
@@ -12076,9 +12113,6 @@ decodeInstanceFeatures value =
             (JD.at [ "pleroma", "metadata", "features" ] <| JD.list JD.string)
             value
     of
-        Err _ ->
-            Nothing
-
         Ok features ->
             Just
                 [ ( featureNames.editing
@@ -12091,6 +12125,32 @@ decodeInstanceFeatures value =
                   , List.member "translation" features
                   )
                 ]
+
+        Err _ ->
+            let
+                version =
+                    case JD.decodeValue (JD.field "version" JD.string) value of
+                        Err _ ->
+                            Nothing
+
+                        Ok s ->
+                            stringToVersion s
+            in
+            case version of
+                Nothing ->
+                    Nothing
+
+                Just { major, minor } ->
+                    if
+                        major
+                            >= 4
+                            || (major == 3 && minor >= 5)
+                    then
+                        Just
+                            [ ( featureNames.editing, True ) ]
+
+                    else
+                        Nothing
 
 
 applyResponseSideEffects : Response -> Model -> Model
