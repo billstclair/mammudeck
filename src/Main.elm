@@ -12142,8 +12142,7 @@ decodeInstanceFeatures value =
 
                 Just { major, minor } ->
                     if
-                        major
-                            >= 4
+                        (major >= 4)
                             || (major == 3 && minor >= 5)
                     then
                         Just
