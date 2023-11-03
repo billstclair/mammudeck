@@ -1394,9 +1394,6 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
         [ style "height" <| px (h - 20)
         , style "width" <| px renderEnv.columnWidth
         , style "border" <| "1px solid " ++ borderColor
-        , style "text-overflow" "ellipsis"
-        , style "white-space" "nowrap"
-        , style "overflow" "hidden"
         ]
         [ div
             [ style "border" <| "1px solid " ++ borderColor
@@ -1443,7 +1440,12 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
                                     ++ special.nbsp
                             ]
             , text " "
-            , titleWidget
+            , div
+                [ style "text-overflow" "ellipsis"
+                , style "white-space" "nowrap"
+                , style "overflow" "hidden"
+                ]
+                [ titleWidget ]
             , case changeFeedTypeParamsMsg feedType of
                 Nothing ->
                     text ""
