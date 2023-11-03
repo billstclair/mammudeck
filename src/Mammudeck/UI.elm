@@ -1399,7 +1399,13 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
             [ style "border" <| "1px solid " ++ borderColor
             , style "text-align" "center"
             , style "color" color
-            , id <| headerFeedId feedId
+            , id <|
+                headerFeedId feedId
+            , style
+                "text-overflow"
+                "ellipsis"
+            , style "white-space" "nowrap"
+            , style "overflow" "hidden"
             ]
             [ if isFeedLoading then
                 feedLoadingEmojiSpan True True
@@ -1440,12 +1446,7 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
                                     ++ special.nbsp
                             ]
             , text " "
-            , div
-                [ style "text-overflow" "ellipsis"
-                , style "white-space" "nowrap"
-                , style "overflow" "hidden"
-                ]
-                [ titleWidget ]
+            , titleWidget
             , case changeFeedTypeParamsMsg feedType of
                 Nothing ->
                     text ""
