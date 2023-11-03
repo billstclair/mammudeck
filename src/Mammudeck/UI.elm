@@ -1350,7 +1350,7 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
             else
                 text ""
 
-        title =
+        titleWidget =
             case feedType of
                 GroupFeed _ ->
                     case bodyEnv.group of
@@ -1369,11 +1369,23 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
                             feedTitle feedType
 
                 UserFeed params ->
+                    let
+                        serverString =
+                            if params.server == "" then
+                                ""
+
+                            else
+                                "@" ++ params.server
+
+                        theTitle =
+                            params.username ++ serverString
+                    in
                     a
                         [ href "#"
                         , onClick (ColumnsUIMsg <| ShowUserDialog params)
+                        , title <| "Show User Dialog for " ++ theTitle
                         ]
-                        [ feedTitle feedType ]
+                        [ b theTitle ]
 
                 _ ->
                     feedTitle feedType
@@ -1382,6 +1394,9 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
         [ style "height" <| px (h - 20)
         , style "width" <| px renderEnv.columnWidth
         , style "border" <| "1px solid " ++ borderColor
+        , style "text-overflow" "ellipsis"
+        , style "white-space" "nowrap"
+        , style "overflow" "hidden"
         ]
         [ div
             [ style "border" <| "1px solid " ++ borderColor
@@ -1428,7 +1443,7 @@ renderFeed isFeedLoading renderEnv feedEnv feed =
                                     ++ special.nbsp
                             ]
             , text " "
-            , title
+            , titleWidget
             , case changeFeedTypeParamsMsg feedType of
                 Nothing ->
                     text ""
