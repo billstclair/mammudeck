@@ -1028,7 +1028,8 @@ type WhichJson
 
 
 type GlobalMsg
-    = WindowResize Int Int
+    = OnResize Int Int
+    | WindowResize Int Int
     | SetColorScheme ColorScheme
     | Here Zone
     | SetPage String

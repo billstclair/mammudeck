@@ -495,7 +495,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ PortFunnels.subscriptions (GlobalMsg << Process) model
-        , Events.onResize (\w h -> GlobalMsg <| WindowResize w h)
+        , Events.onResize (\w h -> GlobalMsg <| OnResize w h)
         , boundingBoxNotify BoundingBoxNotify
         , scrollNotify ScrollNotify
         , focusNotify FocusNotify
@@ -2341,6 +2341,11 @@ globalMsg msg model =
             model.renderEnv
     in
     case msg of
+        OnResize w h ->
+            -- Work around a bug in iOS. h is sent as w.
+            -- Calling WindowResize directly doesn't work right.
+            model |> withCmd (Task.perform getViewport Dom.getViewport)
+
         WindowResize w h ->
             { model
                 | renderEnv =
